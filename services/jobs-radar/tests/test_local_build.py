@@ -38,6 +38,24 @@ def test_actual_git_archive_is_identical_across_wall_clock_seconds(tmp_path):
         assert archive.extractfile('proof.txt').read() == b'committed synthetic source\n'
 
 
+def test_first_build_creates_its_private_artifact_directory(tmp_path, monkeypatch):
+    local = module('local_build')
+    monkeypatch.setattr(local, 'desktop_target', lambda: None)
+    monkeypatch.setattr(local, 'committed_source', lambda: (tmp_path, 'b' * 40, 'b' * 12))
+    monkeypatch.setattr(local, 'archive_source', lambda root, commit, dest: dest.write_bytes(tar_bytes()))
+    monkeypatch.setattr(local, 'stage_locked_vendor', lambda *_: {})
+    class Build:
+        def __init__(self, folder): self.folder = folder
+        def build(self, *_):
+            (self.folder / 'image.tar').write_bytes(b'synthetic image')
+            return 'sha256:' + 'a' * 64
+    monkeypatch.setattr(local, 'DesktopBuild', Build)
+    folder = local.build()
+    assert folder.parent == tmp_path / '.qa/releases'
+    assert json.loads((folder / 'manifest.json').read_text())['commit'] == 'b' * 40
+    assert (folder.stat().st_mode & 0o777) == 0o700
+
+
 @pytest.mark.parametrize('fault', [None, 'changed', 'missing', 'link', 'unpinned', 'redirect'])
 def test_local_licensed_dependency_requires_exact_committed_integrity(tmp_path, fault):
     local = module('local_build')

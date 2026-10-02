@@ -426,6 +426,7 @@ def build():
     root, commit, short = committed_source()
     base = root / '.qa' / 'releases'
     with build_lock(base.parent / '.jobs-radar-local-tasks.lock'):
+        base.mkdir(mode=0o700, exist_ok=True)
         for receipt in base.glob('*/builder.json'):
             previous = json.loads(receipt.read_text())
             if previous.get('creation') != 'not-issued' and not previous.get('removed'):
