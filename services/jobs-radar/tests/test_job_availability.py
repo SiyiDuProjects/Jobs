@@ -79,15 +79,55 @@ def test_alias_removal_rolls_back_entire_group_if_any_alias_is_protected(tmp_pat
     with store.connect() as c:assert c.execute('SELECT count(*) FROM job_screening').fetchone()[0]==0
 
 
-@pytest.mark.parametrize('protection',['submitted','in_progress'])
+@pytest.mark.parametrize('protection',['submitted','submitted_unconfirmed'])
 def test_manual_delete_preserves_applications_and_active_claims(setup,protection):
     store,sync,device,jid=setup
-    if protection=='in_progress':
-        with store.connect(True) as c:c.execute("UPDATE applications SET status='in_progress' WHERE job_id=?",(jid,))
-    else:
-        with store.connect(True) as c:c.execute("UPDATE applications SET status='submitted',version=1 WHERE job_id=?",(jid,))
+    with store.connect(True) as c:c.execute("UPDATE applications SET status=?,version=1 WHERE job_id=?",(protection,jid))
     assert sync.receive(device,manual())['state']=='protected'
     assert Board(store).list(view='trash')['total']==0
+
+
+@pytest.mark.parametrize('status',['in_progress','needs_input','retryable_failure','skipped'])
+def test_owner_can_remove_draft_preserving_history_and_restore_without_resuming(setup,status):
+    store,sync,device,jid=setup
+    with store.connect(True) as c:
+        c.execute("UPDATE applications SET status=?,version=3,detail='draft history' WHERE job_id=?",(status,jid))
+        before=dict(c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone())
+    assert sync.resolve({'url':URL})['removal']=={'allowed':True,'removed':False}
+    assert sync.receive(device,payload())['state']=='protected'
+    p={**manual(),'detail':'Not a suitable role'}
+    result=sync.receive(device,p)
+    assert result['state']=='removed'
+    assert sync.receive(device,p)==result
+    assert sync.resolve({'url':URL})['removal']['removed']
+    assert not sync.resolve({'url':URL})['queue']['allowed']
+    with store.connect() as c:
+        assert dict(c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone())==before
+    assert sync.receive(device,undo(p['event_id']))['state']=='restored'
+    assert not sync.resolve({'url':URL})['queue']['allowed']
+
+
+@pytest.mark.parametrize('column,value',[('attempted_at',1),('confirmed_at',1),('submission_error','Uncertain attempt')])
+def test_draft_status_cannot_hide_submission_evidence(setup,column,value):
+    store,sync,device,jid=setup
+    with store.connect(True) as c:
+        c.execute(f"UPDATE applications SET status='in_progress',{column}=? WHERE job_id=?",(value,jid))
+    assert not sync.resolve({'url':URL})['removal']['allowed']
+    assert sync.receive(device,manual())['state']=='protected'
+
+
+def test_late_submission_receipt_preserves_manual_removal_and_real_evidence(setup):
+    store,sync,device,jid=setup
+    p=manual()
+    assert sync.receive(device,p)['state']=='removed'
+    receipt={k:v for k,v in payload().items() if k not in {'code','quote'}}
+    receipt.update(proof='ats_confirmation',job_title='Engineer',company='Acme')
+    assert sync.receive(device,receipt)['state']=='submitted'
+    assert store.get_jobs([jid])[0]['status']=='submitted'
+    assert sync.resolve({'url':URL})['removal']['removed']
+    assert not sync.resolve({'url':URL})['queue']['allowed']
+    assert sync.receive(device,undo(p['event_id']))['state']=='restored'
+    assert not sync.resolve({'url':URL})['queue']['allowed']
 
 
 def test_manual_event_requires_owner_auth_and_cannot_claim_automatic_evidence(setup):

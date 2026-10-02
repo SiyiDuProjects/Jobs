@@ -36,7 +36,9 @@ elif command == 'docker':
     else:
         print(config.get('tag_id', config['image_id']) if args[2].startswith('jobs-radar:') else config['image_id'])
 elif command == 'python3':
-    if args[0].endswith('/local_rehearsal.py'):
+    if args[0].endswith('/host_command.py'):
+        sys.exit(subprocess.run([sys.executable, *args]).returncode)
+    elif args[0].endswith('/local_rehearsal.py'):
         assert args[1] == '--artifact' and '--old-image' in args
         print('private local rehearsal fixture')
     elif args[0].endswith('/local_build.py'):
@@ -55,6 +57,12 @@ elif command == 'python3':
 elif command == 'node':
     assert args[0].endswith('/web_release.mjs')
     assert args[1] in ('--build-web', '--release-web', '--web-status', '--rollback-web')
+elif command == 'timeout':
+    # Simulate the Linux remote's GNU timeout even on a macOS test host.
+    while args[0].startswith('--'):
+        args.pop(0)
+    seconds = float(args.pop(0).removesuffix('s'))
+    sys.exit(subprocess.run(args, timeout=seconds).returncode)
 elif command == 'ssh':
     remote = args[args.index('fixture@local') + 1:]
     data = sys.stdin.read()

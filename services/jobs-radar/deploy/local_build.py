@@ -1,11 +1,13 @@
-"""Build committed source through WSL and this machine's Docker Desktop only."""
+"""Build committed source on local Docker Desktop from macOS or WSL."""
 import argparse
+import base64
 from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -86,6 +88,37 @@ def archive_source(root, commit, destination):
                     or basename in {'id_rsa', 'id_ed25519', 'id_dsa', 'id_ecdsa', 'credentials.json'}
                     or any(value in lower for value in ('.sqlite', '.pem', '.p12', '.pfx'))):
                 raise ValueError('Private or unsupported build archive member: ' + item.name)
+
+
+def stage_locked_vendor(root, source):
+    """Supply the licensed package by its committed npm integrity, without auth."""
+    relative = Path('web/vendor/heroui-pro-react-1.0.0-beta.8.tgz')
+    package = '@heroui-pro/react'
+    expected = 'file:vendor/' + relative.name
+    manifest = json.loads((source / 'web/package.json').read_text())
+    lock = json.loads((source / 'web/package-lock.json').read_text())
+    locked = lock.get('packages', {}).get('node_modules/' + package, {})
+    integrity = locked.get('integrity', '')
+    if (manifest.get('dependencies', {}).get(package) != expected
+            or locked.get('resolved') != expected or not integrity.startswith('sha512-')):
+        raise ValueError('Local website dependency must be pinned by the committed npm lock')
+    original = root / SERVICE / relative
+    if any(path.is_symlink() for path in (original, original.parent)):
+        raise ValueError('Local website dependency must not be a link')
+    if original.resolve().parent != (root / SERVICE / 'web/vendor').resolve():
+        raise ValueError('Local website dependency escaped its directory')
+    try:
+        with original.open('rb') as handle:
+            data = handle.read(64 * 1024 * 1024 + 1)
+    except FileNotFoundError as error:
+        raise ValueError('Restore the licensed website dependency at ' + str(original)) from error
+    actual = 'sha512-' + base64.b64encode(hashlib.sha512(data).digest()).decode('ascii')
+    if len(data) > 64 * 1024 * 1024 or actual != integrity:
+        raise ValueError('Local website dependency differs from the committed npm integrity')
+    target = source / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return {str(relative): integrity}
 
 
 def image_json(data):
@@ -244,9 +277,23 @@ def desktop_target():
         raise ValueError('Docker builder redirection variables are not accepted')
     if os.name == 'nt':
         raise ValueError('Run release.sh --build inside WSL; native Windows process-tree cleanup is not verified')
+    if sys.platform == 'darwin':
+        return 'desktop-linux', 'unix://' + str(Path.home() / '.docker/run/docker.sock')
     if sys.platform == 'linux' and 'microsoft' in Path('/proc/version').read_text().lower():
         return 'default', 'unix:///var/run/docker.sock'
-    raise ValueError('Build requires the verified local WSL Docker Desktop environment')
+    raise ValueError('Build requires local Docker Desktop on macOS or WSL')
+
+
+def docker_cli():
+    executable = shutil.which('docker')
+    if executable:
+        return executable
+    if sys.platform == 'darwin':
+        for application in (Path('/Applications/Docker.app'), Path.home() / 'Applications/Docker.app'):
+            executable = application / 'Contents/Resources/bin/docker'
+            if executable.is_file():
+                return str(executable)
+    raise ValueError('Docker CLI is missing; install and start Docker Desktop')
 
 
 class DesktopBuild:
@@ -258,7 +305,8 @@ class DesktopBuild:
         self.receipt = self.folder / 'builder.json'
         self.plan = dict(operation=self.operation, builder=self.builder, name=self.name, creation='not-issued', removed=False)
         original_context, endpoint = desktop_target()
-        original = ['docker', '--context', original_context]
+        executable = docker_cli()
+        original = [executable, '--context', original_context]
         actual = json.loads(invoke([*original, 'context', 'inspect', original_context, '--format', '{{json .Endpoints.docker.Host}}']))
         if actual != endpoint:
             raise ValueError('Docker context is not the fixed local Desktop endpoint')
@@ -273,8 +321,14 @@ class DesktopBuild:
         self.env = {key: value for key, value in os.environ.items()
                     if key not in REDIRECT and key != 'SSH_AUTH_SOCK' and not key.upper().endswith('_PROXY')}
         self.env['DOCKER_CONFIG'] = str(config)
-        invoke(['docker', '--config', str(config), 'context', 'create', self.context, '--docker', 'host=' + endpoint], env=self.env)
-        self.cli = ['docker', '--config', str(config), '--context', self.context]
+        invoke([executable, '--config', str(config), 'context', 'create', self.context, '--docker', 'host=' + endpoint], env=self.env)
+        # Docker Desktop bundles CLI plugins alongside the application, even
+        # when user/system CLI symlinks have not been installed yet.
+        if sys.platform == 'darwin':
+            plugins = Path(executable).resolve().parent.parent / 'cli-plugins'
+            if plugins.is_dir():
+                write_json(config / 'config.json', {'cliPluginsExtraDirs': [str(plugins)]})
+        self.cli = [executable, '--config', str(config), '--context', self.context]
 
     def call(self, args, timeout=180):
         return self.invoke([*self.cli, *args], env=self.env, timeout=timeout)
@@ -385,10 +439,12 @@ def build():
             source = Path(temporary)
             with tarfile.open(source_archive) as archive:
                 archive.extractall(source, filter='data')
+            local_dependencies = stage_locked_vendor(root, source)
             image_id = DesktopBuild(folder).build(source, commit, short, source_hash)
         write_json(folder / 'manifest.json', dict(version=1, commit=commit, release=short,
             imageId=image_id, sourceSha256=source_hash, imageSha256=digest(folder / 'image.tar'),
-            builder='local-docker-desktop', cpuLimit=2, memoryBytes=MEMORY))
+            builder='local-docker-desktop', cpuLimit=2, memoryBytes=MEMORY,
+            localDependencies=local_dependencies))
         return folder
 
 

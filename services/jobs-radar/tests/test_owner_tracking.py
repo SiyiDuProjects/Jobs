@@ -105,7 +105,7 @@ def test_owner_can_delete_after_undo_but_automation_stays_protected(subject):
     assert b.store.get_jobs([jid])[0]['version']==2
 
 
-@pytest.mark.parametrize('protected',['submitted','in_progress','submitted_unconfirmed'])
+@pytest.mark.parametrize('protected',['submitted','submitted_unconfirmed'])
 def test_owner_delete_still_protects_submitted_or_claimed(subject,protected):
     b,jid=subject
     with b.store.connect(True) as c:
@@ -184,3 +184,15 @@ def test_default_view_keeps_old_open_roles_and_history_keeps_closed_roles(subjec
     b.store.ingest('simplify:newgrad',[{**observation(),'posted_at':time.time()-8*86400,'active':False}],'closed-source')
     assert b.list(status='recent')['jobs']==[]
     assert b.list(status='submitted')['jobs'][0]['id']==jid
+
+
+@pytest.mark.parametrize('status',['in_progress','needs_input','retryable_failure','skipped'])
+def test_owner_trashes_unsubmitted_draft_but_automatic_screening_cannot(subject,status):
+    b,jid=subject
+    with b.store.connect(True) as c:c.execute('UPDATE applications SET status=?,version=2',(status,))
+    row=b._rows('newgrad')[0]
+    args=(jid,'newgrad','trash','manual','Not suitable',
+        [{'url':row['apply_url'],'quote':row['title'],'observed_at':'test'}],row['fingerprint'],0)
+    with pytest.raises(ValueError,match='authorized removal reason'):b.review(*args,'automatic-draft')
+    assert b.review(*args,'owner-draft',actor='web-owner')['state']=='trash'
+    assert b.store.get_jobs([jid])[0]['status']==status

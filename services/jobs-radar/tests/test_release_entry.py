@@ -18,7 +18,7 @@ def run(tmp_path, args=(), **changes):
     config = dict(commit='b' * 12, full_commit='b' * 12 + 'c' * 28, image_id='sha256:' + '1' * 64, **changes)
     (tmp_path / 'config.json').write_text(json.dumps(config))
     (tmp_path / 'bin').mkdir(exist_ok=True)
-    for name in ('git', 'ssh', 'docker', 'python3', 'node'):
+    for name in ('git', 'ssh', 'docker', 'python3', 'node', 'timeout'):
         path = tmp_path / 'bin' / name
         path.write_text('#!/bin/bash\nexec "' + Path(sys.executable).as_posix() + '" "' + STUB.as_posix() + '" ' + name + ' "$@"\n')
         path.chmod(0o755)
@@ -107,8 +107,9 @@ def test_uncommitted_missing_or_mismatched_artifact_never_uploads_or_switches(tm
 def test_rollback_uses_recorded_server_artifacts_without_a_new_candidate(tmp_path):
     result, calls = run(tmp_path, ('--rollback',), dirty=True)
     assert result.returncode == 0, result.stderr
-    assert len(calls) == 1 and calls[0][0] == 'ssh'
-    assert '--rollback' in calls[0] and '--image-id' not in calls[0]
+    remotes = [call for call in calls if call[0] == 'ssh']
+    assert len(remotes) == 1
+    assert '--rollback' in remotes[0] and '--image-id' not in remotes[0]
 
 
 def test_direct_rehearsal_cli_is_blocked_until_an_independent_environment_is_configured(tmp_path):

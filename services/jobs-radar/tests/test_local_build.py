@@ -1,4 +1,5 @@
 import io
+import base64
 import hashlib
 import json
 import os
@@ -37,6 +38,36 @@ def test_actual_git_archive_is_identical_across_wall_clock_seconds(tmp_path):
         assert archive.extractfile('proof.txt').read() == b'committed synthetic source\n'
 
 
+@pytest.mark.parametrize('fault', [None, 'changed', 'missing', 'link', 'unpinned', 'redirect'])
+def test_local_licensed_dependency_requires_exact_committed_integrity(tmp_path, fault):
+    local = module('local_build')
+    source = tmp_path / 'context'
+    (source / 'web').mkdir(parents=True)
+    relative = Path('web/vendor/heroui-pro-react-1.0.0-beta.8.tgz')
+    dependency = tmp_path / local.SERVICE / relative
+    dependency.parent.mkdir(parents=True)
+    data = b'synthetic licensed package'
+    dependency.write_bytes(data)
+    integrity = 'sha512-' + base64.b64encode(hashlib.sha512(data).digest()).decode('ascii')
+    reference = 'file:vendor/' + relative.name
+    (source / 'web/package.json').write_text(json.dumps({'dependencies': {'@heroui-pro/react': reference}}))
+    locked = {'resolved': reference, 'integrity': integrity}
+    if fault == 'changed': dependency.write_bytes(b'changed')
+    elif fault == 'missing': dependency.unlink()
+    elif fault == 'link':
+        outside = tmp_path / 'outside'; outside.write_bytes(data)
+        dependency.unlink(); dependency.symlink_to(outside)
+    elif fault == 'unpinned': locked.pop('integrity')
+    elif fault == 'redirect': locked['resolved'] = 'file:../../private'
+    (source / 'web/package-lock.json').write_text(json.dumps({'packages': {'node_modules/@heroui-pro/react': locked}}))
+    if fault:
+        with pytest.raises(ValueError): local.stage_locked_vendor(tmp_path, source)
+        assert not (source / relative).exists()
+    else:
+        assert local.stage_locked_vendor(tmp_path, source) == {str(relative): integrity}
+        assert (source / relative).read_bytes() == data
+
+
 class Desktop:
     def __init__(self, fault=None):
         self.calls, self.container, self.pending, self.fault = [], None, None, fault
@@ -72,6 +103,7 @@ class Desktop:
                 if self.fault == 'budget':
                     self.container['HostConfig']['Memory'] = 0
             elif command == 'build':
+                assert args[args.index('--platform') + 1] == 'linux/amd64'
                 self.labels = dict(args[index + 1].split('=', 1) for index, value in enumerate(args) if value == '--label')
                 self.image_id, self.archive = image_bytes(self.labels)
                 Path(args[args.index('--iidfile') + 1]).write_text(self.image_id)
@@ -97,6 +129,7 @@ class Desktop:
 def builder(tmp_path, monkeypatch, fault=None):
     local = module('local_build')
     monkeypatch.setattr(local, 'desktop_target', lambda: ('default', 'unix:///var/run/docker.sock'))
+    monkeypatch.setattr(local, 'docker_cli', lambda: 'docker')
     engine = Desktop(fault)
     return local, engine, local.DesktopBuild(tmp_path, invoke=engine)
 
@@ -129,6 +162,7 @@ def test_second_build_refuses_a_first_create_that_only_appears_after_timeout(tmp
     folder = tmp_path / '.qa/releases/first'
     folder.mkdir(parents=True)
     monkeypatch.setattr(local, 'desktop_target', lambda: ('default', 'unix:///var/run/docker.sock'))
+    monkeypatch.setattr(local, 'docker_cli', lambda: 'docker')
     engine = Desktop('late')
     first = local.DesktopBuild(folder, invoke=engine)
     with pytest.raises(RuntimeError, match='creation remains pending'):
@@ -151,6 +185,56 @@ def test_builder_redirection_cannot_select_a_remote_host(monkeypatch, key):
     monkeypatch.setenv(key, 'remote-builder')
     with pytest.raises(ValueError, match='redirection'):
         local.desktop_target()
+
+
+def test_mac_uses_only_the_local_desktop_context(monkeypatch, tmp_path):
+    local = module('local_build')
+    for name in local.REDIRECT:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(local.sys, 'platform', 'darwin')
+    monkeypatch.setattr(local.Path, 'home', lambda: tmp_path)
+    assert local.desktop_target() == ('desktop-linux', 'unix://' + str(tmp_path / '.docker/run/docker.sock'))
+
+
+def test_mac_discovers_bundled_cli_without_path_symlinks(monkeypatch, tmp_path):
+    local = module('local_build')
+    monkeypatch.setattr(local.sys, 'platform', 'darwin')
+    monkeypatch.setattr(local.shutil, 'which', lambda _: None)
+    monkeypatch.setattr(local.Path, 'home', lambda: tmp_path)
+    executable = tmp_path / 'Applications/Docker.app/Contents/Resources/bin/docker'
+    monkeypatch.setattr(local.Path, 'is_file', lambda path: path == executable)
+    assert local.docker_cli() == str(executable)
+
+
+def test_mac_private_config_finds_buildx_and_all_commands_use_discovered_cli(monkeypatch, tmp_path):
+    local = module('local_build')
+    executable = tmp_path / 'Docker.app/Contents/Resources/bin/docker'
+    plugins = executable.parent.parent / 'cli-plugins'
+    plugins.mkdir(parents=True)
+    monkeypatch.setattr(local.sys, 'platform', 'darwin')
+    monkeypatch.setattr(local, 'docker_cli', lambda: str(executable))
+    endpoint = 'unix://' + str(tmp_path / '.docker/run/docker.sock')
+    monkeypatch.setattr(local, 'desktop_target', lambda: ('desktop-linux', endpoint))
+    engine = Desktop()
+    def invoke(args, **options):
+        if 'context' in args and 'inspect' in args:
+            assert args[:3] == [str(executable), '--context', 'desktop-linux']
+            return json.dumps(endpoint)
+        return engine(args, **options)
+    build = local.DesktopBuild(tmp_path, invoke=invoke)
+    build.build(tmp_path, 'b' * 40, 'b' * 12, 'c' * 64)
+    assert all(args[0] == str(executable) for args, _ in engine.calls)
+    assert json.loads((tmp_path / 'docker-config/config.json').read_text()) == {'cliPluginsExtraDirs': [str(plugins)]}
+
+
+def test_mac_changed_context_endpoint_fails_before_any_build(monkeypatch, tmp_path):
+    local = module('local_build')
+    monkeypatch.setattr(local, 'docker_cli', lambda: 'docker')
+    monkeypatch.setattr(local, 'desktop_target', lambda: ('desktop-linux', 'unix:///local-only.sock'))
+    engine = Desktop()
+    with pytest.raises(ValueError, match='fixed local Desktop endpoint'):
+        local.DesktopBuild(tmp_path, invoke=engine)
+    assert len(engine.calls) == 1
 
 
 def tar_bytes(name='Dockerfile', data=b'FROM scratch'):
@@ -399,6 +483,7 @@ def test_unsafe_or_retagging_archive_is_rejected_before_docker_load(tmp_path, ba
 @pytest.mark.parametrize('failure', [None, 'candidate', 'builder', 'rehearsal', 'rehearsal-service'])
 def test_local_rehearsal_requires_verified_local_images_and_no_unresolved_prior_work(tmp_path, monkeypatch, failure):
     rehearsal = module('local_rehearsal')
+    monkeypatch.setattr(rehearsal.sys, 'platform', 'linux')
     manifest = dict(imageId='sha256:' + 'b' * 64, sourceSha256='c' * 64)
     monkeypatch.setattr(rehearsal, 'desktop_target', lambda: ('default', 'unix:///var/run/docker.sock'))
     monkeypatch.setattr(rehearsal, 'committed_source', lambda: (tmp_path, 'd' * 40, 'd' * 12))

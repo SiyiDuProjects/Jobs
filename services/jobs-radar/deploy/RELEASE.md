@@ -65,28 +65,37 @@ independent publication while that recovery server is active.
 
 ## Local build and rehearsal
 
-Run from the existing WSL environment connected to this machine's Docker Desktop:
+Run from macOS or WSL connected to this machine's Docker Desktop. On Mac,
+install and start Docker Desktop; the entrypoint also discovers its bundled CLI
+when `docker` is not on PATH. Assign at least 8 GiB of usable engine memory
+(10 GiB in Desktop settings leaves room for VM overhead).
 
 ```text
 bash services/jobs-radar/deploy/release.sh --build
 ```
 
-The entrypoint requires a clean committed service tree. It checks the fixed
-`default` context endpoint is `unix:///var/run/docker.sock`, the engine identifies
-as Linux `docker-desktop`, and at least 8 GiB is assigned to that local engine.
+The entrypoint requires a clean committed service tree. On Mac it checks the
+`desktop-linux` context endpoint is `unix://$HOME/.docker/run/docker.sock`; on WSL,
+the fixed `default` endpoint is `unix:///var/run/docker.sock`. The engine must
+identify as Linux `docker-desktop`, with at least 8 GiB of usable memory.
 Native Windows builds are blocked because Windows process-tree termination has
-not been established; Linux CLI process groups have bounded deadlines/output.
+not been established; macOS and Linux CLI process groups have bounded deadlines/output.
 Builder redirection environment variables are rejected. No user Docker context
 or settings are changed: every run gets a private empty CLI config and a unique
 context connected to the verified endpoint. Registry credentials, proxy config,
 SSH credentials and secret mounts are not supplied to BuildKit.
 
-Only a Git archive of the exact committed service tree enters the build context.
+Source enters the build context from a Git archive of the exact committed service tree.
+The licensed website package under ignored `web/vendor/` is copied separately
+only after its bytes match the SHA-512 integrity in that archive's npm lockfile.
+It is not committed, and its integrity is recorded in the artifact manifest.
+Missing, changed or linked packages stop the build before BuildKit starts.
 The archive rejects private-data directories, environment/credential filenames,
 database files and links, including accidental commits. This filename guard is
 not a complete audit of source-file contents. Builds use an explicitly selected,
 temporary BuildKit container with a verified 2 CPU / 4 GiB budget and no additional
-swap. The local build/rehearsal lock prevents parallel auxiliary tasks. Unresolved
+swap. Both Intel and Apple Silicon hosts build `linux/amd64` for production.
+The local build/rehearsal lock prevents parallel auxiliary tasks. Unresolved
 earlier builder/container receipts block another run; absent listings never erase
 pending creation receipts. Cleanup uses the full verified container ID and its
 observed unique cache volume, retaining the receipt.
@@ -100,6 +109,8 @@ archive SHA-256. The image also carries full commit and source archive hash labe
 bash services/jobs-radar/deploy/release.sh --rehearse --artifact <local-artifact-directory> --old-image sha256:<64 hex>
 ```
 
+Fault rehearsal currently requires WSL and its native Linux filesystem semantics;
+macOS supports building and releasing, but does not run this filesystem rehearsal.
 Rehearsal additionally requires the old image already present on the same local
 Desktop engine. It uses synthetic data under `.qa/jobs-radar-stage/rehearsal-*`,
 unique image/container names, no ports or Docker network, and no host timers. It
@@ -111,6 +122,11 @@ execution; there is no production fallback or automatic image download from it.
 ```text
 bash services/jobs-radar/deploy/release.sh release --artifact <local-artifact-directory>
 ```
+
+Set `JOBS_RADAR_KEY` to the existing SSH private-key path if it differs from
+`$HOME/.ssh/Siyi.pem`; `JOBS_RADAR_HOST` overrides the deployment host. Local SSH
+transfers use a Python process-group deadline with streamed input/output, so Mac
+does not require GNU `timeout`. Noninteractive SSH failures propagate unchanged.
 
 The local artifact must still match the current exact committed source. Transfer
 checks source/image archive hashes. Before Docker load, the importer requires a

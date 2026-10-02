@@ -18,6 +18,14 @@ FIELDS = ('jobTitle','jobLink','companyName','companyLink','date','status','prof
 STATE_COLUMNS={'status','detail','evidence','owner_run_id','record','progress','attempted_at','confirmed_at','submission_error','deleted','updated'}
 
 
+def can_remove_unsubmitted(app):
+    """Explicit owner removal may abandon a draft, never hide submission evidence."""
+    return bool(app is not None and app['status'] in {
+        'not_started', 'in_progress', 'needs_input', 'retryable_failure', 'skipped'
+    } and app['attempted_at'] is None and app['confirmed_at'] is None
+        and not app['submission_error'] and not app['record'])
+
+
 def submission_state(app):
     """Same submission facts for the website and the extension's current page."""
     submitted = app['attempted_at'] is not None or app['status'] in {'submitted', 'submitted_unconfirmed'}

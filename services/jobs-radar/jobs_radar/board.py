@@ -242,9 +242,10 @@ class Board:
             elif not sources or current_fp!=expected_fingerprint:
                 raise ValueError('Source content changed; inspect the latest job')
             if decision=='trash':
-                # Undo preserves the monotonic application version. The owner may
-                # still delete an unstarted role; automatic removals stay fenced.
-                if app['status']!='not_started' or (app['version']!=0 and actor!='web-owner'):
+                from .application_records import can_remove_unsubmitted
+                # An owner may abandon an unsubmitted draft without erasing its
+                # history. Automatic screening still protects processed roles.
+                if not can_remove_unsubmitted(app) or (actor!='web-owner' and (app['status']!='not_started' or app['version']!=0)):
                     raise ValueError('Processed or claimed applications are protected')
                 if previous and previous['manual_keep'] and actor!='web-owner': raise ValueError('Manually kept role is protected')
                 titles=' '.join(s.get('title','') for s in sources)

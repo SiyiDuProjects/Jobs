@@ -11,6 +11,14 @@ sys.path.insert(0, str(Path(__file__).parents[1] / 'deploy'))
 import local_rehearsal as local
 
 
+def test_mac_rehearsal_stops_before_creating_artifacts(monkeypatch, tmp_path):
+    monkeypatch.setattr(local, 'desktop_target', lambda: None)
+    monkeypatch.setattr(local.sys, 'platform', 'darwin')
+    with pytest.raises(ValueError, match='WSL native Linux'):
+        local.rehearse(tmp_path / 'artifact', 'sha256:' + 'a' * 64)
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_native_stage_refuses_drvfs_before_starting_containers(tmp_path, monkeypatch):
     monkeypatch.setattr(local, 'filesystem_type', lambda path: '9p')
     with pytest.raises(ValueError, match='native'):
@@ -73,6 +81,7 @@ def test_failure_retains_native_path_and_restores_environment(tmp_path, monkeypa
     import time
     candidate='sha256:'+'b'*64
     monkeypatch.setattr(local, 'desktop_target', lambda: None)
+    monkeypatch.setattr(local.sys, 'platform', 'linux')
     monkeypatch.setattr(local, 'committed_source', lambda: (tmp_path,'d'*40,'d'*12))
     monkeypatch.setattr(local, 'verify_artifact', lambda *_: dict(imageId=candidate,sourceSha256='c'*64))
     stage=tmp_path/'native/jobs-radar-stage'; stage.mkdir(parents=True)

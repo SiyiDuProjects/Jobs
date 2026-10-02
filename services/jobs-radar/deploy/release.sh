@@ -10,7 +10,7 @@ ARCHIVE=/home/ubuntu/siyi/jobs-radar-archive
 MODE=${1:-release}
 if [ "$#" -gt 0 ]; then shift; fi
 ENTRY_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-remote() { timeout --signal=TERM --kill-after=5s 3600s ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -i "$KEY" "$HOST" "$@"; }
+remote() { python3 "$ENTRY_DIR/host_command.py" --timeout 3600 -- ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -i "$KEY" "$HOST" "$@"; }
 case "$MODE" in --build-web|--release-web|--rollback-web|--web-status)
   exec node "$ENTRY_DIR/web_release.mjs" "$MODE" "$@";;
 esac
@@ -59,7 +59,7 @@ if [ -n "$ARTIFACT" ]; then
   for file in source.tar image.tar manifest.json; do
     remote "umask 077; cat > $IMPORT/$file" < "$ARTIFACT/$file"
   done
-  SOURCE_SHA=$(sha256sum < "$ARTIFACT/source.tar" | awk '{print $1}')
+  SOURCE_SHA=$(shasum -a 256 < "$ARTIFACT/source.tar" | awk '{print $1}')
   remote bash -s -- "$IMPORT/source.tar" "$SOURCE_SHA" "$STAGE" <<'SOURCE'
 set -euo pipefail
 [ "$(sha256sum < "$1" | awk '{print $1}')" = "$2" ] || { echo 'Transferred source archive changed' >&2; exit 1; }

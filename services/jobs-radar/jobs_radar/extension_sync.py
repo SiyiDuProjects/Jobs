@@ -145,7 +145,9 @@ class ExtensionSync:
                         confirmed_at=alias_app['confirmed_at'] or (observed if confirmed else None),evidence=json.dumps(evidence),
                         submission_error=error,detail='网站已确认' if confirmed else error or '插件已记录投递'),
                         version_step=1,reason='extension_alias')
-                c.execute("UPDATE job_screening SET state='keep',manual_keep=1,expires_at=NULL,version=version+1 WHERE job_id=? AND state='trash'",(jid,))
+                # Late submission evidence remains authoritative, but must not
+                # undo the owner's explicit removal or restart the application.
+                c.execute("UPDATE job_screening SET state='keep',manual_keep=1,expires_at=NULL,version=version+1 WHERE job_id=? AND state='trash' AND reason!='manual'",(jid,))
                 result={'event_id':payload['event_id'],'state':'already_submitted' if unchanged and app['confirmed_at'] is not None else new_status,'job_id':jid,'job_ids':ids,
                         'application_id':application_id,'retryable':False,'matched_by':method}
             c.execute("INSERT INTO application_events(event_key,application_id,job_id,kind,payload,created,device_id,checksum,updated,state,result) VALUES(?,?,?,'extension',?,?,?,?,?,?,?) ON CONFLICT(event_key) DO UPDATE SET application_id=excluded.application_id,job_id=excluded.job_id,updated=excluded.updated,state=excluded.state,result=excluded.result",
@@ -164,7 +166,7 @@ class ExtensionSync:
             raise ValueError('Invalid resolve request')
         identity(url)
         from .job_match import resolve, job_key
-        from .application_records import submission_state
+        from .application_records import submission_state, can_remove_unsubmitted
         def application_state(rows):
             held = sorted(rows, key=lambda row: (row['confirmed_at'] is not None,
                 bool(row['submission_error']), row['attempted_at'] is not None or row['status'] in {'submitted', 'submitted_unconfirmed'}, row['updated']), reverse=True)
@@ -188,6 +190,8 @@ class ExtensionSync:
                 [*scope_values, *ids]).fetchone()
             applications = c.execute(f'SELECT * FROM applications WHERE job_id IN ({marks}) OR job_key=?', [*ids, job_key(url)]).fetchall()
             statuses = [r['status'] for r in applications]
+            removed = c.execute(f"SELECT 1 FROM job_screening WHERE job_id IN ({marks}) AND state='trash' LIMIT 1", ids).fetchone() is not None
+            removal = {'allowed': len(statuses) >= len(ids) and all(can_remove_unsubmitted(r) for r in applications), 'removed': removed}
             pending_screening = c.execute(f"SELECT 1 FROM job_screening WHERE job_id IN ({marks}) AND state='pending' LIMIT 1", ids).fetchone()
             reason = ('not_in_current_list' if not visible else 'application_history' if len(statuses) != len(ids) or any(s != 'not_started' for s in statuses) else 'screening_required' if pending_screening else '')
             queue = {'version': 1, 'allowed': not reason, 'reason': reason, 'checked_at': int(time.time() * 1000)}
@@ -198,7 +202,7 @@ class ExtensionSync:
         first = rows[0] if rows else {}
         return {'state': 'matched', 'job_id': selected_id, 'job_ids': ids, 'kinds': kinds,
                 'matched_by': method, 'company': str(first.get('company', ''))[:250], 'title': title_override['title'] if title_override else str(first.get('title', ''))[:500],
-                'queue': queue, 'application': application}
+                'queue': queue, 'application': application, 'removal': removal}
 
     def status(self):
         with self.store.connect() as c:

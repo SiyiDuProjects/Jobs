@@ -1,6 +1,14 @@
 # Deployment verification
 
-## Release process — 2026-09-23 (current)
+## Release process — 2026-10-02
+
+The current contract is [deploy/RELEASE.md](deploy/RELEASE.md). Build the committed
+service locally on macOS or WSL with Docker Desktop, then use `release.sh release
+--artifact <directory>` to verify/import the image and invoke the release driver.
+Production does not build images. The entries below are historical evidence;
+they do not override the current transaction, rollback or verification rules.
+
+## Release process — 2026-09-23 (historical)
 
 Releases are git commits: `services/jobs-radar/deploy/release.sh` (clean tree required) stages the commit, builds `jobs-radar:<commit>`, takes an online database backup and a code archive, switches only `mcp`, waits for health and restores `jobs-radar:previous` automatically on failure. `--build` stages without switching; `--rollback` restores the previous image. The live directory holds exactly one commit's files (`RELEASE`), plus `data/` and the website build in `jobs_radar/static` (not in git). No single-file copies.
 

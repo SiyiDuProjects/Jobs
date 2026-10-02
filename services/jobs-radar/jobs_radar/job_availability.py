@@ -6,7 +6,8 @@ import time
 from datetime import datetime
 
 from .board import fingerprint, safe_url
-from .job_match import resolve
+from .job_match import resolve, job_key
+from .application_records import can_remove_unsubmitted
 
 # Whole terminal messages, not arbitrary occurrences of 'closed' in a job description.
 MESSAGES = {
@@ -74,6 +75,10 @@ class JobAvailability:
         hinted = p.get('website_job_id')
         candidates, method = resolve(c, p['job_url'], hinted)
         if not candidates: return {'state':'unmatched'}
+        # An external application can share this posting before reconciliation.
+        if any(not can_remove_unsubmitted(row) for row in c.execute(
+                'SELECT * FROM applications WHERE job_key=?', (job_key(p['job_url']),))):
+            return {'state':'protected','reason':'application_history','job_id':sorted(candidates)[0]}
         # All IDs indexed by the same scoped requisition key are source aliases.
         # Remove the complete group atomically, never just the hinted source row.
         ordered = sorted(candidates, key=lambda jid: (jid != hinted, jid))
@@ -95,7 +100,7 @@ class JobAvailability:
         sources = [json.loads(row[0]) for row in c.execute('SELECT payload FROM observations WHERE job_id=?',(jid,))]
         source = sources[0] if sources else {}
         result = {'state':'protected','job_id':jid,'company':source.get('company',''),'title':source.get('title','')}
-        if not app or app['status']!='not_started' or (app['version']!=0 and not manual):
+        if not can_remove_unsubmitted(app) or (not manual and (app['status']!='not_started' or app['version']!=0)):
             return {**result,'reason':'application_history'}
         previous = {row['kind']:row for row in c.execute('SELECT * FROM job_screening WHERE job_id=?',(jid,))}
         if not manual and any(row['manual_keep'] for row in previous.values()):

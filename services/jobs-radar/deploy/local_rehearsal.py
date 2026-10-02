@@ -17,6 +17,7 @@ import re
 import shlex
 import shutil
 import stat
+import sys
 import time
 import uuid
 
@@ -201,6 +202,8 @@ def export_native(subject, destination, deadline):
 def rehearse(artifact, old_image):
     deadline = time.monotonic() + 3600
     desktop_target()
+    if sys.platform != 'linux':
+        raise ValueError('Fault rehearsal requires WSL native Linux filesystem semantics; Mac supports build and release')
     if not re.fullmatch('sha256:[a-f0-9]{64}', old_image):
         raise ValueError('Rehearsal requires the complete old local image ID')
     root, commit, short = committed_source()

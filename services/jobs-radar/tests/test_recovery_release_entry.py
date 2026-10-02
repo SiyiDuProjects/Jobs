@@ -30,6 +30,10 @@ if command=='git':
 elif command=='docker':
     assert args[:2]==['image','inspect']
     print(release if 'Labels' in args[-1] else image)
+elif command=='timeout':
+    while args[0].startswith('--'): args.pop(0)
+    seconds=float(args.pop(0).removesuffix('s'))
+    sys.exit(subprocess.run(args,timeout=seconds).returncode)
 elif command=='ssh':
     remote=args[args.index('fixture@local')+1:]; data=sys.stdin.read()
     if remote[:2]==['bash','-s']:
@@ -49,7 +53,7 @@ else: raise ValueError(command)
 def run(tmp_path, mode, *args, **settings):
     stub = tmp_path / 'fixture.py'; stub.write_text(STUB)
     (tmp_path / 'bin').mkdir()
-    for name in ('git', 'ssh', 'docker'):
+    for name in ('git', 'ssh', 'docker', 'timeout'):
         path = tmp_path / 'bin' / name
         path.write_text('#!/bin/bash\nexec "' + Path(sys.executable).as_posix() + '" "' + stub.as_posix() + '" ' + name + ' "$@"\n')
         path.chmod(0o755)
