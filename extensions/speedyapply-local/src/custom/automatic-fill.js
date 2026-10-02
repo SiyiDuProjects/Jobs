@@ -368,6 +368,11 @@ export function initializeAutomaticFill() {
       return wrapped;
     }
     function advance(options) {
+      if (JobsPlatformConfig.appliedStatus(document)) {
+        note("auto_blocked", null, "already_applied");
+        options.setMessage?.("already-applied");
+        return Promise.resolve(false);
+      }
       const root = options.root || JobsPageSession?.root();
       const owner = owners.get(options.setMessage);
       if (!options.resolveAnswers)
@@ -647,6 +652,11 @@ export function initializeAutomaticFill() {
           );
       };
       async function finish(prepared, canProceed = () => true) {
+        if (JobsPlatformConfig.appliedStatus(document)) {
+          flow.block();
+          setMessage("already-applied");
+          return false;
+        }
         flow.move("checking");
         const next = navigation?.();
         if (next && action !== next.action) {
@@ -700,6 +710,11 @@ export function initializeAutomaticFill() {
           throw Error("继续按钮已变化");
         assertCurrent();
         if (!canProceed()) throw Error("补答命令已过期或页面已变化");
+        if (JobsPlatformConfig.appliedStatus(document)) {
+          flow.block();
+          setMessage("already-applied");
+          return false;
+        }
         flow.navigate(action);
         note("auto_navigation_attempt", null, action);
         onNavigate();

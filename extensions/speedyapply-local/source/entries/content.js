@@ -4,6 +4,7 @@ import { initializeJobMatchRules } from "../../src/custom/job-match-rules.js";
 import { initializeJobMatch } from "../../src/custom/job-match.js";
 import { initializeAvailabilityRules } from "../../src/custom/availability-rules.js";
 import { initializeJobAvailability } from "../../src/custom/job-availability.js";
+import { initializeAppliedStatus } from "../../src/custom/applied-status.js";
 import { initializeOptionMatch } from "../../src/custom/option-match.js";
 import { initializeProfileAnswers } from "../../src/custom/profile-answers.js";
 import "../../src/custom/response-contract.js";
@@ -77,5 +78,6 @@ if (!globalThis.__jobsNativePage) {
   initializeReviewPresenter();
   initializeAiReview();
   initializeAutomaticFill();
+  initializeAppliedStatus();
   watchPage();
 }

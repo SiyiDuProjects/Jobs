@@ -1,4 +1,5 @@
 import { JobsAvailability } from "../../src/custom/job-availability.js";
+import { JobsAppliedStatus } from "../../src/custom/applied-status.js";
 import { jobsAdapterRoutes, jobsRunAdapter } from "./routing.js";
 import { jobsGetProfile } from "./shared/profiles.js";
 import { jobsJobTitle, jobsReportJobTitle } from "./shared/runtime-messages.js";
@@ -26,6 +27,7 @@ const phases = {
   "autofill-complete": "本页已填好",
   submitting: "已尝试提交，等待网站确认",
   confirmed: "网站已确认",
+  "already-applied": "网站显示已申请，无需再次提交",
   "awaiting-transition": "等待下一页",
   "site-error": "网站返回错误",
   "queue-paused": "队列已暂停",
@@ -170,6 +172,7 @@ export async function startPage(existingContext) {
   const context = existingContext || lifecycle(),
     present = statusPresenter(context);
   JobsAvailability?.attach(present.availability);
+  JobsAppliedStatus?.attach(present);
   try {
     // A title lookup must not hold up account entry or autofill if the server
     // is slow. It has its own acknowledgement and can retry on page activity.

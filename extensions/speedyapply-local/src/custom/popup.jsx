@@ -12,6 +12,7 @@ import { EmptyState, Segment } from "@heroui-pro/react";
 import { JobsBrand } from "./brand.js";
 import { createPopupProfiles } from "./popup-profiles.js";
 import { createPopupJob } from "./popup-job.js";
+import { PopupAccount } from "./popup-account.jsx";
 
 function useController(create, initial) {
   const [state, setState] = useState(initial);
@@ -92,6 +93,8 @@ export function Popup() {
           {profile.message}
         </p>
       </section>
+      <Separator />
+      <PopupAccount />
       <Separator />
       <section
         id="jobs-current-job"

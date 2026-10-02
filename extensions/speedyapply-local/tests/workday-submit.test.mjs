@@ -119,6 +119,24 @@ test("disabled autoSubmit reports waiting for manual submit without reading Prof
     h.close();
   }
 });
+
+test("Workday already-applied Review error blocks automatic submission", async () => {
+  const h = setup();
+  try {
+    h.w.history.replaceState({}, "", "/Careers/job/Test/Engineer_R123/apply");
+    const error = h.w.document.createElement("p");
+    error.textContent = "You already applied to this job.";
+    h.w.document
+      .querySelector('[data-automation-id="applyFlowReviewPage"]')
+      .append(error);
+    await h.run();
+    await settle(h, () => h.messages.includes("already-applied"));
+    assert.equal(h.clicks(), 0);
+    assert(!h.events.some(([type]) => type === "auto_navigation_attempt"));
+  } finally {
+    h.close();
+  }
+});
 test("Review validation and Profile failures report a stopped state and do not submit", async () => {
   for (const options of [{ invalid: true }, { profileFailure: true }]) {
     const h = setup(options);

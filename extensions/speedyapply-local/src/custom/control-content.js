@@ -94,6 +94,8 @@ export function initializeControlContent() {
         );
       if (
         submitted &&
+        phase !== "confirmed" &&
+        !JobsPlatformConfig.appliedStatus(document) &&
         (state.errors.length || rows.some((row) => row.public.invalid))
       ) {
         phase = "submission-error";
@@ -602,6 +604,11 @@ export function initializeControlContent() {
       }, 10000);
       window.addEventListener("pagehide", onPageHide, { once: true });
       const setMessage = (message) => {
+        if (JobsPlatformConfig.appliedStatus(document)) {
+          phase = "confirmed";
+          options.setMessage("already-applied");
+          return;
+        }
         phase = message || (submitted ? phase : "idle");
         options.setMessage(message);
         JobsDiagnostics?.phase(phase);
@@ -731,6 +738,8 @@ export function initializeControlContent() {
       });
     }
     function queueState() {
+      if (JobsPlatformConfig.appliedStatus(document))
+        return { phase: "confirmed", active: !!adapter, finalReady: false };
       const scope = root(),
         state = fields.state(),
         review = !!scope?.querySelector(

@@ -21,7 +21,7 @@ export async function until(check) {
   }
   assert(check(), "Popup did not reach the expected state");
 }
-export function popupPage(sendMessage) {
+export function popupPage(sendMessage, local = {}) {
   const errors = [],
     console = new VirtualConsole();
   console.on("jsdomError", (error) => errors.push(error.message));
@@ -63,7 +63,7 @@ export function popupPage(sendMessage) {
   w.HTMLElement.prototype.getAnimations = () => [];
   w.chrome = {
     runtime: { sendMessage },
-    storage: { onChanged: changed },
+    storage: { onChanged: changed, local },
     tabs: {
       query: async () => [tab],
       onActivated: activated,

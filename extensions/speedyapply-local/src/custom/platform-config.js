@@ -618,6 +618,19 @@ export function initializePlatformConfig() {
         submit: "[data-ui='apply-button']:not([disabled])",
       },
       workday: {
+        appliedStatus: {
+          url: /\/job\/(?:[^/]+\/)?[^/]*_[A-Za-z0-9-]+(?:\/.*)?$/,
+          candidates:
+            'button,[role="button"],[role="alert"],[role="status"],p,span,div,li,[data-automation-id]',
+          exclude:
+            '[data-jobs-ui],[data-jobs-owner],script,style,textarea,[contenteditable],nav,[data-automation-id="jobPostingDescription"],[data-automation-id*="similarJob"],[data-automation-id*="SimilarJob"],[data-automation-id*="jobResult"],[data-automation-id="candidateHomePage"]',
+          text: /^you(?: have|'ve)? already applied (?:to|for) (?:this|the) (?:job|position)[.!]?$/i,
+          badge: /^applied[.!]?$/i,
+          badgeControl:
+            'button,[role="button"],[data-automation-id="alreadyApplied"],[data-automation-id="appliedLabel"]',
+          postingHeading:
+            '[data-automation-id="jobPostingHeader"],[data-automation-id="jobTitleHeading"]',
+        },
         modernFlow: (doc) =>
           !!doc.querySelector('[data-automation-id="ApplyFlowPage"]'),
         root: '[data-automation-id="ApplyFlowPage"],[data-automation-id="applyFlowPage"]',
@@ -728,6 +741,30 @@ export function initializePlatformConfig() {
           ) || null
       );
     }
+    function appliedStatus(doc, platform = detect(doc).id) {
+      const config = structure[platform]?.appliedStatus;
+      if (!config || !config.url.test(doc.location.pathname)) return null;
+      for (const node of doc.querySelectorAll(config.candidates)) {
+        if (node.closest(config.exclude) || !visible(node)) continue;
+        const quote = text(node.textContent);
+        if (quote.length > 150) continue;
+        const badge =
+          config.badge.test(quote) &&
+          node.matches(config.badgeControl) &&
+          !!doc.querySelector(config.postingHeading);
+        if (!config.text.test(quote) && !badge) continue;
+        // A recommendation/card for another job cannot confirm the current URL.
+        const card = node.closest('article,[data-automation-id="jobCard"]');
+        if (card) continue;
+        let transparent = false;
+        for (let current = node; current; current = current.parentElement)
+          if (doc.defaultView.getComputedStyle(current).opacity === "0")
+            transparent = true;
+        if (transparent) continue;
+        return { quote, node };
+      }
+      return null;
+    }
     function roots(doc, platform) {
       const config = structure[platform];
       const keys = rootKeys[platform] || ["root", "rootXPath"];
@@ -809,6 +846,7 @@ export function initializePlatformConfig() {
       roots,
       navigation,
       confirmation,
+      appliedStatus,
       containsRoot,
     });
   })();
