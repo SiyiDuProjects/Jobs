@@ -1,0 +1,10 @@
+[Unit]
+Description=Collect six streams from four approved job repositories (all dates)
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/siyi/jobs-radar
+ExecStart=/usr/bin/docker compose run --rm --no-deps collector
+TimeoutStartSec=45min

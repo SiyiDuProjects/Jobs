@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "keywordNormalization": "NFKC",
+  "keywordCategoryPrefixes": [
+    "L",
+    "N"
+  ],
+  "keywordCharacters": "_",
+  "keywordWhitespace": true,
+  "fields": {
+    "keywords": {
+      "type": "keywords",
+      "required": true,
+      "minItems": 1
+    },
+    "ignore": {
+      "type": "strings"
+    },
+    "key": {
+      "type": "string",
+      "required": true,
+      "nonempty": true
+    },
+    "appearances": {
+      "type": "integer",
+      "required": true,
+      "minimum": 1
+    },
+    "response": {
+      "type": "string",
+      "required": true,
+      "trim": true,
+      "nonempty": true
+    },
+    "fromAutofill": {
+      "type": "boolean",
+      "default": false
+    },
+    "question": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "jobKey": {
+      "type": "string",
+      "nonempty": true
+    }
+  },
+  "appearancesCannotExceedKeywords": true,
+  "questionKeywords": {
+    "categories": [
+      "L",
+      "N"
+    ],
+    "characters": "_",
+    "stopWords": [
+      "am",
+      "an",
+      "as",
+      "at",
+      "be",
+      "by",
+      "co",
+      "do",
+      "eg",
+      "et",
+      "ex",
+      "go",
+      "he",
+      "hi",
+      "ie",
+      "if",
+      "in",
+      "is",
+      "it",
+      "me",
+      "mr",
+      "my",
+      "nd",
+      "of",
+      "oh",
+      "ok",
+      "on",
+      "or",
+      "qv",
+      "rd",
+      "re",
+      "so",
+      "th",
+      "to",
+      "un",
+      "up",
+      "us",
+      "vs",
+      "we"
+    ],
+    "minimumLetters": 2
+  }
+}

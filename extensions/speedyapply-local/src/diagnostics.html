@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>jobs · 填写诊断</title><link rel="stylesheet" href="custom/diagnostics-ui.css"><script type="module" src="custom/diagnostics-ui.js"></script></head>
+<body><main><header><h1>填写诊断</h1><button id="reload">刷新页面列表</button></header><p>查看插件发现了什么、尝试了什么、网站报告了什么。这里只读，不会填写或提交。记录不包含填写值。</p><p id="sync" role="status"></p>
+<div class="tools"><label>申请页面 <select id="pages"><option value="">尚无记录</option></select></label><button id="inspect">读取当前状态</button><button id="export">导出诊断 JSON</button></div>
+<p id="message" role="status"></p><section id="overview"></section>
+<h2>故障复现案例</h2><p>未解决的故障案例持续保留；验证修复并标记已解决后保留 30 天。案例将填写值和文字换成虚构内容，保留控件结构、状态和事件顺序；不包含网站脚本或网络行为。</p>
+<div class="tools"><button id="capture-case">保存当前故障案例</button><label>已保存案例 <select id="cases"><option value="">尚无案例</option></select></label><button id="export-case" disabled>导出复现案例</button><button id="resolve-case">标记已验证解决</button><button id="reopen-case">重新打开案例</button></div>
+<p id="case-message" role="status"></p>
+<h2>页面控件与填写结果</h2><p>“有值”仅表示页面可见，不代表网站已接受。“未尝试”表示没有观察到填写动作，原因可能是漏检或无适配。</p><div class="scroll"><table><thead><tr><th>控件</th><th>题目</th><th>类型</th><th>状态</th><th>答案匹配</th><th>动作次数 / 事件</th></tr></thead><tbody id="fields"></tbody></table></div>
+<h2>时间线</h2><p>记录原有公共填写函数、Ashby 答案匹配和页面事件。未经过这些入口的站点专用逻辑可能没有动作记录；不是完整浏览器录制。</p><ol id="events"></ol></main></body></html>

@@ -1,0 +1,46 @@
+.DS_Store
+__pycache__/
+*.pyc
+.env
+.env.*
+
+# Evidence, scratch runs and audit copies stay on disk, outside version control.
+.qa/
+reports/
+work/
+extensions/speedyapply-local/.qa/
+resumes/*.pdf
+
+# Website build output; the template lives in web/index.html.
+services/jobs-radar/jobs_radar/static/*
+services/jobs-radar/.web/
+
+# Local-only Mac migration inputs and reproducible output
+**/node_modules*/
+**/.next*/
+**/.venv*/
+**/__pycache__/
+**/.qa/
+**/.private/
+**/.runtime/
+.env
+.env.*
+!.env.example
+!.env.sample
+.npmrc
+.dev.vars
+*.pem
+*.key
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.tsbuildinfo
+/config/
+/resumes/
+/notes/
+/services/jobs-radar/data/
+/services/jobs-radar/web/vendor/
+/extensions/speedyapply-local/vendor/
+/extensions/speedyapply-local/releases/

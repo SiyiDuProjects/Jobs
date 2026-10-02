@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "description": "Single editable policy for the selected Profile snapshot sent to the answer API and AI provider. Field validation remains in the existing Profile schema. New Profile roots require an explicit policy here.",
+  "fields": {
+    "profileName": { "mode": "include" },
+    "nameData": { "mode": "include" },
+    "addressData": {
+      "mode": "project",
+      "include": ["city", "state", "country"],
+      "exclude": ["line1", "line2", "postalCode"],
+      "reason": "Coarse residence supports location questions; exact street and postal fields are resolved locally. Residence does not establish work authorization."
+    },
+    "contactData": { "mode": "exclude", "reason": "Email and telephone are resolved locally without a provider call." },
+    "jobData": { "mode": "include" },
+    "educationData": { "mode": "include" },
+    "languageData": { "mode": "include" },
+    "resumeData": { "mode": "exclude", "reason": "Do not transmit binary resume content or attachment metadata as answer context." },
+    "websiteData": { "mode": "include" },
+    "employmentData": { "mode": "include" },
+    "skillsData": { "mode": "include" },
+    "applicationData": { "mode": "include" }
+  }
+}

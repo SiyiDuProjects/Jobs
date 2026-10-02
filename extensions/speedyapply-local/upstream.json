@@ -1,0 +1,31 @@
+{
+  "version": "2.28.0",
+  "source": "Chrome Web Store public CRX",
+  "originalExtensionId": "mbgjopdedgonlbpikjfibkccpmhjbnag",
+  "developmentExtensionId": "ccohapahbamkcbgkpegidkpknoeikiko",
+  "crxSha256": "9b655a774c1bfa5a5b62a941d7e41a702f18e947572cdf283b00ce352b329bde",
+  "files": {
+    "assets/globals-BDYqvdbE.css": "00b24a6781ea6ecc49a7d52ce6e3d5af975e70ae0c0bbf5cfcda68c499a032ea",
+    "background.js": "3f122cfd45ae08caba4d0eef8c602ba679153b91ab70bf9c8749e963efb1e3da",
+    "chunks/application-profile-field-Zi4SKpXT.js": "e16aeac9d834e857a4f719e30c20f6bf13928a71a91523e70134525304561cce",
+    "chunks/chart-D_0WCQea.js": "f06078087b7c6665af880e4d91024c98172e4345270e55e94e2ad2d436195c3c",
+    "chunks/globals-BVF4Hukb.js": "9e193039226d6d39801156ebd5d5bb755c29a3c6af13bcc6ba9bbf21d4e4f1c7",
+    "chunks/icon-pattern-DgGOJ79o.js": "89fe8f7bc0c3aa195f140afe3df15365321006a24ede765dc426a1db21e5af8b",
+    "chunks/options-CJsz5VhN.js": "869d268a94780a46d5cfaf45af508273edc446af1905e370673b96ba2c163318",
+    "chunks/popup-DQqXHrDq.js": "64cd36eabc40c8d692ceada7f7d1ec569522977d010761776809d1332af89cf7",
+    "chunks/rolldown-runtime-QTnfLwEv.js": "5db5ba82eef00d1dee7e86e663098c9427d01183a88d357437daff295aec3e75",
+    "chunks/sidepanel-DcNb6Rcn.js": "e7ad8ee4ef412e997910ebb57af3ecf8242cef10f723bdd7d42a554a80f50e46",
+    "content-scripts/content.css": "1ba1920d8fea7d30fc1618848e2836a92ece4fa1e153ba28cf3ed9acaf76ed87",
+    "content-scripts/content.js": "13699cc1248dbc11188eca258151524adda104fd9d04c7ea24c3fb7b7fb2eff4",
+    "icon/128.png": "ff58004fb4b13189d1dbed63581df0e9e0ae2eeb79657cb839212465d64ff3d9",
+    "icon/16.png": "21764003f11ace5839315542eece07e92d91063bdb96038788d2ba0411a273ee",
+    "icon/32.png": "c3c45f7bed73f383e7dbf78a2f5128c7ecc90358d391d0f838d2d55999fc9a35",
+    "icon/48.png": "6e7e51ba51f2f257c159256024920e3dff3c5484e77b90c59b8423b85950104f",
+    "icon/96.png": "51c75edc07d40efa703d009d3b464b7d1b1570f9f3c79b742052e87dc903a783",
+    "images/icon-pattern.svg": "d2fbd9b92eed0744bb5aee57105dbb4fdda59cdaa24ee0967b69a39a2e93a65e",
+    "manifest.json": "a6daefe1751e7573b15f73e93f003a9b6575f6edce6347cabaf986dd2e0bb5fb",
+    "options.html": "ee6ea59838b1682273a337077f4db5c913083ebebaacb5566c178c2f733f6965",
+    "popup.html": "f9df4e20f1e668316aa13e4503ca08ac634ee319eb2b5eb7037e3beedba5d187",
+    "sidepanel.html": "83d0aecedb69c194f3eccdbeb96c27ecea09664e1fd45ec61d7c1b2a4394ac83"
+  }
+}

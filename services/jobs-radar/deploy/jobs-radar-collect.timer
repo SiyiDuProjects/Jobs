@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect Jobs Radar hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=120
+Persistent=true
+Unit=jobs-radar-collect.service
+
+[Install]
+WantedBy=timers.target

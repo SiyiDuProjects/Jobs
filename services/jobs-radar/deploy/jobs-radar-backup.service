@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up and verify the private Jobs Radar database
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/siyi/jobs-radar
+ExecStart=/bin/bash /home/ubuntu/siyi/jobs-radar/deploy/backup.sh
+TimeoutStartSec=5min

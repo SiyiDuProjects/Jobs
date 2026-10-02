@@ -1,0 +1,88 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@heroui-pro/react/css";
+
+/* Components own color, interaction states and shape; this file owns layout. */
+html,
+body {
+  width: 360px;
+  margin: 0;
+  max-height: 600px;
+  overflow-x: hidden;
+}
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font:
+    14px/1.5 ui-sans-serif,
+    system-ui,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+}
+.popup {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px;
+}
+.popup-header,
+.popup-section-heading,
+.popup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.popup-brand {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.7px;
+}
+.popup-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.popup-section h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.popup-source,
+.popup-hint,
+.popup-footer {
+  font-size: 12px;
+  color: var(--muted);
+}
+.popup-source {
+  color: var(--accent);
+}
+.popup-profiles {
+  width: 100%;
+}
+.popup-profiles > button {
+  flex: 1;
+}
+.popup-profile-kind {
+  font-weight: 400;
+  margin-left: 6px;
+}
+.popup-hint[data-error="true"] {
+  color: var(--danger);
+}
+.popup-job-title {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.popup-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.popup-empty {
+  padding: 12px 0;
+}
+.popup-footer .link,
+.popup-header .link {
+  font-size: 12px;
+}

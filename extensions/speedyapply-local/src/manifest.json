@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuTsyfrVzyFjdlfq8KyJqievk2nROBUQlR/UryNQf6Rna2M3OI1tGh1J9R2Tj2NCEAuatbn5/dQOFoHhwelvPrDGax+hatUg36ciUmHj8BbLBqEgkpTv30ZkDtJ0JjzJM59jmPPZySX5u/p4KRcil2Q873eyOiCmuiss5MvO5C4qRrMUFNVgTw0UhS09RIngJxN6QVArEgYPY58VSbEMg8CFlNebNXex9gaC/etzKDHPCPeN7amiToP9HHwATLSk2/qyTFYeTRHfTrNXKHX+2wQNF7ruS33MgC7pZK64ZaquGN11bEMmpMBsGFF0CKSYiJUlbel6dTb52HSoF3zpdMwIDAQAB",
+  "icons": {
+    "16": "icon/16.png",
+    "32": "icon/32.png",
+    "48": "icon/48.png",
+    "96": "icon/96.png",
+    "128": "icon/128.png"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "alarms",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "statuses": {
+    "applied": "已投递 · 等待进展",
+    "assessment": "OA",
+    "interview": "Interview",
+    "offer": "Offer",
+    "accepted": "已接受",
+    "rejected": "被拒",
+    "withdrawn": "已撤回",
+    "offer_declined": "已拒绝 Offer",
+    "archived": "已归档"
+  },
+  "displayStatuses": {
+    "no_answer": "No Answer",
+    "assessment": "OA",
+    "interview": "Interview",
+    "offer": "Offer",
+    "accepted": "已接受",
+    "rejected": "推进后被拒",
+    "withdrawn": "已撤回",
+    "offer_declined": "已拒绝 Offer",
+    "archived": "已归档"
+  },
+  "flowLabels": {
+    "applications": "Applications",
+    "no_answer": "No Answer",
+    "assessment": "OA",
+    "interview": "Interview",
+    "phone_screen": "Screening",
+    "offer": "Offer",
+    "accepted": "Accepted",
+    "rejected": "Rejected",
+    "withdrawn": "Withdrawn",
+    "offer_declined": "Offer Declined",
+    "archived": "Archived"
+  }
+}

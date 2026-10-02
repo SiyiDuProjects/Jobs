@@ -1,0 +1,8 @@
+{
+  "cohort": 2027,
+  "simplify": {
+    "newgrad": "SimplifyJobs/New-Grad-Positions",
+    "internship": "SimplifyJobs/Summer{cohort}-Internships"
+  },
+  "speedyapply": "speedyapply/{cohort}-{topic}-College-Jobs"
+}

@@ -1,0 +1,9 @@
+# One line ending everywhere; hashes pinned by tests and the build stay stable on Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gz binary
+*.zip binary
+*.docx binary
+*.pdf binary
+*.sqlite binary

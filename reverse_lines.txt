@@ -1,0 +1,129 @@
+// reverse_lines.cpp -- C++17
+// Build: g++ -O3 -std=c++17 -x c++ reverse_lines.txt -o reverse_lines
+// Usage: reverse_lines input.txt output.txt
+//
+// Reverse the bytes of each line, keeping line order and LF/CRLF endings.
+// A final line without a newline remains without a newline. A lone CR is data.
+// Assumes ASCII/single-byte text, not Unicode code points or grapheme clusters.
+// Input must be a regular, seekable file that is not modified during execution.
+// An existing output file is overwritten; input and output must be different.
+//
+// O(N) time, O(1) memory: two fixed 64 KiB buffers, plus stream buffering.
+// Lines wholly inside a scan block are reversed in place. Only lines spanning
+// blocks need a second read, in reverse block order. Each byte is read at most
+// twice and written once. No whole-file or whole-line allocation is needed.
+
+#include <algorithm>
+#include <array>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <stdexcept>
+
+namespace fs = std::filesystem;
+
+constexpr std::size_t BUFFER_SIZE = 64 * 1024;
+using Offset = std::streamoff;
+
+void reverse_lines(const fs::path& input, const fs::path& output) {
+    if (!fs::is_regular_file(input)) {
+        throw std::runtime_error("Input must be a regular file.");
+    }
+    // equivalent() also detects existing symlink and hard-link aliases.
+    if (fs::exists(output) && fs::equivalent(input, output)) {
+        throw std::runtime_error("Input and output refer to the same file.");
+    }
+
+    std::ifstream scan(input, std::ios::binary);
+    std::ifstream reread(input, std::ios::binary);
+    if (!scan || !reread) {
+        throw std::runtime_error("Cannot open input file.");
+    }
+    std::ofstream out(output, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        throw std::runtime_error("Cannot open output file.");
+    }
+    out.exceptions(std::ios::failbit | std::ios::badbit);
+    reread.exceptions(std::ios::failbit | std::ios::badbit);
+
+    std::array<char, BUFFER_SIZE> block;
+    std::array<char, BUFFER_SIZE> scratch;
+    Offset block_start = 0;
+    Offset loaded_start = 0;
+    Offset loaded_size = 0;
+    Offset line_start = 0;
+    char previous_byte = '\0';
+
+    // Emit the half-open byte range [begin, end) in reverse order.
+    auto emit_reversed = [&](Offset begin, Offset end) {
+        if (begin == end) return;
+
+        if (begin >= loaded_start && end <= loaded_start + loaded_size) {
+            auto first = block.begin() + (begin - loaded_start);
+            auto last = block.begin() + (end - loaded_start);
+            std::reverse(first, last);
+            out.write(&*first, static_cast<std::streamsize>(end - begin));
+            return;
+        }
+
+        while (end > begin) {
+            const auto length = static_cast<std::streamsize>(
+                std::min<Offset>(end - begin, BUFFER_SIZE));
+            end -= length;
+            reread.seekg(end, std::ios::beg);
+            reread.read(scratch.data(), length);
+            std::reverse(scratch.begin(), scratch.begin() + length);
+            out.write(scratch.data(), length);
+        }
+    };
+
+    for (;;) {
+        scan.read(block.data(), static_cast<std::streamsize>(block.size()));
+        const auto count = scan.gcount();
+        if (scan.bad() || (scan.fail() && !scan.eof())) {
+            throw std::runtime_error("Error reading input file.");
+        }
+        if (count == 0) break;
+
+        loaded_start = block_start;
+        loaded_size = count;
+        // Save before any in-place reversal, for a CRLF split across blocks.
+        const char last_byte = block[static_cast<std::size_t>(count - 1)];
+        for (std::streamsize i = 0; i < count; ++i) {
+            if (block[static_cast<std::size_t>(i)] != '\n') continue;
+
+            const Offset newline = block_start + i;
+            const char before = (i == 0)
+                ? previous_byte : block[static_cast<std::size_t>(i - 1)];
+            const bool crlf = newline > line_start && before == '\r';
+            emit_reversed(line_start, newline - (crlf ? 1 : 0));
+            if (crlf) out.write("\r\n", 2);
+            else out.put('\n');
+            line_start = newline + 1;
+        }
+
+        previous_byte = last_byte;
+        block_start += count;
+        if (scan.eof()) break;
+    }
+
+    if (line_start < block_start) {
+        emit_reversed(line_start, block_start);
+    }
+    // Explicit close reports errors from flushing buffered output.
+    out.close();
+}
+
+int main(int argc, char* argv[]) {
+    if (argc != 3) {
+        std::cerr << "Usage: " << argv[0] << " <input-file> <output-file>\n";
+        return 1;
+    }
+    try {
+        reverse_lines(argv[1], argv[2]);
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "Error: " << error.what() << '\n';
+        return 1;
+    }
+}

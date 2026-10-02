@@ -1,0 +1,7 @@
+# Generated from canonical service contracts; generators own their stable output.
+src/custom/profile-contract.js
+src/custom/answer-policy.js
+src/custom/response-contract.js
+src/custom/job-match-rules.js
+src/custom/brand.js
+src/custom/storage-migration-policy.js

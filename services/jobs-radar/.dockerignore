@@ -1,0 +1,14 @@
+.venv
+.venv-v2
+data
+.git
+.pytest_cache
+__pycache__
+tests
+work
+*.sqlite*
+.env
+web/node_modules
+jobs_radar/static
+.qa
+*.log

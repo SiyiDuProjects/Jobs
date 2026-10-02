@@ -1,0 +1,4 @@
+# Local recovery-content audit and its tests only; not a production dependency.
+# The PDF expansion guard is validated against this exact parser version.
+-r requirements-lock.txt
+pypdf==6.10.0

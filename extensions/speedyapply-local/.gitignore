@@ -1,0 +1,13 @@
+node_modules/
+upstream/
+src/upstream/
+dist/
+releases/
+.build-*/
+.build-publish.lock
+.build-update.lock
+artifacts/
+.private/
+*.zip
+.qa-*.log
+src/content-scripts/content.js

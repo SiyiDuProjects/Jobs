@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily verified Jobs Radar backup
+
+[Timer]
+OnCalendar=*-*-* 03:25:00 UTC
+Persistent=true
+Unit=jobs-radar-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,396 @@
+{
+  "name": "jobs-installed-storage-migration",
+  "version": 2,
+  "status": "frozen-v2-2026-09-26",
+  "prefix": "/api/extension/storage-migrations",
+  "authorization": {
+    "principal": "Existing Profile bearer grant; deviceId is obtained from authentication, never trusted from the request.",
+    "headers": {
+      "X-Jobs-Protocol": "2",
+      "Content-Type": "application/json"
+    },
+    "cacheControl": "no-store",
+    "logs": "IDs, phase, counts and fixed error codes only; no values, diff content, request bodies or bearer grants."
+  },
+  "encoding": {
+    "entry": "jsonText is exactly one JSON.stringify(value) result. UTF-8 encode that string once without BOM. size is its byte length, sha256 is lowercase hexadecimal SHA-256 over those bytes. The server hashes the received string's UTF-8 bytes without JSON reserialization, then strictly parses it and rejects duplicate properties, nonfinite numbers, unsupported values and excessive nesting. Strict duplicate-key and nonfinite-number rejection also applies to the manifest and every outer request JSON object.",
+    "manifest": "The client constructs manifestText as JSON.stringify({version:2,migrationId,clientBuild,inventoryVersion:2,entries}) with exactly this property order. Entries are sorted by selector and use exactly the schema field order below, excluding absent optional fields. The server hashes the exact UTF-8 manifestText and parses/validates it. No independently reserialized server object is used for byte equality.",
+    "selector": "A plain Chrome local key for whole-key entries; settings#/premiumSettings/responseContext or configList#/N/premiumSettings/responseContext for supported nested fields, where N is the exact nonnegative array index and is never inferred from configName. Session entries use session:<storageKey> and never alias a same-named local key.",
+    "sourceChange": "Any entry content/selector change or new legacy key requires a new manifest and migration ID; the previous immutable backup remains available. Missing sources during partial cleanup require a matching durable cleanup intent and claimed server permit."
+  },
+  "limits": {
+    "maxEntries": 1000,
+    "maxOperations": 2000,
+    "maxEntryBytes": 8388608,
+    "maxEntryRequestBytes": 16781312,
+    "maxManifestBytes": 1048576,
+    "maxJsonDepth": 64,
+    "maxJsonNodes": 100000,
+    "maxTotalJsonNodes": 1000000,
+    "maxTotalBytes": 134217728,
+    "maxActiveSessionsPerDevice": 1,
+    "maxRetainedSessionsPerDevice": 4,
+    "maxConcurrentUploadsGlobal": 1,
+    "maxVaultBytesIncludingTemporaryCopies": 536870912,
+    "minimumFreeBytes": 268435456,
+    "requestTimeoutMs": 20000,
+    "permitLifetimeSeconds": 300,
+    "maxPreviewBytes": 262144,
+    "maxPreviewRows": 200,
+    "maxPreviewPageBytes": 32768,
+    "maxPreviewPageRows": 20
+  },
+  "schemas": {
+    "entry": {
+      "fieldOrder": [
+        "entryId",
+        "selector",
+        "storageArea",
+        "storageKey",
+        "pointer",
+        "disposition",
+        "kind",
+        "size",
+        "sha256",
+        "containerSha256"
+      ],
+      "required": [
+        "entryId",
+        "selector",
+        "storageArea",
+        "storageKey",
+        "disposition",
+        "kind",
+        "size",
+        "sha256"
+      ],
+      "entryId": "UUID",
+      "selector": "Unique bounded allowlisted selector",
+      "storageArea": [
+        "local",
+        "session"
+      ],
+      "storageKey": "Known legacy or identity metadata key; never an operational credential/outbox key",
+      "pointer": "Absent for a whole key; exactly /premiumSettings/responseContext for settings or /N/premiumSettings/responseContext for configList",
+      "disposition": [
+        "remove_key",
+        "remove_path",
+        "retain_identity"
+      ],
+      "kind": [
+        "profile",
+        "profile_backup",
+        "profile_pending",
+        "answers",
+        "answers_backup",
+        "merge_baseline",
+        "management_backup",
+        "legacy_recovery",
+        "legacy_applications",
+        "identity",
+        "response_context"
+      ],
+      "size": "Nonnegative safe integer <= maxEntryBytes",
+      "sha256": "64 lowercase hexadecimal characters",
+      "containerSha256": "Required only for remove_path: hash of JSON.stringify(the complete original settings/configList value). Complete configuration bytes are not uploaded. For successive paths in one container, cleanup claims chain through the preceding acknowledged afterHash."
+    },
+    "session": {
+      "required": [
+        "migrationId",
+        "deviceId",
+        "manifestHash",
+        "clientBuild",
+        "phase",
+        "uploaded",
+        "cleaned"
+      ],
+      "migrationId": "UUID",
+      "deviceId": "Authenticated installation device",
+      "manifestHash": "64 lowercase hexadecimal characters",
+      "clientBuild": "Source build ID copied from the immutable manifest",
+      "phase": [
+        "receiving",
+        "backed_up",
+        "required_input",
+        "ready_to_apply",
+        "applying",
+        "ready_to_clean",
+        "cleaning",
+        "complete",
+        "superseded"
+      ],
+      "uploaded": "Array of entryId strings with acknowledged exact bytes",
+      "cleaned": "Array of entryId strings with acknowledged absence/rewrite",
+      "backup": "Optional backupProof",
+      "planRevision": "Optional positive integer",
+      "errorCode": "Optional fixed nonpersonal code"
+    },
+    "backupProof": {
+      "required": [
+        "backupId",
+        "migrationId",
+        "deviceId",
+        "manifestHash",
+        "serverManifestHash",
+        "durable",
+        "restoreVerified",
+        "entries",
+        "serverEntries"
+      ],
+      "durable": true,
+      "restoreVerified": true,
+      "entries": "Every client manifest entry as {entryId,size,sha256}; no omissions or additions; compared byte-for-byte after restoring a separate private backup.",
+      "serverEntries": "Server-captured settings/configList sources as {key,revision,size,sha256}; may be empty. Bytes are the complete original management_documents.value UTF-8 bytes, not a reserialized projection. Each relevant document is captured at its exact revision and restored/hash-verified too. These are separate from the client manifest because the client has not read their original bytes. The same entry/session byte and node budgets include these sources; an over-limit source remains intact and blocks completion.",
+      "serverManifestHash": "SHA-256 of the server's immutable source manifest; backupId binds both client and server manifests. Cleanup cannot be authorized while either source set has unresolved personal content."
+    },
+    "plan": {
+      "required": [
+        "migrationId",
+        "manifestHash",
+        "revision",
+        "phase",
+        "conflicts",
+        "operations"
+      ],
+      "revision": "Positive integer; stale revisions never apply decisions",
+      "conflicts": "Array of {id,kind,entryIds,title,detail,choices:[{id,label,requiresPreview}],preview?}; plan contains references only. Fact-bearing choices require a bounded lazy preview and server-issued previewId before resolution.",
+      "operations": "Array of {id,kind,entryIds,summary,state}; no raw values on status. Each source field has an explicit destination or preservation decision before cleanup.",
+      "choice": "A server-issued choice ID. No client-forged ready/complete flags and no arbitrary domain mutations.",
+      "conflictKinds": [
+        "profile_identity",
+        "profile_version",
+        "profile_fact",
+        "answer_owner",
+        "answer_conflict",
+        "invalid_source",
+        "credential_source",
+        "application_identity",
+        "application_owner_undo",
+        "response_context_owner",
+        "unaccounted_field"
+      ]
+    },
+    "permit": {
+      "required": [
+        "permitId",
+        "migrationId",
+        "deviceId",
+        "manifestHash",
+        "clientBuild",
+        "backupId",
+        "entryId",
+        "selector",
+        "sha256",
+        "disposition",
+        "observedState",
+        "expiresAt"
+      ],
+      "permitId": "Opaque random server-issued ID; server stores its binding and single cleanup claim",
+      "expiresAt": "Unix time in milliseconds; an expired permit cannot authorize a new deletion",
+      "observedState": [
+        "present",
+        "session_absent"
+      ],
+      "containerBeforeSha256": "Required and bound for remove_path. The first cleanup for a container equals the original entry containerSha256; subsequent claims equal that container's most recent acknowledged afterHash. A preceding unacknowledged claim must be resumed before another path can be claimed.",
+      "preconditions": "Issued only after complete backup restore proof and authoritative reconciliation. Claimed/acked state is durable and replay-safe. New grant/device/build/source changes do not inherit old authorization."
+    }
+  },
+  "sourcePolicy": {
+    "legacyKeys": [
+      "profile",
+      "jobsProfilesCache",
+      "jobsProfileBeforeMigration",
+      "jobsProfilePending",
+      "responseList",
+      "jobsResponsesLegacyBackup",
+      "jobsManagementBaseV1",
+      "jobsManagementBeforeMigrationV1",
+      "jobsTabProfileRecoveryV1",
+      "appliedList"
+    ],
+    "legacyPattern": "^jobsResponses:(?:[a-f0-9-]{36}|local-default)$",
+    "identityKeys": [
+      "lastSyncProfile",
+      "jobsProfileMigration",
+      "jobsResponsesMigrationV1"
+    ],
+    "identityDisposition": "Read and back up only known schema-validated identity/time fields; retain the original local key. Old complete flags are evidence of identity only, never backup or cleanup proof. Unexpected fields block that source instead of being dropped.",
+    "responseContext": "Nonempty settings.premiumSettings.responseContext and any configList[N].premiumSettings.responseContext also block ordinary readiness. The guard may perform size-bounded settings/configList reads to test these fields' presence, never expose/cache their values in status; legacy Profile/answer values remain unread until explicit migration. Only each context field's exact value is uploaded. Its Profile destination is required input unless independently established by source evidence, never guessed from configName. Cleanup hashes the entire original container, deletes only the selected own property, hashes the resulting container and proves every other value is unchanged. Array items and indexes remain intact.",
+    "serverContexts": "At seal, the server additionally captures management_documents settings/configList with nonempty responseContext at their exact revisions. It backs up, compares and resolves these sources too; normal settings writes cannot silently delete or introduce this legacy fact field. Applying approved removal uses optimistic revision checks and preserves all other settings. Ready-to-clean and complete require these server sources to be reconciled.",
+    "sessionSources": "Only currently unacknowledged jobsResponses:<UUID> values and their corresponding jobsManagementBaseV1 subset returned by DocumentStore.pendingSnapshot may enter from session storage. Never read/copy complete Profiles or arbitrary session keys and never write these private values to local. Normal PrivateSession release first drops confirmed caches and retains exactly the pending snapshot. A base entry may use remove_key only when its complete actual current value equals that pending subset and every contained key belongs to a session response entry in this manifest; otherwise source_changed/required_input. It never authorizes deletion of a larger base containing unrelated values. Session responses/base receive normal backup coverage and per-key cleanup permits.",
+    "sessionDisappearance": "Chrome clears session storage on browser exit. A missing source without durable upload confirmation is required_input, never an implied successful save. Once exact backup/restore and all domain reconciliation are verified, the server may issue an observedState=session_absent permit for a session-only entry. Its ack records session_expired, distinctly from a client deletion, without fabricating a pre-deletion intent. Local sources still require their existing intent/claim to resume absence.",
+    "neverUploadOrDelete": [
+      "jobsSyncV1",
+      "jobsSubmissionGuardsV1",
+      "jobsApplicationQueueV1",
+      "autofillAccount",
+      "jobsKindProfiles",
+      "jobsProfileSelection",
+      "jobsTabProfileRecoveryV2"
+    ],
+    "unknownKeys": "Report names as outside the demonstrated inventory; never guess their contents, upload them or delete them.",
+    "credentials": "Reject recognized credential fields or unsupported source structures. Do not redact a partial upload and call it a complete backup; leave the original key unchanged."
+  },
+  "routes": [
+    {
+      "method": "POST",
+      "path": "",
+      "request": {
+        "protocolVersion": 2,
+        "manifestText": "Exact manifest JSON string",
+        "manifestHash": "sha256"
+      },
+      "response": "session; same migrationId and exact manifest are idempotent; same ID with different bytes is 409"
+    },
+    {
+      "method": "PUT",
+      "path": "/{migrationId}/entries/{entryId}",
+      "request": {
+        "jsonText": "Exact entry JSON string",
+        "size": "bytes",
+        "sha256": "sha256"
+      },
+      "response": {
+        "migrationId": "UUID",
+        "entryId": "UUID",
+        "size": "bytes",
+        "sha256": "sha256",
+        "stored": true
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/{migrationId}",
+      "response": "session without source values"
+    },
+    {
+      "method": "POST",
+      "path": "/{migrationId}/supersede",
+      "request": {
+        "manifestHash": "sha256",
+        "replacementMigrationId": "UUID"
+      },
+      "response": "session with superseded; a separate explicit management action, never an automatic source-change retry. Old backup remains pinned and permits are invalidated. Replacement admission remains bounded."
+    },
+    {
+      "method": "POST",
+      "path": "/{migrationId}/seal",
+      "request": {
+        "manifestHash": "sha256"
+      },
+      "response": "session including verified backupProof; incomplete or changed uploads cannot seal"
+    },
+    {
+      "method": "GET",
+      "path": "/{migrationId}/plan",
+      "response": "plan"
+    },
+    {
+      "method": "POST",
+      "path": "/{migrationId}/resolve",
+      "request": {
+        "planRevision": "positive integer",
+        "conflictId": "server-issued ID",
+        "choiceId": "server-issued ID",
+        "previewId": "Required for choices with requiresPreview=true; binds the completed ordered page sequence, revision, choice and unchanged source/target fingerprints."
+      },
+      "response": "updated plan"
+    },
+    {
+      "method": "POST",
+      "path": "/{migrationId}/apply",
+      "request": {
+        "planRevision": "positive integer",
+        "manifestHash": "sha256"
+      },
+      "response": "session; deterministic per-operation idempotency; a version conflict returns required_input and preserves every source"
+    },
+    {
+      "method": "POST",
+      "path": "/{migrationId}/verify",
+      "request": {
+        "manifestHash": "sha256"
+      },
+      "response": "session with ready_to_clean only after source coverage plus authoritative readback/version evidence; restoreVerified remains mandatory"
+    },
+    {
+      "method": "POST",
+      "path": "/{migrationId}/cleanup-claim",
+      "request": {
+        "entryId": "UUID",
+        "manifestHash": "sha256",
+        "sha256": "source hash",
+        "clientBuild": "build ID",
+        "observedState": "present|session_absent",
+        "containerBeforeSha256": "required for remove_path"
+      },
+      "response": "permit; retry before cleanup may renew expiry on the same bound claim; retain_identity entries never receive permits"
+    },
+    {
+      "method": "POST",
+      "path": "/{migrationId}/cleanup-ack",
+      "request": {
+        "entryId": "UUID",
+        "permitId": "opaque ID",
+        "manifestHash": "sha256",
+        "result": "absent|path_absent|session_expired",
+        "containerAfterSha256": "optional settings hash"
+      },
+      "response": "session; durable claimed permit can acknowledge an already completed cleanup after expiry; cannot authorize another deletion"
+    },
+    {
+      "method": "POST",
+      "path": "/{migrationId}/complete",
+      "request": {
+        "manifestHash": "sha256",
+        "legacyRemaining": 0
+      },
+      "response": "session with complete only if every required server claim/ack and reconciliation is present; client still independently enumerates actual local storage before allowing autofill"
+    },
+    {
+      "method": "GET",
+      "path": "/{migrationId}/conflicts/{conflictId}/preview",
+      "query": {
+        "choiceId": "server-issued choice ID",
+        "cursor": "Omit initially, then only the server-issued opaque nextCursor"
+      },
+      "response": "{planRevision,conflictId,choiceId,rows,complete,totalRows,totalBytes,nextCursor?,previewId?,blocked?,code?}; each page <=32KiB/20 rows and total <=256KiB/200 rows. Long text rows carry part/parts. Attachments carry only transport SHA-256/size, never base64. Only a complete ordered sequence issues previewId. Over-budget previews explicitly block without a proof. No values in local storage, logs or status."
+    }
+  ],
+  "clientQuiescence": [
+    "Before any legacy value read, enter a durable migration maintenance gate; normal autofill, Profile operations, answer saves, management synchronization and settings mutation pause. Receipt delivery and uncertain-submit protection stay available.",
+    "Invalidate active private page sessions, retaining unacknowledged session answers for their original Profile. No deletion of pending answers is implied by beginning migration.",
+    "Use storage.local.setAccessLevel(TRUSTED_CONTEXTS) to exclude content-script storage access; this does not prove trusted extension views are stopped.",
+    "Enumerate runtime.getContexts. Only the current-build service worker and one explicit migration TAB may remain. Close known old extension TAB views; POPUP, SIDE_PANEL, DEVTOOLS, OFFSCREEN or unknown contexts require verified disappearance. Never refresh application pages to obtain this state.",
+    "Recheck the context allowlist and actual source hashes before every deletion. Serialize all packaged sensitive writers behind the maintenance gate; persist only migration/entry/hash/permit intent metadata.",
+    "An isolated synthetic V1-to-V2 browser upgrade must demonstrate that an old content context cannot continue local writes and an old trusted view prevents cleanup. Without that evidence do not enable live cleanup.",
+    "For each key: claim server permit, persist intent, revalidate context/inventory/hash, remove just that key (or the single permitted nested path), read back absence, acknowledge. A resumed absent key needs a matching persisted intent and server claim. No storage.clear().",
+    "Never infer readiness from old migration flags or an absent journal. Readiness requires actual clean inventory and completed authoritative migration proof when this installation has entered migration."
+  ],
+  "resourcePolicy": [
+    "Only one active migration per authenticated device. Read and upload entries serially; never Promise.all all values/uploads and never persist a second local private snapshot. Discard each value's temporary bytes after acknowledgement.",
+    "The server serializes bounded upload admission globally and checks entry/session bytes, total vault bytes including temporary restore copies, and remaining disk space before accepting more data. Bounds cover incomplete uploads and failed restores too.",
+    "Changing source creates a new immutable manifest only after the old active session is explicitly superseded. The retained-session and total-vault budgets still apply; superseded unresolved data remains pinned but cannot permit unlimited duplicate snapshots. Exceeding any budget blocks with an explicit code and leaves browser source values intact.",
+    "Unknown key names remain outside the demonstrated inventory. Completing this manifest never certifies that all other browser/profile/device privacy has been removed; acceptance records the unverified scope separately."
+  ],
+  "errors": [
+    "migration_auth_required",
+    "migration_owner_mismatch",
+    "migration_manifest_conflict",
+    "migration_source_changed",
+    "migration_limit",
+    "migration_invalid_source",
+    "migration_credential_source",
+    "migration_incomplete_backup",
+    "migration_restore_unverified",
+    "migration_plan_stale",
+    "migration_required_input",
+    "migration_writer_active",
+    "migration_permit_invalid",
+    "migration_permit_expired",
+    "migration_ack_conflict",
+    "migration_offline"
+  ],
+  "retirement": "This is an explicit one-time management facility. Ordinary startup only loads metadata guard/maintenance checks, never legacy readers, converters or migration retries. Worker migration code loads lazily from the private management action. Service mutations require an explicit owner/device-bound migration session. Once the authorized installation is migrated and recovery evidence retained, remove upload/reconcile/cleanup UI and routes in a later reviewed cleanup; retain the normal metadata guard, immutable migration evidence and offline restore tool. A completed migration is not permission to automatically reopen the old protocol.",
+  "evidence": "This document contains protocol metadata only. It does not authorize reading installed Chrome storage, transferring real personal values or publishing the extension."
+}

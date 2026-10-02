@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "valuePolicy": "synthetic_fixture",
+  "capturedAt": 1789871404933,
+  "build": "unbuilt",
+  "ats": "workday",
+  "origin": "https://example.myworkdayjobs.com",
+  "fields": [
+    {
+      "id": "case-field-1",
+      "observed": {
+        "kind": "radio",
+        "component": "radio",
+        "required": true,
+        "hasValue": false,
+        "invalid": false,
+        "completion": "required-empty"
+      },
+      "tree": {
+        "tag": "fieldset",
+        "attrs": {
+          "data-jobs-repro-target": "true",
+          "data-automation-id": "disability-CheckboxGroup"
+        },
+        "children": [
+          {
+            "tag": "legend",
+            "attrs": {},
+            "children": [
+              {
+                "text": "Select one: Fixture text 1 *"
+              }
+            ]
+          },
+          {
+            "tag": "label",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "input",
+                "attrs": {
+                  "name": "fixture-id-1",
+                  "type": "checkbox",
+                  "aria-required": "true"
+                },
+                "children": [],
+                "checked": false
+              },
+              {
+                "text": "Fixture text 2"
+              }
+            ]
+          },
+          {
+            "tag": "label",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "input",
+                "attrs": {
+                  "name": "fixture-id-1",
+                  "type": "checkbox",
+                  "aria-required": "true"
+                },
+                "children": [],
+                "checked": false
+              },
+              {
+                "text": "Fixture text 3"
+              }
+            ]
+          }
+        ]
+      },
+      "portals": []
+    }
+  ],
+  "timeline": [],
+  "coverage": {
+    "truncated": false,
+    "nodes": 9,
+    "closedRootsUnknown": true
+  },
+  "limitations": [
+    "Original text, identifiers and answer values are replaced with synthetic data.",
+    "Only observed field DOM and open shadow roots are retained; unopened options are unavailable.",
+    "React handlers, stylesheets, network responses and site validation logic are not recorded.",
+    "Replay verifies component reading against this snapshot, not full website behavior or submission."
+  ]
+}

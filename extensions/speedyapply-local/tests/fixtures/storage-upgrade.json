@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "description": "Entirely synthetic installation fixture; no real person, login or server values.",
+  "profileId": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+  "local": {
+    "profile": {
+      "profileName": "Synthetic Local",
+      "nameData": {
+        "firstName": "Fixture"
+      },
+      "applicationData": {
+        "aiNotes": "New local fact pending review"
+      }
+    },
+    "jobsProfilesCache": {
+      "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa": {
+        "profile": {
+          "profileName": "Synthetic Earlier"
+        }
+      }
+    },
+    "jobsProfilePending": {
+      "path": "/api/ext/sync/profile",
+      "body": {
+        "id": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "expected_sync": "v1",
+        "profile": {
+          "profileName": "Synthetic Pending"
+        }
+      }
+    },
+    "jobsResponses:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa": [
+      {
+        "question": "Synthetic exact question?",
+        "response": "Unsynced fixture answer"
+      }
+    ],
+    "jobsManagementBaseV1": {
+      "jobsResponses:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa": {
+        "revision": 1,
+        "value": []
+      }
+    },
+    "jobsTabProfileRecoveryV1": {
+      "7": {
+        "id": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "profile": {
+          "profileName": "Synthetic Recovery"
+        }
+      }
+    },
+    "appliedList": [
+      {
+        "jobLink": "https://jobs.example.test/fixture",
+        "status": "applied"
+      }
+    ],
+    "jobsSyncV1": {
+      "deviceId": "synthetic-device",
+      "disabled": false,
+      "token": "fixture-token",
+      "profileToken": "fixture-profile-token",
+      "outbox": [
+        {
+          "payload": {
+            "event_id": "synthetic-event",
+            "job_url": "https://jobs.ashbyhq.com/fixture/11111111-2222-3333-4444-555555555555",
+            "job_title": "Synthetic Engineer",
+            "company": "Synthetic",
+            "proof": "submit_attempt",
+            "observed_at": "2026-09-26T00:00:00Z"
+          },
+          "attempts": 0,
+          "next": 0
+        }
+      ],
+      "seen": {
+        "synthetic-attempt": 1790380800000
+      }
+    },
+    "jobsSubmissionGuardsV1": {
+      "synthetic": {
+        "state": "uncertain",
+        "attemptId": "synthetic-event"
+      }
+    },
+    "autofillAccount": {
+      "accountEmail": "fixture@example.invalid",
+      "accountPassword": "synthetic-placeholder"
+    },
+    "jobsApplicationQueueV1": {
+      "pending": ["synthetic-job"]
+    },
+    "settings": {
+      "autofillSettings": {
+        "autoSubmit": false
+      }
+    },
+    "jobsKindProfiles": {
+      "intern": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+    }
+  },
+  "server": {
+    "profile": {
+      "profileName": "Synthetic Server",
+      "applicationData": {
+        "aiNotes": "Previous acknowledged fact"
+      }
+    },
+    "profileVersion": "v2",
+    "responses": []
+  },
+  "expected": {
+    "state": "needs_migration",
+    "conflicts": [
+      "local_profile_differs",
+      "pending_profile_version_conflict",
+      "unacknowledged_answers",
+      "legacy_application_reconciliation"
+    ],
+    "preserve": [
+      "jobsSyncV1",
+      "jobsSubmissionGuardsV1",
+      "autofillAccount",
+      "jobsApplicationQueueV1",
+      "settings",
+      "jobsKindProfiles"
+    ]
+  }
+}

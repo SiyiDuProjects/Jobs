@@ -1,0 +1,13 @@
+[
+  {"name":"Chinese and metadata","input":{"key":"name","keywords":[" 全名 "],"appearances":1,"response":" Fixture Applicant ","question":"您的全名？","source":{"kind":"confirmed"}},"valid":true,"keywords":["全名"],"response":"Fixture Applicant"},
+  {"name":"Unicode and distinct keywords","input":{"key":"unicode","keywords":["ＦＵＬＬ","full","名字","école"],"appearances":3,"response":"Example"},"valid":true,"keywords":["full","名字","école"],"response":"Example"},
+  {"name":"empty keyword","input":{"key":"bad","keywords":[""],"appearances":1,"response":"Example"},"valid":false},
+  {"name":"punctuation only","input":{"key":"bad","keywords":["!?!"],"appearances":1,"response":"Example"},"valid":false},
+  {"name":"duplicate threshold","input":{"key":"bad","keywords":["NAME","name"],"appearances":2,"response":"Example"},"valid":false},
+  {"name":"nonpositive threshold","input":{"key":"bad","keywords":["name"],"appearances":0,"response":"Example"},"valid":false},
+  {"name":"fractional threshold","input":{"key":"bad","keywords":["name"],"appearances":0.5,"response":"Example"},"valid":false},
+  {"name":"wrong keyword type","input":{"key":"bad","keywords":[3],"appearances":1,"response":"Example"},"valid":false},
+  {"name":"blank response","input":{"key":"bad","keywords":["name"],"appearances":1,"response":" "},"valid":false},
+  {"name":"wrong provenance type","input":{"key":"bad","keywords":["name"],"appearances":1,"response":"Example","fromAutofill":"true"},"valid":false},
+  {"name":"null record","input":null,"valid":false}
+]

@@ -1,0 +1,64 @@
+[
+  {
+    "url": "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=tenant-123&jobId=12345&source=sample&token=private",
+    "publicUrl": "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=tenant-123&jobId=12345",
+    "jobKey": "[\"workforcenow.adp.com\",\"adp\",\"tenant-123\",\"12345\"]"
+  },
+  {
+    "url": "https://example.eightfold.ai/careers?pid=12345&location=Boston&auth=private",
+    "publicUrl": "https://example.eightfold.ai/careers?pid=12345",
+    "jobKey": "[\"example.eightfold.ai\",\"eightfold\",\"12345\"]"
+  },
+  {
+    "url": "https://www.indeed.com/viewjob?jk=example123&from=search&token=private",
+    "publicUrl": "https://www.indeed.com/viewjob?jk=example123",
+    "jobKey": "[\"indeed.com\",\"indeed\",\"example123\"]"
+  },
+  {
+    "url": "https://company.taleo.net/careersection/2/jobdetail.ftl?job=REQ123&lang=en&session=private",
+    "publicUrl": "https://company.taleo.net/careersection/2/jobdetail.ftl?job=REQ123",
+    "jobKey": "[\"company.taleo.net\",\"taleo\",\"REQ123\"]"
+  },
+  {
+    "url": "https://apply.careers.microsoft.com/careers?pid=12345&domain=microsoft.com&token=private",
+    "publicUrl": "https://apply.careers.microsoft.com/careers?pid=12345",
+    "jobKey": "[\"apply.careers.microsoft.com\",\"microsoft\",\"12345\"]"
+  },
+  {
+    "url": "https://careers.example.com/openings?gh_jid=12345&source=sample&code=private",
+    "publicUrl": "https://careers.example.com/openings?gh_jid=12345",
+    "jobKey": "[\"careers.example.com\",\"gh_jid\",\"12345\"]"
+  },
+  {
+    "url": "https://boards.greenhouse.io/embed/job_app?token=12345&auth=private",
+    "publicUrl": "https://boards.greenhouse.io/embed/job_app?token=12345",
+    "jobKey": "[\"job-boards.greenhouse.io\",\"greenhouse_embed\",\"12345\"]"
+  },
+  {
+    "url": "https://job-boards.greenhouse.io/example/jobs/12345?gh_src=sample&token=private",
+    "publicUrl": "https://job-boards.greenhouse.io/example/jobs/12345",
+    "jobKey": "[\"job-boards.greenhouse.io\",\"greenhouse\",\"example\",\"12345\"]"
+  },
+  {
+    "url": "https://jobs.ashbyhq.com/example/6a2b283b-fdc0-4ad1-a629-8c0711db9022/application?token=private#access_token=private",
+    "publicUrl": "https://jobs.ashbyhq.com/example/6a2b283b-fdc0-4ad1-a629-8c0711db9022/application",
+    "jobKey": "[\"jobs.ashbyhq.com\",\"path\",\"/example/6a2b283b-fdc0-4ad1-a629-8c0711db9022\"]"
+  },
+  {
+    "url": "https://careers.example.com/apply?job=12345&token=private",
+    "publicUrl": null
+  },
+  {
+    "url": "https://careers.example.com/apply?job=12345&utm_source=sample",
+    "publicUrl": "https://careers.example.com/apply?job=12345",
+    "jobKey": "[\"careers.example.com\",\"exact\",\"/apply\",\"job=12345\",\"\"]"
+  },
+  {
+    "url": "https://user:password@jobs.ashbyhq.com/example/12345",
+    "publicUrl": null
+  },
+  {
+    "url": "https://jobs.example.com/user@example.com/apply",
+    "publicUrl": null
+  }
+]

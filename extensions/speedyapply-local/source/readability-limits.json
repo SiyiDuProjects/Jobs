@@ -1,0 +1,31 @@
+{
+  "established": "2026-09-26 closeout",
+  "note": "No opening size threshold was recorded. These reviewed limits prevent future expansion and do not claim retrospective process compliance.",
+  "files": {
+    "src/custom/automatic-fill.js": {
+      "maxLines": 1350,
+      "functions": {
+        "advance": { "maxLines": 175, "maxOwnLines": 110 },
+        "run": {
+          "maxLines": 800,
+          "maxOwnLines": 200,
+          "exception": "The page run encloses its scoped ledger, freshness, readiness and review helpers; own-line limit excludes those separately named responsibilities."
+        },
+        "prepareSupplement": { "maxLines": 115, "maxOwnLines": 100 },
+        "applySupplement": { "maxLines": 230, "maxOwnLines": 190 }
+      }
+    },
+    "src/custom/control-fields.js": {
+      "maxLines": 2600,
+      "functions": {
+        "scan": {
+          "maxLines": 430,
+          "maxOwnLines": 375,
+          "exception": "One canonical native-control reader covers date, select, radio and checkbox semantics; site branches remain prohibited and custom components stay in their registry."
+        },
+        "normalizeOptions": { "maxLines": 50, "maxOwnLines": 45 },
+        "annotateCompletion": { "maxLines": 45, "maxOwnLines": 40 }
+      }
+    }
+  }
+}

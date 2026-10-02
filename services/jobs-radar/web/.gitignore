@@ -1,0 +1,3 @@
+node_modules/
+vendor/*
+!vendor/heroui-pro-react-1.0.0-beta.8.tgz

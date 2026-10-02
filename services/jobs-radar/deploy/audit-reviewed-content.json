@@ -1,0 +1,361 @@
+{
+  "version": 1,
+  "objects": {
+    "5238e6433fc92f1ff3a77f0ef9ece9ccd9dc9eda55e4c561d62739fb0befb271": {
+      "kind": "png-visual",
+      "gitObject": "6976c46a55034aceb4d8f88ff17ac5fd1f2988b9",
+      "size": 558877,
+      "allowedFindings": [],
+      "basis": "2026-09-26 exact Git blob matched the existing local file; complete visible image inspected. Application icon or resume page; no passwords, verification codes or keys. Runtime still validates every PNG chunk and the complete bounded pixel stream."
+    },
+    "511ca7b2d37b3d07448fe0e2fcc6471fc6c5ea3b9bd30efd92d3ab8218ca6ca4": {
+      "kind": "source-syntax",
+      "gitObject": "b107100aff4c051b4eefd9ffc385e43ce0fdbde2",
+      "size": 788552,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "52ecd7a684f5c1046cb00e78d3c43d3104c108c3595ad94593aa149a164921e6": {
+      "kind": "source-syntax",
+      "gitObject": "7327708fc96b5bab77a21dcfc7cfce24e95b8ab3",
+      "size": 788195,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "30bc07ed1999f2dbed5a4a100b6ab2b53daea120f1d1e4ef16cc675cbc68f8b4": {
+      "kind": "source-syntax",
+      "gitObject": "9f62351a7d4066fe761f313bee60b5069338bb6c",
+      "size": 1243564,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "a55a4d68b3b1250d3cb6c770047c88aab5bda349ede261efdd7243b7dacd7d24": {
+      "kind": "source-syntax",
+      "gitObject": "2718950ff644292b1ca429c7e78efbe8f0cf8231",
+      "size": 1243315,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "0d31b4cdca6d7a09819adaad04f13cff507b11b74c3c23ff0c0c799bc6db66cc": {
+      "kind": "source-syntax",
+      "gitObject": "8e05ee11560e498122f94f8311658343d808fdd9",
+      "size": 1243194,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "38e81696f2231930f8f484d636630afa03e59a674fbeb01972a041e3cad9b4b6": {
+      "kind": "null-connection",
+      "gitObject": "96da0cbf403a73996d8a15cb5f55c1f185507b06",
+      "size": 203,
+      "allowedFindings": [],
+      "basis": "Exact AST reviewed: only a null JobsPrivateConnection assignment, with comments; no configured connection or credential literal."
+    },
+    "ff58004fb4b13189d1dbed63581df0e9e0ae2eeb79657cb839212465d64ff3d9": {
+      "kind": "png-visual",
+      "gitObject": "df86cccef87f50c4bf93958180a6303b4eb20175",
+      "size": 9067,
+      "allowedFindings": [],
+      "basis": "2026-09-26 exact Git blob matched the existing local file; complete visible image inspected. Application icon or resume page; no passwords, verification codes or keys. Runtime still validates every PNG chunk and the complete bounded pixel stream."
+    },
+    "21764003f11ace5839315542eece07e92d91063bdb96038788d2ba0411a273ee": {
+      "kind": "png-visual",
+      "gitObject": "5b32fdd801c49ed190e5c988abc5448de80aeb03",
+      "size": 620,
+      "allowedFindings": [],
+      "basis": "2026-09-26 exact Git blob matched the existing local file; complete visible image inspected. Application icon or resume page; no passwords, verification codes or keys. Runtime still validates every PNG chunk and the complete bounded pixel stream."
+    },
+    "c3c45f7bed73f383e7dbf78a2f5128c7ecc90358d391d0f838d2d55999fc9a35": {
+      "kind": "png-visual",
+      "gitObject": "a8a7f5016683c82f7e97470afa43200594cfe9c4",
+      "size": 1294,
+      "allowedFindings": [],
+      "basis": "2026-09-26 exact Git blob matched the existing local file; complete visible image inspected. Application icon or resume page; no passwords, verification codes or keys. Runtime still validates every PNG chunk and the complete bounded pixel stream."
+    },
+    "6e7e51ba51f2f257c159256024920e3dff3c5484e77b90c59b8423b85950104f": {
+      "kind": "png-visual",
+      "gitObject": "beb16af72f2240370ad203fd1b41ffc1c5fa1e8c",
+      "size": 2217,
+      "allowedFindings": [],
+      "basis": "2026-09-26 exact Git blob matched the existing local file; complete visible image inspected. Application icon or resume page; no passwords, verification codes or keys. Runtime still validates every PNG chunk and the complete bounded pixel stream."
+    },
+    "51c75edc07d40efa703d009d3b464b7d1b1570f9f3c79b742052e87dc903a783": {
+      "kind": "png-visual",
+      "gitObject": "4fd5a88a72cd4d0535b0fcc007b9a002a8c5d421",
+      "size": 5912,
+      "allowedFindings": [],
+      "basis": "2026-09-26 exact Git blob matched the existing local file; complete visible image inspected. Application icon or resume page; no passwords, verification codes or keys. Runtime still validates every PNG chunk and the complete bounded pixel stream."
+    },
+    "ab92db930a73dc84b28b3b41b85cd1b6bf7c10c16821aef17d3de1f9193fcffa": {
+      "kind": "source-syntax",
+      "gitObject": "a50dc51233804215767283077fb13e216699bfba",
+      "size": 4056,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "a374f9a52eda363103bfb425520e5c44b1f00beffaf944f2297132d1663e0242": {
+      "kind": "source-syntax",
+      "gitObject": "02641efcee87761f834d20c3992bef6658e0dc17",
+      "size": 23322,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "0ef2263cad6c0c6ff1249544aa20bf2b766a8890742e53f0ad79820013c2e357": {
+      "kind": "source-syntax",
+      "gitObject": "2e1a1751a3206eddaa7a091901d5de85d814d2d7",
+      "size": 23264,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "a18896d0e18cc9a1e2551d0f0ccb7d94a1dde27a1f2bcc80659577bef26d02b4": {
+      "kind": "source-syntax",
+      "gitObject": "ebdb3988a7ea2b83f30f26763c3f4f2817f7fc76",
+      "size": 22884,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "0d4e44dc1d0f4c569519e47c01c53181ee204109400c20f1951e1c80ae15c040": {
+      "kind": "source-syntax",
+      "gitObject": "9c22f3d8b1cfaf233f0637e226702849bc7b3541",
+      "size": 19829,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "26d6f70b00aa72b2e2c945ba6e25d9fcf3cc7a56fe7392a3e5382fde51cdc5cb": {
+      "kind": "source-syntax",
+      "gitObject": "8dd5084093392b09c1204b82008862977bbf5c1e",
+      "size": 17063,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "593078cb3d08cd096b8fe77f5e9779ef1525d34964e3463173061a1befdbb2d5": {
+      "kind": "source-syntax",
+      "gitObject": "a0c93dcc7d9b3760452a3e03f406e751392c5408",
+      "size": 16997,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "3f122cfd45ae08caba4d0eef8c602ba679153b91ab70bf9c8749e963efb1e3da": {
+      "kind": "source-syntax",
+      "gitObject": "b85ed36faff1de38cb1f561ab17407380290a20e",
+      "size": 517632,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "9e193039226d6d39801156ebd5d5bb755c29a3c6af13bcc6ba9bbf21d4e4f1c7": {
+      "kind": "source-syntax",
+      "gitObject": "2b0cc905b715fd7baf0a26c896988e841c072d71",
+      "size": 809239,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "13699cc1248dbc11188eca258151524adda104fd9d04c7ea24c3fb7b7fb2eff4": {
+      "kind": "source-syntax",
+      "gitObject": "73a218e0a3b5858621dd1314c731d2aac768c394",
+      "size": 1071393,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "ddbc23d4af76920686d5af8824e15a3b11cbed7a14dd41bbf4a803d108630503": {
+      "kind": "source-syntax",
+      "gitObject": "1198b70f7db1c5915cc50be2f9c154cd5e52625f",
+      "size": 13121,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "b374c37a26d6b3d0029aef1d48e2b979e96f45d116acbf596629d83ca7414d17": {
+      "kind": "source-syntax",
+      "gitObject": "ce4c32426efd4fb32ab58400f60a66c91b27aea5",
+      "size": 1578,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "768a87030cfe20d739f27cbab46ebc806b2a1d0fb02c76684b0674e8d728e800": {
+      "kind": "source-syntax",
+      "gitObject": "ce1203929073639d3ab385fbd300895b3ede84a7",
+      "size": 6317,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "7498bcd00fafb4286e3fabacdb29fb6e3b10a6d74f54d4ea1247c57c94c8dd2d": {
+      "kind": "source-syntax",
+      "gitObject": "a1ef3c65580277d7e92fb31548a9f1a0b0adf303",
+      "size": 4930,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "efaaf90dc9a01b4c569477156981e4a8d54abb6ee9a1377cd9a7666b4a56e847": {
+      "kind": "source-syntax",
+      "gitObject": "ba41e088c7dcb2983e2134ac1f80fe64ff40c38d",
+      "size": 2022,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "adc0fbd193c9ae6d97d5490fbc007c386fd1274370bb54afa9c9faf027863537": {
+      "kind": "source-syntax",
+      "gitObject": "53d0db56616a1e1c867c2fb03f2996f6195d20ac",
+      "size": 7359,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "8d782f36a788855b1980d8783de8260a54e13be6c45765e8cb35b311bacf1296": {
+      "kind": "source-syntax",
+      "gitObject": "a7bddb777ec7391721b872a2c371fc6c6de65d92",
+      "size": 7181,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "81485ad92d8becefc73ec3ee767ef759ea857d58a446bd0a15be1842fa682608": {
+      "kind": "source-syntax",
+      "gitObject": "dbec4bed47d414b38b046a985426972981d2abc2",
+      "size": 27325,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "b99725b294ecccf5e30d444258e7356539d29ffad097c0f13a61843e9d47bdd4": {
+      "kind": "source-syntax",
+      "gitObject": "5d5498d261c9db4f980b01467eba8e2aed8b5901",
+      "size": 27284,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "a33070f4ec4b73fa987a05219113ba1d562cf6d4ff40d693a32106e94d0e9338": {
+      "kind": "source-syntax",
+      "gitObject": "d3b5cbc99bb58de08ef5c171b91d6ed2ccebe39f",
+      "size": 27306,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "1c1ce8fb450e448aeae6540701621948f7b203249504ca337305ba1201032b94": {
+      "kind": "source-syntax",
+      "gitObject": "6847a00dd28c1e0ff3af67001769dc9a321f9ef1",
+      "size": 4763,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "e5d03ec007369b2cb750b2004c47ad87f31d6e008454834523d246639900b3f1": {
+      "kind": "source-syntax",
+      "gitObject": "8a030ad43099c330388cca044b1f594734561fe0",
+      "size": 28070,
+      "allowedFindings": [
+        "possible-credential-content"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "74e2d1c217117b889ffb8abfd7a145e2f6576558fbcb790f50987ab32a3ca18d": {
+      "kind": "source-syntax",
+      "gitObject": "66e7da4f27d7e5ce8f646e39db69f43c9b5a465a",
+      "size": 788070,
+      "allowedFindings": [
+        "possible-credential-assignment"
+      ],
+      "basis": "2026-09-26 exact Git blob syntax reviewed. Pattern occurs in runtime expressions/protocol event names, generated synthetic test fixtures, type/control labels or UI concurrency identifiers. No embedded provider key/private key confirmed; no file-path exemption."
+    },
+    "962cead6d3bcb0464f37720b57701740e3bca3e801b9e616a687c6d684fb3e52": {
+      "kind": "pdf-visual",
+      "size": 266298,
+      "gitObject": "6de3153eb2f70f7ca22ed9f9f145f4d52682b452",
+      "allowedFindings": [],
+      "basis": "Both revisions render to identical two pages; all four image objects independently rendered and visually inspected: institution artwork/header, delivery footer, and uniform mask. No credential visible. Exact revision boundaries reviewed; all revisions, xref objects, decoded streams, metadata, fields and attachments remain scanned. Empty password only; no rewrite. Signature Contents are public CMS bytes, not an authentication secret.",
+      "pdfRevisions": [
+        "2672c3cbba1a77d17c5fc04723eab98d0d1cff8f2a4aae375905534b92979c12",
+        "962cead6d3bcb0464f37720b57701740e3bca3e801b9e616a687c6d684fb3e52"
+      ]
+    },
+    "860895b8148170fcfb1a419dd72851c674ae6b255e8b5ee5f9ebe9b5d4dc7bd3": {
+      "kind": "c2pa-structure",
+      "size": 24300,
+      "allowedFindings": [],
+      "svgSha256": "75c1e9fffa5e8c437bec1d67197a73992bca45d166c6ff23215185dea8fae92a",
+      "publicCrypto": {
+        "x509": [
+          "a6d282bccebc7a5648de3400d9e633370a8aa4f86105adae9f40039ac3a76b90",
+          "d54896be1e48e09109e02c7596d0371611288e4c9679376a1fa0045432dc36f1"
+        ],
+        "timestamp": [
+          "853bb4d9037cdd7a0e83af8f90c7ec65168afabffae779da5903b4bb95a9a1fa"
+        ],
+        "ocsp": [
+          "95b1abd720a98961c193a9709c2af0ed8e3d5c22562c2d6f02c77432b9a11831"
+        ],
+        "rsaSignature": [
+          "d7b1012c84df205b60ff01701bc42d9afb6e8b4df041fd1691d46792be813b4a"
+        ]
+      },
+      "basis": "2026-09-26 finite C2PA content review: every JUMBF byte, definite CBOR item including protected COSE header, public X509/CMS timestamp/OCSP DER envelope and decoded metadata are inspected; public cryptographic component hashes only constrain opaque signatures/keys. The exact SVG contains one vector path with no text, external reference or script. Unknown structures, fields, nonzero padding and changed binary fail closed. This does not validate certificate trust or signature legal effect."
+    },
+    "e6d16e42e8a482df155d98d6a35b4d05ae5b86a62249d68ff8d0b7d71cffccb1": {
+      "kind": "c2pa-structure",
+      "size": 24300,
+      "allowedFindings": [],
+      "svgSha256": "75c1e9fffa5e8c437bec1d67197a73992bca45d166c6ff23215185dea8fae92a",
+      "publicCrypto": {
+        "x509": [
+          "a6d282bccebc7a5648de3400d9e633370a8aa4f86105adae9f40039ac3a76b90",
+          "d54896be1e48e09109e02c7596d0371611288e4c9679376a1fa0045432dc36f1"
+        ],
+        "timestamp": [
+          "463435683d637f787b33faa4f3bea5790b0f812da77c2c65da6104d934dda05b"
+        ],
+        "ocsp": [
+          "dd4f7474e60e5693638e1f6b6ebb906b18bbd836783f55fc892d628e2b1814bc"
+        ],
+        "rsaSignature": [
+          "88eaf379fc1e0963b397023614d9fa01c8e00d8b7cd6e0b462477d5daaed691b"
+        ]
+      },
+      "basis": "2026-09-26 finite C2PA content review: every JUMBF byte, definite CBOR item including protected COSE header, public X509/CMS timestamp/OCSP DER envelope and decoded metadata are inspected; public cryptographic component hashes only constrain opaque signatures/keys. The exact SVG contains one vector path with no text, external reference or script. Unknown structures, fields, nonzero padding and changed binary fail closed. This does not validate certificate trust or signature legal effect."
+    }
+  }
+}

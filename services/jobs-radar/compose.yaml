@@ -1,0 +1,59 @@
+name: jobs-radar
+x-common: &common
+  image: jobs-radar:0.1.0
+  build: .
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:size=32m,mode=1777"]
+  pids_limit: 128
+  mem_limit: 512m
+  cpus: 1.0
+  environment: &runtime-environment
+    JOBS_DB: /data/jobs.sqlite
+    JOBS_ORIGIN: https://jobs.siyidu.com
+    JOBS_HOST: 0.0.0.0
+    JOBS_PORT: "8796"
+  volumes:
+    - ./data:/data
+  logging:
+    driver: json-file
+    options: {max-size: 5m, max-file: "3"}
+services:
+  mcp:
+    <<: *common
+    environment:
+      <<: *runtime-environment
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      JOBS_BROWSER_OBSERVE_ENABLED: "1"
+      JOBS_BROWSER_CONTROL_ENABLED: "1"
+      JOBS_WEB_ROOT: /web
+    volumes:
+      - ./data:/data
+      - ./.web:/web:ro
+      - /home/ubuntu/.config/jobs-radar/openai_api_key:/run/secrets/openai_api_key:ro
+    restart: unless-stopped
+    ports: ["127.0.0.1:8796:8796"]
+    command: [serve]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8796/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+  collector:
+    <<: *common
+    profiles: [admin]
+    command: [collect]
+    environment:
+      <<: *runtime-environment
+      JOBS_SCREENING_ENABLED: "1"
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+    volumes:
+      - ./data:/data
+      - /home/ubuntu/.config/jobs-radar/openai_api_key:/run/secrets/openai_api_key:ro
+  admin:
+    <<: *common
+    profiles: [admin]
+    command: [status]

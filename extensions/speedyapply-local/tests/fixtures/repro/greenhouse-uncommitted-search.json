@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "valuePolicy": "synthetic_fixture",
+  "capturedAt": 1789871404899,
+  "build": "unbuilt",
+  "ats": "greenhouse",
+  "origin": "https://job-boards.greenhouse.io",
+  "fields": [
+    {
+      "id": "case-field-1",
+      "observed": {
+        "kind": "combobox",
+        "component": "react-select",
+        "required": true,
+        "hasValue": false,
+        "invalid": false,
+        "completion": "required-empty"
+      },
+      "tree": {
+        "tag": "div",
+        "attrs": {
+          "class": "field"
+        },
+        "children": [
+          {
+            "tag": "div",
+            "attrs": {
+              "class": "select"
+            },
+            "children": [
+              {
+                "tag": "label",
+                "attrs": {
+                  "for": "fixture-id-2"
+                },
+                "children": [
+                  {
+                    "text": "Fixture text 2 *"
+                  }
+                ]
+              },
+              {
+                "tag": "div",
+                "attrs": {
+                  "class": "select__value-container"
+                },
+                "children": [
+                  {
+                    "tag": "input",
+                    "attrs": {
+                      "data-jobs-repro-target": "true",
+                      "id": "fixture-id-2",
+                      "aria-controls": "fixture-id-1",
+                      "role": "combobox",
+                      "aria-required": "true",
+                      "class": "select__input"
+                    },
+                    "children": [],
+                    "value": "Fixture value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "portals": [
+        {
+          "tag": "div",
+          "attrs": {
+            "id": "fixture-id-1",
+            "role": "listbox"
+          },
+          "children": [
+            {
+              "tag": "div",
+              "attrs": {
+                "role": "option"
+              },
+              "children": [
+                {
+                  "text": "Fixture text 1"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "timeline": [],
+  "coverage": {
+    "truncated": false,
+    "nodes": 9,
+    "closedRootsUnknown": true
+  },
+  "limitations": [
+    "Original text, identifiers and answer values are replaced with synthetic data.",
+    "Only observed field DOM and open shadow roots are retained; unopened options are unavailable.",
+    "React handlers, stylesheets, network responses and site validation logic are not recorded.",
+    "Replay verifies component reading against this snapshot, not full website behavior or submission."
+  ]
+}

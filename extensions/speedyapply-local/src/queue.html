@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>投递队列 · Jobs</title><link rel="stylesheet" href="custom/queue.css"><script src="custom/queue-ui.js" defer></script></head>
+<body><main><header><a href="https://jobs.siyidu.com" target="_blank" rel="noopener">返回岗位列表</a><h1>投递队列</h1><p>在岗位列表选择「加入队列」。插件进入表单并填写，需要你回答的问题会留在原页面的审核卡中。</p></header>
+<section aria-label="队列控制"><label for="mode">运行方式</label> <select id="mode"><option value="fill">只填写，不提交</option><option value="apply">填写并提交（需已开启自动提交）</option></select><button id="start" type="button">开始／继续队列</button><button id="pause" type="button">暂停队列</button><p id="status" role="status" aria-live="polite">正在读取…</p></section>
+<p id="empty" hidden>队列为空。回到岗位列表，加入你准备处理的岗位。</p><ol id="items" aria-label="岗位进度"></ol>
+<footer>暂停会在下一次写入／导航检查时生效，已填内容保留。提交结果不明的岗位不会自动重试；请核实 ATS 结果，再通过现有投递记录处理。</footer></main></body></html>
