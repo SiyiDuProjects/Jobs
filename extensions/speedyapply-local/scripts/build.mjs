@@ -79,6 +79,7 @@ export async function buildPackage({ publish = false, personal = false } = {}) {
     };
     for (const [entry, outfile, format] of [
       ["content", "custom/runtime-bundle.js", "iife"],
+      ["review-surface", "custom/review-surface.js", "iife"],
       ["background", "background.js", "esm"],
     ]) {
       const result = await build({

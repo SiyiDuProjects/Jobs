@@ -4,6 +4,12 @@ let initialized = false;
 export function initializeReviewPresenter() {
   if (initialized) return;
   initialized = true;
+  // The presentation-only entry can precede the full runtime on custom hosts.
+  // Reuse its listener and card when that runtime arrives later.
+  if (globalThis.__jobsReviewPresenter) {
+    JobsReviewPresenter = globalThis.__jobsReviewPresenter;
+    return;
+  }
   (() => {
     let slot, view, last;
     function removeView() {
@@ -353,4 +359,5 @@ export function initializeReviewPresenter() {
     document.addEventListener("click", block, true);
     document.addEventListener("submit", block, true);
   })();
+  globalThis.__jobsReviewPresenter = JobsReviewPresenter;
 }
