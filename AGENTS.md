@@ -1,12 +1,12 @@
 # Jobs Workspace
 
-Private workspace: `D:/Projects/Jobs`, including from a worktree. Never publish personal data or store passwords/verification codes. Current personal facts and application attachments belong to the server Profiles. Local recovery archives are not a runtime fact source.
+Private workspace: this Jobs repository, including from a worktree. Resolve paths from the current checkout and host environment; never assume a drive letter, username or operating system. Never publish personal data or store passwords/verification codes. Current personal facts and application attachments belong to the server Profiles. Local recovery archives are not a runtime fact source.
 
 ## Development and application work
 
 This is a development workspace that is also used for applications. Follow the user's current task. For code, architecture or documentation work, read the relevant implementation and evidence; do not routinely fetch personal Profiles or load application handoffs, old ledgers or benchmarks.
 
-For an actual application run, use the installed [`jobs-apply` skill](C:/Users/Administrator/.codex/skills/jobs-apply/SKILL.md). It owns the operational workflow: get jobs through the native Jobs tools, open them in the requested browser, let the extension run and handle remote AI review. The interface reference is `notes/jobs-radar.md`. Editing the skill or workflow never starts or resumes applications by itself. Preserve any live form already in progress.
+For an actual application run, use the installed `jobs-apply` skill. Resolve its `SKILL.md` from the session's skill catalog or `$CODEX_HOME/skills/jobs-apply/SKILL.md` (default Codex home: `~/.codex` on the current host). It owns the operational workflow: get jobs through the native Jobs tools, open them in the requested browser, let the extension run and handle remote AI review. The interface reference is `notes/jobs-radar.md`. Editing the skill or workflow never starts or resumes applications by itself. Preserve any live form already in progress.
 
 When a specific investigation needs a personal fact, obtain it from the application's bound server Profile with native `get_profiles`; keep it in memory only while needed. The contract excludes credentials and attachment binary data. Missing access is a blocker, not a reason to reconstruct facts from recovery archives. Later user corrections win. Keep unknown answers and new commitments unresolved.
 

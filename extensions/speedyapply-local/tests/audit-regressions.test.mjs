@@ -116,7 +116,9 @@ test("actual emitted file snapshot passes the actual Python server contract", as
     );
     const python = fileURLToPath(
       new URL(
-        "../../../services/jobs-radar/.venv/Scripts/python.exe",
+        process.platform === "win32"
+          ? "../../../services/jobs-radar/.venv/Scripts/python.exe"
+          : "../../../services/jobs-radar/.venv/bin/python",
         import.meta.url,
       ),
     );
@@ -167,7 +169,9 @@ test("Workday optional-field supplement policy stays local and the emitted snaps
     );
     const python = fileURLToPath(
       new URL(
-        "../../../services/jobs-radar/.venv/Scripts/python.exe",
+        process.platform === "win32"
+          ? "../../../services/jobs-radar/.venv/Scripts/python.exe"
+          : "../../../services/jobs-radar/.venv/bin/python",
         import.meta.url,
       ),
     );

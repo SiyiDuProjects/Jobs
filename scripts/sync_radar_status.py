@@ -128,7 +128,7 @@ def annotate(text, statuses):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--radar-root", type=Path, default=Path("D:/Projects/new-grad-radar"))
+    parser.add_argument("--radar-root", type=Path, default=ROOT.parent / "new-grad-radar")
     parser.add_argument("--jobs-root", type=Path, default=ROOT)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "notes/archive/radar")
     parser.add_argument("--record-url", help="Canonical application URL after its outcome has been verified")

@@ -48,6 +48,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('request')
     parser.add_argument('--output')
+    parser.add_argument('--ssh-key', type=Path, default=Path.home() / '.ssh' / 'Siyi.pem')
     parser.add_argument('--all-pages', action='store_true', help='Read-only search pagination, capped at 100 pages')
     args = parser.parse_args()
     request = json.loads(Path(args.request).read_text(encoding='utf-8-sig'))
@@ -56,7 +57,7 @@ def main():
         raise ValueError('Profile facts are transient; do not save a local copy')
     result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=15',
         '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4', '-i',
-        'C:/Users/Administrator/.ssh/Siyi.pem', 'ubuntu@49.51.38.235',
+        str(args.ssh_key.expanduser()), 'ubuntu@49.51.38.235',
         REMOTE_COMMAND],
         input=code.encode(), capture_output=True, check=True, timeout=120)
     data = json.loads(result.stdout)

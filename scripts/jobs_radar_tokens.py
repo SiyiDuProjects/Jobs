@@ -1,6 +1,7 @@
 """Capture exact cumulative token telemetry or compare it to a saved baseline."""
 import argparse
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,9 +11,11 @@ def main():
     parser.add_argument('output')
     parser.add_argument('--compare')
     parser.add_argument('--session', default='01a0859f-4b42-7653-8c52-91ebb7b4733b')
+    parser.add_argument('--sessions-dir', type=Path,
+                        default=Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'sessions')
     args = parser.parse_args()
     snapshots = {}
-    for path in Path('C:/Users/Administrator/.codex/sessions').rglob('*' + args.session + '*.jsonl'):
+    for path in args.sessions_dir.expanduser().rglob('*' + args.session + '*.jsonl'):
         for line in path.open(encoding='utf-8'):
             event = json.loads(line)
             payload = event.get('payload', {})
