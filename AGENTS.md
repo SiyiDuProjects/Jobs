@@ -2,6 +2,14 @@
 
 Private workspace: this Jobs repository, including from a worktree. Resolve paths from the current checkout and host environment; never assume a drive letter, username or operating system. Never publish personal data or store passwords/verification codes. Current personal facts and application attachments belong to the server Profiles. Local recovery archives are not a runtime fact source.
 
+## Restored Mac paths and server SSH
+
+- The restored Mac checkout is `/Users/siyi/Projects/Jobs`; the Windows checkout is `D:/Projects/Jobs`. Resolve paths for the current host.
+- Jobs server: `ubuntu@49.51.38.235`; service directory: `/home/ubuntu/siyi/jobs-radar`.
+- The Jobs SSH private key is `Siyi.pem`. The migration package includes it at `Mac-migration/Projects/_private/Keys/Siyi.pem`; after restoration on this Mac, use `/Users/siyi/Projects/_private/Keys/Siyi.pem`.
+- Check that restored path before reporting a missing key. An empty SSH agent or a missing `~/.ssh/Siyi.pem` does not establish that the restored private-key file is missing. SSH can use it directly with `-i`.
+- `services/jobs-radar/deploy/release.sh` defaults to `~/.ssh/Siyi.pem`; on this Mac set `JOBS_RADAR_KEY=/Users/siyi/Projects/_private/Keys/Siyi.pem` for an authorized SSH/deployment task. Keep the existing service-release workflow and keep private-key contents outside Git and logs.
+
 ## Development and application work
 
 This is a development workspace that is also used for applications. Follow the user's current task. For code, architecture or documentation work, read the relevant implementation and evidence; do not routinely fetch personal Profiles or load application handoffs, old ledgers or benchmarks.

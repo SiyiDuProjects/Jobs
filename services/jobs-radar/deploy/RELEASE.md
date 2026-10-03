@@ -29,6 +29,13 @@ The wrapper dispatches through `release.sh`. Portable entrypoints are
 `--build-web`, `--release-web [--artifact <directory>]`, `--web-status`, and
 `--rollback-web`. SSH uses `JOBS_RADAR_HOST` and `JOBS_RADAR_KEY`, defaulting to
 the existing host and `~/.ssh/Siyi.pem`. Credentials never enter artifacts.
+
+On the restored Mac, the migration key is
+`/Users/siyi/Projects/_private/Keys/Siyi.pem`. Set
+`JOBS_RADAR_KEY=/Users/siyi/Projects/_private/Keys/Siyi.pem` when invoking an
+authorized SSH/release task. The migration does not add this identity to the
+SSH agent or move it into `~/.ssh`; an empty agent is not evidence of a missing
+private-key file. The server is `ubuntu@49.51.38.235`.
 Builds archive the exact committed service tree, install locked dependencies,
 run website tests, build, and check the packaged entrypoints. The service tree
 must be clean; use an isolated checkout for unrelated work in progress.
