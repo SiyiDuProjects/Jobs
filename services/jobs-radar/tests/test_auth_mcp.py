@@ -13,6 +13,45 @@ from test_store import observation
 ORIGIN = "http://127.0.0.1:8796"
 
 
+def test_agent_reads_each_profiles_supplemental_facts_without_attachment_bytes(tmp_path):
+    from jobs_radar.profiles import Profiles
+    from test_profile_details import enriched
+
+    store = Store(tmp_path / 'agent-profiles.sqlite')
+    profiles = Profiles(store)
+    saved = []
+    for name, month, notes in [
+        ('Newgrad', '2027-05', 'Synthetic full-time project and availability notes.'),
+        ('Intern', '2027-12', 'Synthetic internship project and summer schedule notes.'),
+    ]:
+        value = enriched()
+        value['profileName'] = name
+        value['educationData'][0]['endDate'] = month
+        value['educationData'][0].pop('graduationDate')
+        value['applicationData']['aiNotes'] = notes
+        value['resumeData'] = {'fileName': name + '.pdf', 'resumeBase64': 'c3ludGhldGlj'}
+        saved.append((profiles.save(value), value))
+
+    with TestClient(create_server(store, ORIGIN).streamable_http_app(), base_url=ORIGIN) as client:
+        token, _ = connect(client, store, scopes='jobs:read')
+        metadata = rpc(client, token['access_token'], 'tools/call',
+            {'name': 'get_profiles', 'arguments': {}}).json()['result']
+        assert not metadata.get('isError'), metadata
+        assert metadata['structuredContent']['profiles'] == [
+            {'id': record['id'], 'profileName': value['profileName']} for record, value in saved]
+        for record, value in saved:
+            result = rpc(client, token['access_token'], 'tools/call',
+                {'name': 'get_profiles', 'arguments': {'profile_id': record['id']}}).json()['result']
+            assert not result.get('isError'), result
+            facts = result['structuredContent']
+            assert facts['id'] == record['id'] and facts['last_sync'] == record['last_sync']
+            assert facts['profile']['profileName'] == value['profileName']
+            assert facts['profile']['educationData'] == value['educationData']
+            assert facts['profile']['applicationData'] == value['applicationData']
+            assert facts['profile']['resumeData'] == {'fileName': value['resumeData']['fileName']}
+            assert profiles.get(record['id'])['profile']['resumeData'] == value['resumeData']
+
+
 def connect(client, store, scopes="jobs:read applications:write"):
     registration = client.post("/register", json={"client_name": "Jobs Radar Integration Test", "redirect_uris": ["http://127.0.0.1:9876/callback"],
         "token_endpoint_auth_method": "none", "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": scopes})

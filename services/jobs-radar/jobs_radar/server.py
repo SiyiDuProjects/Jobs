@@ -145,7 +145,9 @@ def create_server(store, origin=None):
 
     @operation_tool(annotations=read)
     def get_profiles(profile_id: str | None = None) -> dict[str, Any]:
-        """Read authoritative server Profile facts. Omit profile_id to list metadata; pass an id to read that profile. Excludes passwords and attachment binaries."""
+        """Read the same server Profile facts used by the extension, including applicationData and aiNotes supplemental information.
+        Omit profile_id for metadata; pass the current application's Profile id for complete facts and last_sync.
+        Keep full-time/Newgrad and internship/Intern facts and resumes separate. Excludes credentials and attachment binaries."""
         require('jobs:read')
         return profiles.agent_read(profile_id)
 
