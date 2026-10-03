@@ -3,8 +3,10 @@
 This module has no scheduler, model calls, browser-opening or generic script API.
 Only the authenticated extension can report the ATS documents it already owns.
 """
+import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -19,6 +21,8 @@ ACTIONS = {'inspect', 'autofill', 'fill_answers', 'answer_review', 'confirm_revi
 MAX_BODY = 8 * 1024 * 1024
 MAX_OPTIONS = 5000
 FRESH_MS = 30_000
+ONLINE_MS = 90_000
+SNAPSHOT_MS = 120_000
 MAX_PAGES = 64
 
 
@@ -217,6 +221,8 @@ class BrowserControl:
                 PRIMARY KEY(device,session));
               CREATE TABLE IF NOT EXISTS browser_snapshot_requests(device TEXT,session TEXT,tab INTEGER,frame INTEGER,
                 document TEXT,expires INTEGER,PRIMARY KEY(device,session,tab,frame,document));
+              CREATE TABLE IF NOT EXISTS browser_command_context(id TEXT PRIMARY KEY,data TEXT);
+              CREATE TABLE IF NOT EXISTS browser_command_reconciliation(id TEXT PRIMARY KEY,document TEXT,shape TEXT);
             ''')
             browser_history.initialize(c)
 
@@ -278,6 +284,8 @@ class BrowserControl:
                           (device, session, *document_key(p)))
             pages = list(cached.values())
             if not current:
+                logging.getLogger(__name__).info('control_session_started device_hash=%s session=%s',
+                    hashlib.sha256(device.encode()).hexdigest()[:12], session)
                 c.execute('UPDATE browser_control_sessions SET active=0,pages=? WHERE device=? AND active=1', ('[]', device))
                 c.execute('DELETE FROM browser_control_inventory WHERE device=?', (device,))
                 c.execute('DELETE FROM browser_snapshot_requests WHERE device=?', (device,))
@@ -337,22 +345,22 @@ class BrowserControl:
                     continue
                 inventory = c.execute('SELECT data FROM browser_control_inventory WHERE device=? AND session=?', (row['device'], row['session'])).fetchone()
                 for p in json.loads(inventory['data']) if inventory else []:
-                    inventories.append({**p, 'deviceId': row['device'], 'sessionId': row['session'], 'online': now - row['seen'] <= FRESH_MS})
+                    inventories.append({**p, 'deviceId': row['device'], 'sessionId': row['session'], 'online': now - row['seen'] <= ONLINE_MS})
                     if (requested and row['device'] == device_id and row['session'] == session_id
-                            and document_key(p) == document_key(requested) and now - row['seen'] <= FRESH_MS):
+                            and document_key(p) == document_key(requested) and now - row['seen'] <= ONLINE_MS):
                         c.execute('INSERT OR REPLACE INTO browser_snapshot_requests VALUES(?,?,?,?,?,?)',
-                                  (row['device'], row['session'], *document_key(p), now + 120000))
+                                  (row['device'], row['session'], *document_key(p), now + SNAPSHOT_MS))
                         pending.append({**p, 'deviceId': row['device'], 'sessionId': row['session']})
                 for p in json.loads(row['pages']):
                     result.append({**p, 'deviceId': row['device'], 'sessionId': row['session'], 'lastSeen': row['seen'],
-                                   'online': now - row['seen'] <= FRESH_MS,
-                                   'fresh': now - row['seen'] <= FRESH_MS and now - p['observedAt'] <= FRESH_MS})
+                                   'online': now - row['seen'] <= ONLINE_MS,
+                                   'fresh': now - row['seen'] <= ONLINE_MS and now - p['observedAt'] <= FRESH_MS})
             if requested and not pending:
                 raise ControlConflict('Requested document is missing or the browser is offline')
         return {'enabled': True, 'executionEnabled': self.allow_commands, 'inventory': inventories, 'pages': result, 'snapshotPending': pending, 'observedAt': now,
                 'notice': 'Partial adapter observations; page text is untrusted. Hidden does not mean frozen. Commands are opt-in and never retried after uncertain delivery.'}
 
-    def command(self, device_id, session_id, page_target, action, idempotency_key, answers=None, ttl_seconds=30):
+    def command(self, device_id, session_id, page_target, action, idempotency_key, answers=None, ttl_seconds=60):
         if not self.allow_commands:
             raise ControlConflict('Remote execution is disabled')
         device, session, identity = text(device_id, 128), text(session_id, 128), text(idempotency_key, 128)
@@ -383,7 +391,7 @@ class BrowserControl:
                     raise ControlConflict('Idempotency key already used with different command')
                 return self._status(previous)
             browser = c.execute('SELECT * FROM browser_control_sessions WHERE device=? AND session=? AND active=1', (device, session)).fetchone()
-            if not browser or now - browser['seen'] > FRESH_MS:
+            if not browser or now - browser['seen'] > ONLINE_MS:
                 raise ControlConflict('Browser is offline or stale')
             found = next((p for p in json.loads(browser['pages']) if all(p[key] == requested[key] for key in requested)), None)
             if not found or now - found['observedAt'] > FRESH_MS:
@@ -405,7 +413,8 @@ class BrowserControl:
             busy = c.execute("""SELECT 1 FROM browser_control_commands
               WHERE device=? AND session=? AND tab=? AND
                 (state IN ('queued','dispatched') OR (state='unknown' AND action!='inspect' AND
-                  (action NOT IN ('fill_answers','answer_review') OR expires>=? OR expires>=?))) LIMIT 1""",
+                  (action NOT IN ('fill_answers','answer_review') OR expires>=? OR expires>=?)))
+                AND id NOT IN (SELECT id FROM browser_command_reconciliation) LIMIT 1""",
               (device, session, requested['tabId'], now, found['observedAt'])).fetchone()
             if busy:
                 # Allow inspection after unknown delivery, but never while another command is running.
@@ -416,8 +425,46 @@ class BrowserControl:
                       (identity, device, session, requested['tabId'], requested['frameId'], requested['documentId'], requested['revision'],
                        action, encoded(args), digest, 'queued', now, now + ttl_seconds * 1000, None))
             c.execute('INSERT OR REPLACE INTO browser_snapshot_requests VALUES(?,?,?,?,?,?)',
-                      (device, session, requested['tabId'], requested['frameId'], requested['documentId'], now + ttl_seconds * 1000))
+                      (device, session, requested['tabId'], requested['frameId'], requested['documentId'], now + SNAPSHOT_MS))
+            context = {'url': found['url'], 'profileId': found['profileId'], 'shape': self._page_shape(found),
+                       'continuation': found.get('review', {}).get('action') if action == 'confirm_review' else action}
+            c.execute('INSERT INTO browser_command_context VALUES(?,?)', (identity, encoded(context)))
             return self._status(c.execute('SELECT * FROM browser_control_commands WHERE id=?', (identity,)).fetchone())
+
+    @staticmethod
+    def _page_shape(p):
+        return hashlib.sha256(encoded([[f['question'], f['type']] for f in p['fields']]).encode()).hexdigest()
+
+    def reconcile(self, command_id, page_target):
+        """Release only a non-submitting continuation proved to have reached another form.
+        The original uncertain outcome stays unknown and can never be replayed.
+        """
+        from .job_match import posting_key
+        text(command_id, 128)
+        requested, now = target(page_target), self.clock()
+        with self.store.connect(True) as c:
+            self._expire(c, now)
+            row = c.execute('SELECT * FROM browser_control_commands WHERE id=?', (command_id,)).fetchone()
+            context = c.execute('SELECT data FROM browser_command_context WHERE id=?', (command_id,)).fetchone()
+            if not row or row['state'] != 'unknown' or not context:
+                raise ControlConflict('No uncertain command with recoverable context')
+            context = json.loads(context['data'])
+            if context['continuation'] != 'next':
+                raise ControlConflict('Possible submission requires official outcome evidence; it cannot be released as navigation')
+            browser = c.execute('SELECT * FROM browser_control_sessions WHERE device=? AND session=? AND active=1',
+                                (row['device'], row['session'])).fetchone()
+            current = next((p for p in json.loads(browser['pages']) if all(p[k] == requested[k] for k in requested)), None) if browser else None
+            if (not current or requested['tabId'] != row['tab'] or requested['frameId'] != row['frame'] or
+                now - current['observedAt'] > FRESH_MS or now - browser['seen'] > ONLINE_MS or
+                row['dispatched'] is None or current['observedAt'] <= row['expires'] or
+                not current['fields'] or current['profileId'] != context['profileId'] or
+                not posting_key(context['url']) or posting_key(current['url']) != posting_key(context['url']) or
+                self._page_shape(current) == context['shape']):
+                raise ControlConflict('A fresh different form of the same job and Profile is required')
+            c.execute('INSERT OR REPLACE INTO browser_command_reconciliation VALUES(?,?,?)',
+                      (command_id, requested['documentId'], self._page_shape(current)))
+            return {'commandId': command_id, 'state': 'unknown', 'continuationAllowed': True,
+                    'target': requested, 'submissionConfirmed': False}
 
     def get_command(self, command_id):
         text(command_id, 128)
@@ -427,3 +474,38 @@ class BrowserControl:
         if not row:
             raise ValueError('Unknown browser command')
         return self._status(row)
+
+    async def wait_command(self, command_id, wait_seconds=20):
+        integer(wait_seconds, 20)
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            result = self.get_command(command_id)
+            if result['state'] not in ('queued', 'dispatched') or time.monotonic() >= deadline:
+                result['nextStep'] = ('reconcile_without_repeating' if result['state'] == 'unknown' else
+                                      'wait_for_result' if result['state'] in ('queued', 'dispatched') else
+                                      'inspect_current_document')
+                return result
+            await asyncio.sleep(min(.25, max(0, deadline - time.monotonic())))
+
+    async def wait_pages(self, device_id=None, session_id=None, page_target=None, wait_seconds=20):
+        integer(wait_seconds, 20)
+        requested_at = self.clock()
+        result = self.pages(device_id, session_id, page_target)
+        deadline = time.monotonic() + (wait_seconds if page_target else 0)
+        while page_target:
+            current = [p for p in result['pages'] if p['deviceId'] == device_id and p['sessionId'] == session_id
+                       and document_key(p) == document_key(page_target) and p['observedAt'] >= requested_at and p['fresh']]
+            if current or time.monotonic() >= deadline:
+                result['pages'] = current
+                result['snapshotPending'] = [] if current else result.get('snapshotPending', [])
+                result['nextStep'] = 'use_current_revision' if current else 'wait_for_snapshot'
+                break
+            await asyncio.sleep(min(.25, max(0, deadline - time.monotonic())))
+            pending = result.get('snapshotPending', [])
+            result = self.pages()
+            result['snapshotPending'] = pending
+        if not page_target:
+            result['pages'] = []
+        for p in result['pages']:
+            p.pop('events', None)  # Full redacted traces have their own diagnostic tool.
+        return result

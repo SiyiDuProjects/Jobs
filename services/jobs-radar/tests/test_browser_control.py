@@ -267,12 +267,12 @@ def test_enabled_tools_require_existing_owner_scopes(subject, monkeypatch):
     function = server._tool_manager.get_tool('get_browser_pages').fn
     monkeypatch.setattr('jobs_radar.server.get_access_token', lambda: None)
     with pytest.raises(PermissionError):
-        function()
+        asyncio.run(function())
     monkeypatch.setattr('jobs_radar.server.get_access_token', lambda: SimpleNamespace(subject='other', scopes=['jobs:read']))
     with pytest.raises(PermissionError):
-        function()
+        asyncio.run(function())
     monkeypatch.setattr('jobs_radar.server.get_access_token', lambda: SimpleNamespace(subject=OWNER, scopes=['jobs:read']))
-    assert function()['enabled'] is True
+    assert asyncio.run(function())['enabled'] is True
     mutation = server._tool_manager.get_tool('command_browser_page').fn
     with pytest.raises(PermissionError):
         mutation('device', 'session', target(page()), 'submit', 'identity')
@@ -286,7 +286,9 @@ def test_exchange_reports_freshness_without_claiming_hidden_is_frozen(subject):
     assert result['coverage'] == 'partial' and result['counts']['total'] > len(result['fields'])
     clock[0] += 31_000
     result = control.pages()['pages'][0]
-    assert not result['online'] and not result['fresh']
+    assert result['online'] and not result['fresh']
+    clock[0] += 60_000
+    assert not control.pages()['pages'][0]['online']
     exchange(subject)  # Cached page keeps old observedAt, although browser is online again.
     result = control.pages()['pages'][0]
     assert result['online'] and not result['fresh']
@@ -311,7 +313,7 @@ def test_queue_dispatch_once_and_exact_result_replay(subject):
     assert queued['state'] == 'queued' and not queued['submissionConfirmed']
     response = exchange(subject)
     assert response['commands'] == [{'id': 'command-1', 'sessionId': session, 'target': target(page()),
-                                    'action': 'next', 'args': {}, 'expiresAt': NOW + 30_000}]
+                                    'action': 'next', 'args': {}, 'expiresAt': NOW + 60_000}]
     assert exchange(subject)['commands'] == []
     result = {'id': 'command-1', 'state': 'completed', 'data': {'action': 'next', 'phase': 'submission_pending',
               'evidence': {'type': 'none', 'text': 'Click finished; application outcome not observed.'}}}
@@ -540,3 +542,85 @@ def test_actual_extension_snapshot_and_command_result_match_server(subject):
     control.exchange(device, completed)
     assert control.get_command('actual-js-command')['state'] == 'completed'
     assert control.get_command('actual-js-command')['submissionConfirmed'] is False
+
+@pytest.mark.parametrize('phase_ms', [500, 15000, 29500])
+def test_snapshot_and_command_survive_real_poll_phases(subject, phase_ms):
+    _, control, clock, device, session = subject
+    p = page()
+    exchange(subject, [p])
+    clock[0] += phase_ms
+    queued = command(subject)
+    assert queued['expiresAt'] == clock[0] + 60000
+    body = {'protocolVersion': 2, 'sessionId': session,
+            'inventory': [{k: p[k] for k in ('tabId', 'frameId', 'documentId')}], 'pages': [], 'results': []}
+    clock[0] = NOW + 30000
+    received = control.exchange(device, body)
+    assert received['snapshotRequests'] and not received['commands']
+    # The client uploads a newly requested snapshot immediately, without waiting for another alarm.
+    clock[0] += 100
+    p['observedAt'] = clock[0]
+    delivered = control.exchange(device, {**body, 'pages': [p]})
+    assert len(delivered['commands']) == 1
+    assert delivered['commands'][0]['expiresAt'] - clock[0] > 30000
+
+
+def test_expired_command_cannot_poison_snapshot_upload(subject):
+    _, control, clock, device, session = subject
+    p = page()
+    exchange(subject, [p])
+    command(subject, ttl_seconds=1)
+    clock[0] += 30000
+    p['observedAt'] = clock[0]
+    body = {'protocolVersion': 2, 'sessionId': session,
+            'inventory': [{k: p[k] for k in ('tabId', 'frameId', 'documentId')}], 'pages': [p], 'results': []}
+    assert not control.exchange(device, body)['commands']
+    assert control.get_command('command-1')['state'] == 'expired'
+    assert control.pages()['inventory'][0]['online']
+
+def test_bounded_tool_wait_observes_fresh_upload_without_blocking_exchange(subject):
+    _, control, clock, device, session = subject
+    p = page()
+    exchange(subject, [p])
+    clock[0] += 1
+    async def scenario():
+        async def upload():
+            await asyncio.sleep(.01)
+            clock[0] += 1
+            p['observedAt'] = clock[0]
+            return control.exchange(device, {'protocolVersion': 2, 'sessionId': session,
+                'inventory': [{k:p[k] for k in ('tabId','frameId','documentId')}], 'pages': [p], 'results': []})
+        identity = {k:p[k] for k in ('tabId','frameId','documentId')}
+        result, _ = await asyncio.gather(control.wait_pages(device, session, identity, 1), upload())
+        assert len(result['pages']) == 1 and result['snapshotPending'] == []
+        assert result['nextStep'] == 'use_current_revision'
+    asyncio.run(scenario())
+    assert asyncio.run(control.wait_pages())['pages'] == []
+
+
+def test_unknown_next_reconciles_only_after_different_same_job_form(subject):
+    _, control, clock, _, _ = subject
+    p = page()
+    exchange(subject, [p])
+    command(subject, p, action='next', ttl_seconds=1)
+    exchange(subject, [p])
+    clock[0] += 1001
+    p['observedAt'] = clock[0]
+    exchange(subject, [p])
+    with pytest.raises(ControlConflict, match='different form'):
+        control.reconcile('command-1', target(p))
+    p['documentId'] = 'next-document'
+    p['fields'][0]['question'] = 'Next step question'
+    exchange(subject, [p])
+    assert control.reconcile('command-1', target(p))['continuationAllowed']
+    assert control.get_command('command-1')['state'] == 'unknown'
+    assert command(subject, p, action='next', identity='new-step')['state'] == 'queued'
+
+
+def test_unknown_submit_cannot_be_reconciled_as_a_next_step(subject):
+    _, control, clock, _, _ = subject
+    exchange(subject)
+    command(subject, action='submit', ttl_seconds=1)
+    exchange(subject)
+    clock[0] += 1001
+    with pytest.raises(ControlConflict, match='Possible submission'):
+        control.reconcile('command-1', target(page()))

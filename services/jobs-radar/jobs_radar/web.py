@@ -118,7 +118,14 @@ def attach_web(server, store, origin):
 
         @api.route('/api/extension/control', ['POST'], profile_access, ControlRequest, max_bytes=MAX_BODY)
         async def extension_control(request, payload, device):
-            return control.exchange(device, payload.model_dump())
+            try:
+                return control.exchange(device, payload.model_dump())
+            except ValueError as error:
+                import logging
+                # Errors here are fixed protocol messages, not form values or credentials.
+                logging.getLogger(__name__).warning('control_exchange_rejected session_hash=%s reason=%s',
+                    hashlib.sha256(payload.sessionId.encode()).hexdigest()[:12], str(error))
+                raise
 
     @api.route('/api/manage/answer/jobs', ['GET', 'POST'], management_access, AnswerJobRequest)
     async def management_answer_jobs(request, payload, principal):
