@@ -44,10 +44,11 @@ function guardFixture(local = {}, options = {}) {
     JobsTabProfiles: {
       verify: async () => {
         if (options.profileInvalid) throw Error("Profile changed");
-        return { id: "profile-id", profileName: "Profile" };
+        return options.profile || { id: "profile-id", profileName: "Profile" };
       },
     },
     JobsSync: {
+      removalPending: async () => false,
       resolveJob: async () =>
         options.prior === undefined
           ? { matched: false, application: null }
@@ -286,4 +287,131 @@ test("server-owned attempts and unavailable history both prevent a fresh local s
       .error,
     /无法核对/,
   );
+});
+
+test("a manual child intent is durable before outbox failure and retains its identity on worker retry", async () => {
+  const h = guardFixture(),
+    rootId = (await h.request("jobs:submission-prepare")).data.id,
+    key = Object.keys(h.local.jobsSubmissionGuardsV1)[0],
+    root = structuredClone(h.local.jobsSubmissionGuardsV1[key]),
+    sender = { ...h.sender, documentId: "doc-2", tab: { id: 2 } };
+  h.recordFails(true);
+  assert.match(
+    (await h.request("jobs:submission-observed", {}, sender)).error,
+    /outbox/,
+  );
+  const child = h.local.jobsSubmissionGuardsV1[key].observed["doc-2"];
+  assert.notEqual(child.id, rootId);
+  assert.equal(child.state, "prepared");
+  assert.equal(h.events.length, 0);
+  const restarted = guardFixture(h.local);
+  assert.equal(
+    (await restarted.request("jobs:submission-observed", {}, sender)).data.id,
+    child.id,
+  );
+  assert.equal(restarted.events.length, 1);
+  assert.equal(restarted.events[0].source.eventId, child.id);
+  assert.equal(
+    (await restarted.request("jobs:submission-observed", {}, sender)).data.id,
+    child.id,
+  );
+  assert.equal(restarted.events.length, 1);
+  const { observed, ...retained } = h.local.jobsSubmissionGuardsV1[key];
+  assert.deepEqual(retained, root);
+  assert.equal(observed["doc-2"].state, "attempted");
+  assert.match(
+    (await restarted.request("jobs:submission-prepare", {}, sender)).error,
+    /待核实/,
+  );
+});
+
+test("new manual documents cannot borrow an earlier Profile or record before their child guard persists", async () => {
+  const h = guardFixture();
+  await h.request("jobs:submission-prepare");
+  const original = structuredClone(h.local),
+    sender = { ...h.sender, documentId: "doc-2" };
+  for (const options of [
+    { profileInvalid: true },
+    { liveUrl: "https://jobs.ashbyhq.com/other/job" },
+  ]) {
+    const invalid = guardFixture(h.local, options);
+    assert.match(
+      (await invalid.request("jobs:submission-observed", {}, sender)).error,
+      /changed/,
+    );
+    assert.equal(invalid.events.length, 0);
+    assert.deepEqual(h.local, original);
+  }
+  h.writeFails(true);
+  assert.match(
+    (await h.request("jobs:submission-observed", {}, sender)).error,
+    /Storage/,
+  );
+  assert.equal(h.events.length, 0);
+  assert.deepEqual(h.local, original);
+});
+
+test("manual validation and explicit intent IDs cannot cross document ownership", async () => {
+  const h = guardFixture(),
+    rootId = (await h.request("jobs:submission-prepare")).data.id,
+    sender = { ...h.sender, documentId: "doc-2" };
+  assert.match(
+    (
+      await h.request(
+        "jobs:submission-observed",
+        { validationError: true },
+        sender,
+      )
+    ).error,
+    /No executed/,
+  );
+  const childId = (await h.request("jobs:submission-observed", {}, sender)).data
+    .id;
+  for (const [type, extra, origin] of [
+    ["jobs:submission-validation-error", { id: rootId }, sender],
+    ["jobs:submission-observed", { id: rootId, validationError: true }, sender],
+    ["jobs:submission-attempted", { id: childId }, h.sender],
+  ])
+    assert.match((await h.request(type, extra, origin)).error, /guard changed/);
+  assert.equal(h.events.length, 1);
+  assert.equal(
+    (
+      await h.request(
+        "jobs:submission-validation-error",
+        { id: childId },
+        sender,
+      )
+    ).data.ok,
+    true,
+  );
+  assert.equal(h.events[1].source.eventId, childId + ":validation");
+  assert.equal(
+    (
+      await h.request(
+        "jobs:submission-observed",
+        { validationError: true },
+        sender,
+      )
+    ).data.id,
+    childId,
+  );
+  assert.equal(h.events.length, 2);
+});
+
+test("a stored manual child cannot retry an event under a replacement Profile", async () => {
+  const h = guardFixture();
+  await h.request("jobs:submission-prepare");
+  const sender = { ...h.sender, documentId: "doc-2" };
+  h.recordFails(true);
+  await h.request("jobs:submission-observed", {}, sender);
+  const original = structuredClone(h.local),
+    restarted = guardFixture(h.local, {
+      profile: { id: "replacement", profileName: "Replacement" },
+    });
+  assert.match(
+    (await restarted.request("jobs:submission-observed", {}, sender)).error,
+    /Profile changed/,
+  );
+  assert.deepEqual(h.local, original);
+  assert.equal(restarted.events.length, 0);
 });

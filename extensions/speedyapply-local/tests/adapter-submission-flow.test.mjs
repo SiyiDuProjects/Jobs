@@ -33,6 +33,7 @@ async function page(
   {
     site,
     storage = {},
+    documentId = "synthetic-document",
     html = '<form><label>First name<input name="firstName" value="Example"></label><button type="button" id="submit">Submit Application</button></form>',
     url = "https://jobs.ashbyhq.com/fixture/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/application",
   } = {},
@@ -60,6 +61,7 @@ async function page(
     verify: async () => ({ id: "fixture", profileName: "Fixture" }),
   };
   w.JobsSync = {
+    removalPending: async () => false,
     resolveJob: async () => ({
       application: { submitted: records.length > 0 },
     }),
@@ -81,7 +83,7 @@ async function page(
         const sender = {
           id: "test",
           tab: { id: 1, title: "Synthetic Engineer" },
-          documentId: "synthetic-document",
+          documentId,
           url: w.location.href,
         };
         if (!listeners.some((fn) => fn(message, sender, resolve) === true))
@@ -256,8 +258,9 @@ test("native validation fired synchronously by Submit remains a validation event
   );
 });
 
-async function oraclePage(t) {
+async function oraclePage(t, options = {}) {
   const h = await page(t, {
+    ...options,
     site: "oracle",
     url: "https://fixture.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/123/apply",
     html: '<main id="main"><form><div class="input-row"></div><button type="button" id="submit">Submit Application</button></form></main>',
@@ -388,4 +391,89 @@ test("manual observation cannot claim a different job identity", async (t) => {
   assert.match(reply.error, /identity/);
   assert.equal(h.records.length, 0);
   assert.equal(h.storage.jobsSubmissionGuardsV1, undefined);
+});
+
+const earlierPreparation = {
+  id: "earlier-guard",
+  state: "prepared",
+  at: 1,
+  tabId: 9,
+  documentId: "earlier-document",
+  profileId: "earlier-profile",
+  profileName: "Earlier Profile",
+};
+test("Oracle manual click in a new document records its own attempt without replacing an earlier preparation", async (t) => {
+  const h = await oraclePage(t),
+    key = h.w.JobsJobMatch.key(h.w.location.href);
+  h.storage.jobsSubmissionGuardsV1 = { [key]: earlierPreparation };
+  let clicks = 0;
+  h.doc.querySelector("#submit").addEventListener("click", () => clicks++);
+  h.doc.querySelector("#submit").click();
+  await flush();
+  assert.equal(clicks, 1);
+  assert.equal(h.records.length, 1);
+  const { observed, ...root } = h.storage.jobsSubmissionGuardsV1[key];
+  assert.deepEqual(root, earlierPreparation);
+  const child = observed["synthetic-document"];
+  assert.equal(child.state, "attempted");
+  assert.notEqual(child.id, root.id);
+  assert.equal(h.records[0].source.eventId, child.id);
+  assert.equal(h.records[0].source.profileId, "fixture");
+  assert.equal(h.records[0].application.profileName, "Fixture");
+  const blocked = await h.w.chrome.runtime.sendMessage({
+    type: "jobs:submission-prepare",
+    url: h.w.location.href,
+  });
+  assert.match(blocked.error, /待核实/);
+});
+
+test("a child manual attempt survives lost ACK and worker restart with one validation identity", async (t) => {
+  const storage = {},
+    h = await oraclePage(t, { storage }),
+    key = h.w.JobsJobMatch.key(h.w.location.href),
+    send = h.w.chrome.runtime.sendMessage;
+  storage.jobsSubmissionGuardsV1 = { [key]: earlierPreparation };
+  let lost = false;
+  h.w.chrome.runtime.sendMessage = async (message) => {
+    const result = await send(message);
+    if (message.type === "jobs:submission-observed" && !lost) {
+      lost = true;
+      throw Error("Synthetic lost ACK");
+    }
+    return result;
+  };
+  h.doc.querySelector("#submit").click();
+  await flush();
+  h.doc.querySelector("#submit").click();
+  await flush();
+  assert.equal(h.records.length, 1);
+  const id =
+    storage.jobsSubmissionGuardsV1[key].observed["synthetic-document"].id;
+  const restarted = await oraclePage(t, { storage });
+  restarted.doc.querySelector("#submit").click();
+  await flush();
+  assert.equal(restarted.records.length, 0);
+  const input = restarted.doc.createElement("input");
+  input.required = true;
+  restarted.doc.querySelector("form").append(input);
+  input.checkValidity();
+  await flush();
+  input.checkValidity();
+  await flush();
+  assert.equal(restarted.records.length, 1);
+  assert.equal(restarted.records[0].source.eventId, id + ":validation");
+  const { observed, ...root } = storage.jobsSubmissionGuardsV1[key];
+  assert.deepEqual(root, earlierPreparation);
+  assert.equal(observed["synthetic-document"].state, "validation_error");
+});
+
+test("an observed manual click records only an attempt even when the service already reports a submission", async (t) => {
+  const h = await oraclePage(t);
+  h.w.JobsSync.resolveJob = async () => ({
+    application: { submitted: true, confirmed: true },
+  });
+  h.doc.querySelector("#submit").click();
+  await flush();
+  assert.equal(h.records.length, 1);
+  assert.equal(h.records[0].source.proof, "submit_attempt");
 });

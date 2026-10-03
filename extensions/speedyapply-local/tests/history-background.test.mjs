@@ -22,7 +22,14 @@ function setup(local = {}, session = {}, now = Date.now()) {
     chrome: {
       storage: {
         local: {
-          get: async () => structuredClone(local),
+          getKeys: async () => Object.keys(local),
+          get: async (keys) =>
+            structuredClone(
+              Object.fromEntries([keys].flat().map((k) => [k, local[k]])),
+            ),
+          remove: async (keys) => {
+            for (const k of [keys].flat()) delete local[k];
+          },
           set: async (data) => Object.assign(local, structuredClone(data)),
         },
         session: {
@@ -38,6 +45,19 @@ function setup(local = {}, session = {}, now = Date.now()) {
   });
   vm.runInContext(source, context);
   return { api: context.JobsDiagnosticHistory, local, session, context };
+}
+function archive(local) {
+  const index = local.jobsDiagnosticHistoryV1;
+  return index.version === 2
+    ? {
+        applications: Object.fromEntries(
+          Object.entries(index.applications).map(([k, v]) => [
+            k,
+            local[v.storageKey],
+          ]),
+        ),
+      }
+    : index;
 }
 function report(job = 1, at = Date.now()) {
   return {
@@ -79,7 +99,7 @@ test("storage property reordering cannot duplicate cumulative diagnostic events"
   const h = setup();
   const first = report();
   await h.api.capture(first);
-  const entry = Object.values(h.local.jobsDiagnosticHistoryV1.applications)[0];
+  const entry = Object.values(archive(h.local).applications)[0];
   entry.data.events = entry.data.events.map((event) =>
     Object.fromEntries(Object.entries(event).reverse()),
   );
@@ -169,7 +189,7 @@ test("ordinary acknowledged records expire after 30 days; offline and unresolved
   await h.api.pin(report(2).pageUrl);
   await h.api.acknowledge(sent.ack.filter((_, i) => i < 3));
   await h.api.capture(report(5, now));
-  const records = Object.values(h.local.jobsDiagnosticHistoryV1.applications);
+  const records = Object.values(archive(h.local).applications);
   assert.equal(records.length, 3);
   assert(records.some((row) => row.pinned));
   assert(
@@ -317,15 +337,15 @@ test("an entirely unrecognized form still retains diagnostic evidence", async ()
 test("archive capacity never evicts pinned or unacknowledged runs", async () => {
   const h = setup();
   await h.api.capture(report());
-  const prototype = Object.values(
-    h.local.jobsDiagnosticHistoryV1.applications,
-  )[0];
-  h.local.jobsDiagnosticHistoryV1.applications = Object.fromEntries(
-    Array.from({ length: 1000 }, (_, i) => [
-      "retained-" + i,
-      { ...structuredClone(prototype), pinned: i % 2 === 0 },
-    ]),
-  );
+  const prototype = Object.values(archive(h.local).applications)[0];
+  h.local.jobsDiagnosticHistoryV1 = {
+    applications: Object.fromEntries(
+      Array.from({ length: 1000 }, (_, i) => [
+        "retained-" + i,
+        { ...structuredClone(prototype), pinned: i % 2 === 0 },
+      ]),
+    ),
+  };
   const before = JSON.stringify(h.local);
   await assert.rejects(h.api.capture(report(2)), /存储已满/);
   assert.equal(JSON.stringify(h.local), before);
@@ -349,4 +369,436 @@ test("an old connection acknowledgement leaves synthetic history pending for the
   late.resolve({ ok: true, json: async () => ({ historyAccepted: true }) });
   await assert.rejects(task, /连接已改变/);
   assert.equal((await h.api.pending(300000)).items.length, 1);
+});
+
+test("a small capture reads and rewrites only its run plus a compact index", async () => {
+  const h = setup();
+  for (let i = 1; i <= 8; i++) await h.api.capture(report(i));
+  const storage = h.context.chrome.storage.local,
+    gets = [],
+    sets = [];
+  const get = storage.get,
+    set = storage.set;
+  storage.get = async (keys) => {
+    gets.push(...[keys].flat());
+    return get(keys);
+  };
+  storage.set = async (value) => {
+    sets.push(value);
+    return set(value);
+  };
+  await h.api.capture({ ...report(1), phase: "page-complete" });
+  assert.equal(
+    gets.filter((k) => k.startsWith("jobsDiagnosticRunV2:")).length,
+    1,
+  );
+  assert.equal(
+    sets
+      .flatMap((v) => Object.keys(v))
+      .filter((k) => k.startsWith("jobsDiagnosticRunV2:")).length,
+    1,
+  );
+  const index = h.local.jobsDiagnosticHistoryV1;
+  assert.equal(index.version, 2);
+  assert(
+    Object.values(index.applications).every(
+      (row) =>
+        !("signature" in row.summary) && !("snapshots" in row.summary.data),
+    ),
+  );
+  const restarted = setup(h.local, h.session);
+  assert.equal((await restarted.api.pending(300000)).items.length, 8);
+});
+
+test("failed index publication preserves the previous run and can retry after restart", async () => {
+  const h = setup(),
+    first = report();
+  await h.api.capture(first);
+  const old = JSON.stringify(h.local.jobsDiagnosticHistoryV1),
+    set = h.context.chrome.storage.local.set;
+  h.context.chrome.storage.local.set = async (value) => {
+    if (value.jobsDiagnosticHistoryV1) throw Error("synthetic index failure");
+    return set(value);
+  };
+  await assert.rejects(
+    h.api.capture({ ...first, phase: "page-complete" }),
+    /index failure/,
+  );
+  assert.equal(JSON.stringify(h.local.jobsDiagnosticHistoryV1), old);
+  const restarted = setup(h.local, h.session);
+  assert.equal(
+    (await restarted.api.pending(300000)).items[0].snapshots.length,
+    1,
+  );
+  await restarted.api.capture({ ...first, phase: "page-complete" });
+  assert.equal(
+    (await restarted.api.pending(300000)).items[0].snapshots.length,
+    2,
+  );
+});
+
+test("legacy archive upgrades losslessly and remains intact if payload persistence fails", async () => {
+  const seed = setup();
+  await seed.api.capture(report());
+  const legacy = structuredClone(archive(seed.local));
+  const h = setup({ jobsDiagnosticHistoryV1: legacy }, seed.session);
+  h.context.chrome.storage.local.set = async () => {
+    throw Error("synthetic disk failure");
+  };
+  await assert.rejects(
+    h.api.capture({ ...report(), phase: "page-complete" }),
+    /disk failure/,
+  );
+  assert.deepEqual(h.local.jobsDiagnosticHistoryV1, legacy);
+  const restarted = setup(h.local, h.session);
+  await restarted.api.capture({ ...report(), phase: "page-complete" });
+  assert.equal(h.local.jobsDiagnosticHistoryV1.version, 2);
+  assert.equal(
+    (await restarted.api.pending(300000)).items[0].snapshots.length,
+    2,
+  );
+});
+
+test("an interrupted payload cleanup is retried and missing live data never becomes an empty run", async () => {
+  const h = setup(),
+    first = report();
+  await h.api.capture(first);
+  const remove = h.context.chrome.storage.local.remove;
+  h.context.chrome.storage.local.remove = async () => {
+    throw Error("cleanup interrupted");
+  };
+  await h.api.capture({ ...first, phase: "page-complete" });
+  const garbage = [...h.local.jobsDiagnosticHistoryV1.garbage];
+  assert(garbage.length);
+  const restarted = setup(h.local, h.session);
+  await restarted.api.pending(300000);
+  assert(garbage.every((key) => !h.local[key]));
+  const live = Object.values(h.local.jobsDiagnosticHistoryV1.applications)[0]
+    .storageKey;
+  await remove(live);
+  const before = JSON.stringify(h.local.jobsDiagnosticHistoryV1);
+  await assert.rejects(restarted.api.capture(first), /诊断记录不完整/);
+  assert.equal(JSON.stringify(h.local.jobsDiagnosticHistoryV1), before);
+});
+
+function connectedHistory() {
+  const h = setup({ jobsSyncV1: { profileToken: "synthetic-old-grant" } });
+  h.context.JobsSync = { ready: Promise.resolve() };
+  h.context.JobsBrand = { origin: "https://synthetic.example" };
+  h.context.AbortSignal = AbortSignal;
+  h.context.fetch = async () => ({
+    ok: true,
+    json: async () => ({ historyAccepted: true }),
+  });
+  return h;
+}
+
+function timedReport() {
+  const value = report();
+  value.events.push(
+    { at: value.startedAt + 2, type: "visibility_changed", detail: "hidden" },
+    {
+      at: value.startedAt + 3,
+      type: "auto_write_timing",
+      fieldId: "f1",
+      detail: JSON.stringify({
+        ms: 1234567,
+        heldMs: 20,
+        scans: 2,
+        answer: "PRIVATE_TIMING_TEXT",
+      }),
+    },
+    {
+      at: value.startedAt + 4,
+      type: "auto_run_timing",
+      detail: JSON.stringify({
+        ms: 1234600,
+        scans: 9,
+        structuralScans: 3,
+        writes: {
+          writes: 1,
+          ms: 1234567,
+          heldMs: 20,
+          scans: 2,
+          url: "PRIVATE_TIMING_TEXT",
+        },
+        profileChecks: { count: 2, fresh: 1, ms: 30, reused: 1 },
+      }),
+    },
+  );
+  return value;
+}
+
+test("bounded timings and visibility survive archive restart without arbitrary detail", async () => {
+  const h = setup(),
+    value = timedReport();
+  await h.api.capture(value);
+  const restarted = setup(h.local, h.session);
+  await restarted.api.capture(value);
+  const events = (await restarted.api.pending(300000)).items[0].events;
+  assert.equal(events.length, value.events.length);
+  assert.deepEqual(JSON.parse(JSON.stringify(events.at(-2).timing)), {
+    ms: 1234567,
+    heldMs: 20,
+    scans: 2,
+  });
+  assert.equal(events.at(-3).visibility, "hidden");
+  assert.equal(events.at(-1).timing.profileChecks.fresh, 1);
+  assert(!JSON.stringify(h.local).includes("PRIVATE_TIMING_TEXT"));
+  const invalid = [
+    { type: "visibility_changed", detail: "PRIVATE_TIMING_TEXT" },
+    {
+      type: "auto_write_timing",
+      detail: JSON.stringify({ ms: -1, heldMs: "12", scans: true }),
+    },
+    {
+      type: "auto_run_timing",
+      detail: JSON.stringify({
+        ms: 86400001,
+        scans: 1.5,
+        writes: { scans: 1000001 },
+      }),
+    },
+    { type: "auto_run_timing", detail: "{broken JSON" },
+    { type: "arbitrary_event", detail: '{"ms":12}' },
+  ];
+  await restarted.api.capture({
+    ...value,
+    events: invalid.map((event, index) => ({
+      ...event,
+      at: value.startedAt + 10 + index,
+    })),
+  });
+  const bad = (await restarted.api.pending(300000)).items[0].events.slice(
+    -invalid.length,
+  );
+  assert(
+    bad.every((event) => !event.timing && !event.visibility && !event.detail),
+  );
+});
+
+for (const mode of ["old", "new", "rollback"]) {
+  test(`timing upload negotiates ${mode} service while keeping the local metrics`, async () => {
+    const h = connectedHistory(),
+      calls = [];
+    await h.api.capture(timedReport());
+    h.context.fetch = async (_, options) => {
+      const body = JSON.parse(options.body);
+      calls.push(body);
+      if (mode === "rollback" && calls.length === 2)
+        return Response.json(
+          { error: "Invalid browser control shape" },
+          { status: 400 },
+        );
+      return Response.json({
+        historyAccepted: true,
+        ...(mode !== "old" ? { historyEventMetrics: 1 } : {}),
+      });
+    };
+    await h.api.sync();
+    assert.deepEqual(calls[0], { protocolVersion: 1, history: [] });
+    assert.equal(calls.length, mode === "rollback" ? 3 : 2);
+    const delivered = calls.at(-1).history[0].events;
+    assert.equal(
+      delivered.some((event) => !!event.timing),
+      mode === "new",
+    );
+    assert.equal(
+      delivered.some((event) => !!event.visibility),
+      mode === "new",
+    );
+    assert.equal((await h.api.pending(300000)).items.length, 0);
+    assert(
+      Object.values(archive(h.local).applications)[0].data.events.some(
+        (event) => !!event.timing,
+      ),
+    );
+    // A later snapshot resends the cumulative run after a server upgrade.
+    const next = timedReport();
+    next.phase = "page-complete";
+    await h.api.capture(next);
+    assert(
+      (await h.api.pending(300000)).items[0].events.some(
+        (event) => !!event.timing,
+      ),
+    );
+  });
+}
+
+for (const [boundary, status] of [
+  ["probe", 401],
+  ["probe", 500],
+  ["rich", 401],
+  ["rich", 503],
+  ["fallback", 500],
+]) {
+  test(`failed ${boundary} upload (${status}) leaves timing pending and does not silently downgrade`, async () => {
+    const h = connectedHistory();
+    let calls = 0;
+    await h.api.capture(timedReport());
+    const failureAt = boundary === "probe" ? 1 : boundary === "rich" ? 2 : 3;
+    h.context.fetch = async () => {
+      calls++;
+      if (calls === failureAt) return Response.json({}, { status });
+      if (boundary === "fallback" && calls === 2)
+        return Response.json({}, { status: 400 });
+      return Response.json({ historyAccepted: true, historyEventMetrics: 1 });
+    };
+    await assert.rejects(h.api.sync(), new RegExp(String(status)));
+    assert.equal(calls, failureAt);
+    assert.equal((await h.api.pending(300000)).items.length, 1);
+  });
+}
+
+test("a connection changed during the capability response cannot send the old batch", async () => {
+  const h = connectedHistory(),
+    started = Promise.withResolvers(),
+    finish = Promise.withResolvers();
+  await h.api.capture(timedReport());
+  let calls = 0;
+  h.context.fetch = async () => {
+    calls++;
+    return {
+      ok: true,
+      json: async () => {
+        started.resolve();
+        return finish.promise;
+      },
+    };
+  };
+  const task = h.api.sync();
+  await started.promise;
+  await h.context.JobsPrivateSession.clear();
+  finish.resolve({ historyAccepted: true, historyEventMetrics: 1 });
+  await assert.rejects(task, /连接已改变/);
+  assert.equal(calls, 1);
+  assert.equal((await h.api.pending(300000)).items.length, 1);
+});
+
+test("a connection change during acknowledgement reads leaves history pending", async () => {
+  const h = connectedHistory();
+  await h.api.capture(report());
+  const storage = h.context.chrome.storage.local,
+    get = storage.get;
+  let reads = 0;
+  storage.get = async (keys) => {
+    const result = await get(keys);
+    if (keys === "jobsDiagnosticHistoryV1" && ++reads === 2) {
+      await h.context.JobsPrivateSession.clear();
+      h.local.jobsSyncV1.profileToken = "synthetic-new-grant";
+    }
+    return result;
+  };
+  await assert.rejects(h.api.sync(), /连接已改变/);
+  assert.equal((await h.api.pending(300000)).items.length, 1);
+});
+
+for (const boundary of ["payload", "index"])
+  test(`a connection change during acknowledgement ${boundary} publication survives restart`, async () => {
+    const h = connectedHistory();
+    await h.api.capture(report());
+    const storage = h.context.chrome.storage.local,
+      set = storage.set;
+    let changed = false;
+    storage.set = async (value) => {
+      await set(value);
+      const target =
+        boundary === "index"
+          ? value.jobsDiagnosticHistoryV1
+          : Object.keys(value).some((key) =>
+              key.startsWith("jobsDiagnosticRunV2:"),
+            );
+      if (!changed && target) {
+        changed = true;
+        await h.context.JobsPrivateSession.clear();
+        h.local.jobsSyncV1.profileToken = "synthetic-new-grant";
+      }
+    };
+    await assert.rejects(h.api.sync(), /连接已改变/);
+    const restarted = setup(h.local, h.session);
+    const batch = await restarted.api.pending(300000);
+    assert.equal(batch.items.length, 1);
+    assert.equal(batch.items[0].snapshots.length, 1);
+    await restarted.api.acknowledge(batch.ack);
+    assert.equal((await restarted.api.pending(300000)).items.length, 0);
+  });
+
+test("failed acknowledgement confirmation remains pending after cleanup and another capture", async () => {
+  const h = connectedHistory(),
+    first = report();
+  await h.api.capture(first);
+  const storage = h.context.chrome.storage.local,
+    set = storage.set;
+  let indexes = 0;
+  storage.set = async (value) => {
+    if (value.jobsDiagnosticHistoryV1 && ++indexes === 2)
+      throw Error("synthetic acknowledgement confirmation failure");
+    await set(value);
+  };
+  await assert.rejects(h.api.sync(), /confirmation failure/);
+  h.local["jobsDiagnosticRunV2:synthetic-orphan"] = { synthetic: true };
+  const restarted = setup(h.local, h.session);
+  let batch = await restarted.api.pending(300000);
+  assert.equal(batch.items.length, 1);
+  assert.equal(h.local["jobsDiagnosticRunV2:synthetic-orphan"], undefined);
+  await restarted.api.capture(report(2));
+  batch = await setup(h.local, h.session).api.pending(300000);
+  assert.equal(batch.items.length, 2);
+  assert(batch.items.every((item) => item.snapshots.length === 1));
+});
+
+test("a worker stopped after staging acknowledgements restores pending runs before cleanup", async () => {
+  const h = connectedHistory();
+  await h.api.capture(report());
+  const storage = h.context.chrome.storage.local,
+    set = storage.set,
+    staged = Promise.withResolvers(),
+    continueWrite = Promise.withResolvers();
+  let captured = false;
+  storage.set = async (value) => {
+    await set(value);
+    if (value.jobsDiagnosticHistoryV1 && !captured) {
+      captured = true;
+      staged.resolve(structuredClone(h.local));
+      await continueWrite.promise;
+    }
+  };
+  const upload = h.api.sync();
+  const stoppedStorage = await staged.promise;
+  const restarted = setup(stoppedStorage, structuredClone(h.session));
+  const batch = await restarted.api.pending(300000);
+  assert.equal(batch.items.length, 1);
+  assert.equal(batch.items[0].snapshots.length, 1);
+  const live = Object.values(
+    stoppedStorage.jobsDiagnosticHistoryV1.applications,
+  )[0].storageKey;
+  assert(stoppedStorage[live]);
+  assert(
+    stoppedStorage.jobsDiagnosticHistoryV1.garbage.every(
+      (key) => !stoppedStorage[key],
+    ),
+  );
+  continueWrite.resolve();
+  await upload;
+});
+
+test("a confirmed old connection acknowledgement stays valid if connection changes while finalizing", async () => {
+  const h = connectedHistory();
+  await h.api.capture(report());
+  const storage = h.context.chrome.storage.local,
+    set = storage.set;
+  let indexes = 0;
+  storage.set = async (value) => {
+    await set(value);
+    if (value.jobsDiagnosticHistoryV1 && ++indexes === 2) {
+      await h.context.JobsPrivateSession.clear();
+      h.local.jobsSyncV1.profileToken = "synthetic-new-grant";
+    }
+  };
+  await h.api.sync();
+  assert.equal(indexes, 2);
+  assert.equal(
+    (await setup(h.local, h.session).api.pending(300000)).items.length,
+    0,
+  );
 });

@@ -530,7 +530,34 @@ export function initializeApplicationQueue() {
           throw Error("未知页面消息");
         });
       }
-      return Object.freeze({ command, page, tick });
+      // Owner removal cancels only this posting and never starts another job.
+      /** @param {string} url
+       * @param {(candidateUrl: string) => boolean} [alsoMatches] */
+      async function remove(url, alsoMatches) {
+        return serial(async () => {
+          const state = await load();
+          const items = state.items.filter(
+            (item) =>
+              io.same(item.url, url) || alsoMatches?.(item.url) === true,
+          );
+          for (const item of items) {
+            item.paused = true;
+            if (
+              !terminal.has(item.state) &&
+              item.state !== "submission_uncertain"
+            )
+              item.state =
+                item.intent?.action === "submit"
+                  ? "submission_uncertain"
+                  : "cancelled";
+            item.reason = "用户已停止此岗位并请求移除";
+          }
+          await save(state);
+          for (const item of items) await push(state, item);
+          return state;
+        });
+      }
+      return Object.freeze({ command, page, tick, remove });
     }
     JobsApplicationQueue = Object.freeze({ create });
   })();

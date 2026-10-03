@@ -34,13 +34,17 @@ export async function handle(message, sender) {
           "autofillEnabled",
         ])
       );
-    const bound = await JobsTabProfiles.ensure(sender, false);
     const account = {
       accountEmail: "",
       accountPassword: "",
       useProfileEmail: false,
       ...data.autofillAccount,
     };
+    // Reading local settings must not prepare and synchronize a filling run.
+    // Only Profile-derived account email needs resolution before account entry.
+    const bound = account.useProfileEmail
+      ? await JobsTabProfiles.ensure(sender, false)
+      : await JobsTabProfiles.selected(id);
     if (account.useProfileEmail && bound?.profile)
       account.accountEmail = bound.profile.contactData.email;
     return {
@@ -113,7 +117,9 @@ export async function handle(message, sender) {
     // Login/registration pages can fill account settings without a posting.
     // No identity means unknown status, not permission to submit.
     if (!key) return { applied: false, confirmed: false, unknown: true };
+    const epoch = JobsPrivateSession.epoch;
     const result = await JobsSync.resolveJob(message.url);
+    await JobsTabProfiles.rememberResolution?.(message.url, result, epoch);
     if (result?.application?.submitted)
       return {
         applied: true,

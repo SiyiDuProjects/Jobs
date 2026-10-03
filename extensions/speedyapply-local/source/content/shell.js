@@ -177,12 +177,11 @@ export async function startPage(existingContext) {
     // A title lookup must not hold up account entry or autofill if the server
     // is slow. It has its own acknowledgement and can retry on page activity.
     await syncJobDetails(context);
-    const prior = await send({
-      type: "jobs:application-status",
-      url: location.href,
-    });
+    const [prior, config] = await Promise.all([
+      send({ type: "jobs:application-status", url: location.href }),
+      send({ type: "getAutofillConfig" }),
+    ]);
     if (prior?.applied) present(prior.label || "此岗位已有投递记录");
-    const config = await send({ type: "getAutofillConfig" });
     if (!config?.enabled) return true;
     if (!route) {
       installLinkedInTracking(context);

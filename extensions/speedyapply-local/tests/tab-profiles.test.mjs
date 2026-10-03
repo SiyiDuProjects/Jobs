@@ -660,6 +660,59 @@ test("Apply child tab inherits its Profile identity before first fill; worker re
   assert.equal((await restart.scope.ensure({ tab: { id: 90 } })).id, "intern");
 });
 
+test("an Apply child's first filling round refreshes inherited facts and revision from the cloud", async () => {
+  const h = setup();
+  await h.launch({
+    kind: "intern",
+    jobId: "a".repeat(24),
+    url: "https://jobs.example/inherited-facts",
+  });
+  const parent = await h.scope.selected(2);
+  const readsBefore = h.reads.length;
+  h.cloud.intern.profile.profileName = "Updated synthetic intern profile";
+  h.cloud.intern.last_sync = "2026-09-20T02:00:00Z";
+  const tab = {
+    id: 90,
+    openerTabId: 2,
+    url: "https://other-ats.example/apply",
+  };
+  h.tabs.set(tab.id, tab);
+
+  const current = await h.scope.context({ tab }, { refresh: true });
+
+  assert.equal(current.id, "intern");
+  assert.equal(current.profileName, h.cloud.intern.profile.profileName);
+  assert.equal(current.revision, h.cloud.intern.last_sync);
+  assert.equal(h.reads.length, readsBefore + 1);
+  assert.equal(h.session["jobsTabBinding:90"].websiteJobId, "a".repeat(24));
+  assert.equal((await h.scope.selected(2)).profileName, parent.profileName);
+  assert.equal((await h.scope.selected(2)).lastSync, parent.lastSync);
+});
+
+test("an Apply child's first filling round rejects inherited facts when its cloud Profile is unavailable", async () => {
+  const h = setup();
+  await h.launch({
+    kind: "intern",
+    jobId: "a".repeat(24),
+    url: "https://jobs.example/inherited-offline",
+  });
+  const tab = {
+    id: 90,
+    openerTabId: 2,
+    url: "https://other-ats.example/apply",
+  };
+  h.tabs.set(tab.id, tab);
+  h.sync.profileRequest = async () => {
+    throw Error("offline");
+  };
+
+  await assert.rejects(
+    h.scope.context({ tab }, { refresh: true }),
+    /无法获取最新 Profile/,
+  );
+  await assert.rejects(h.scope.context({ tab }), /尚未核对/);
+});
+
 test("an Apply child recovers its restored opener before the opener content script starts", async () => {
   const h = setup();
   await h.launch({
@@ -1170,4 +1223,102 @@ test("another listed posting opened in the same tab is rebound when filling star
   const value = await h.scope.ensure({ tab });
   assert.equal(value.id, "intern");
   assert.equal(h.session["jobsTabBinding:2"].websiteJobId, second);
+});
+
+test("a first filling round binds once and a later round still fetches fresh facts", async () => {
+  const h = setup();
+  const tab = {
+    id: 91,
+    url: "https://job-boards.greenhouse.io/acme/jobs/1111111",
+  };
+  h.tabs.set(tab.id, tab);
+  let lookups = 0,
+    syncs = 0;
+  h.sync.resolveJob = async () => {
+    lookups++;
+    return { state: "matched", job_id: "b".repeat(24), kinds: ["newgrad"] };
+  };
+  h.refresh.forProfile = async () => {
+    syncs++;
+    return { ok: true };
+  };
+  const first = await h.scope.context({ tab }, { refresh: true });
+  assert.equal(h.reads.length, 1);
+  assert.equal(syncs, 1);
+  assert.equal(lookups, 1);
+  assert.equal(first.revision, h.cloud.ng.last_sync);
+  h.cloud.ng.profile.profileName = "Updated synthetic profile";
+  h.cloud.ng.last_sync = "2026-09-20T02:00:00Z";
+  const second = await h.scope.context({ tab }, { refresh: true });
+  assert.equal(h.reads.length, 2);
+  assert.equal(syncs, 2);
+  assert.equal(second.revision, h.cloud.ng.last_sync);
+  assert.equal(h.session.profile_91.profileName, "Updated synthetic profile");
+});
+
+test("concurrent filling rounds each verify their own Profile record in order", async () => {
+  const h = setup();
+  const tab = {
+    id: 93,
+    url: "https://job-boards.greenhouse.io/acme/jobs/1111111",
+  };
+  h.tabs.set(tab.id, tab);
+  const original = h.sync.profileRequest;
+  let entered,
+    release,
+    syncs = 0;
+  const started = new Promise((resolve) => (entered = resolve));
+  const waiting = new Promise((resolve) => (release = resolve));
+  h.sync.profileRequest = async (args) => {
+    const record = await original(args);
+    if (h.reads.length === 1) {
+      entered();
+      await waiting;
+    }
+    return record;
+  };
+  h.refresh.forProfile = async () => {
+    syncs++;
+    return { ok: true };
+  };
+  const firstRevision = h.cloud.ng.last_sync;
+  const first = h.scope.context({ tab }, { refresh: true });
+  await started;
+  const second = h.scope.context({ tab }, { refresh: true });
+  h.cloud.ng.profile.profileName = "Updated synthetic concurrent profile";
+  h.cloud.ng.last_sync = "2026-09-20T02:00:00Z";
+  release();
+  const [before, after] = await Promise.all([first, second]);
+
+  assert.equal(before.revision, firstRevision);
+  assert.equal(before.profileName, "Newgrad");
+  assert.equal(after.revision, h.cloud.ng.last_sync);
+  assert.equal(after.profileName, h.cloud.ng.profile.profileName);
+  assert.deepEqual(h.reads, ["ng", "ng"]);
+  assert.equal(syncs, 2);
+  assert.equal(h.session.profile_93.lastSync, after.revision);
+});
+
+test("current status resolution feeds binding without another network lookup", async () => {
+  const h = setup(),
+    tab = { id: 92, url: "https://job-boards.greenhouse.io/acme/jobs/1111111" };
+  h.tabs.set(tab.id, tab);
+  await h.scope.rememberResolution(
+    tab.url,
+    { state: "matched", job_id: "d".repeat(24), kinds: ["newgrad"] },
+    h.privateSession.epoch,
+  );
+  h.sync.resolveJob = async () => {
+    throw Error("must reuse the just-verified job identity");
+  };
+  assert.equal((await h.scope.context({ tab }, { refresh: true })).id, "ng");
+  await h.privateSession.clear();
+  await assert.rejects(
+    h.scope.rememberResolution(
+      tab.url,
+      { state: "matched", job_id: "d".repeat(24), kinds: ["newgrad"] },
+      h.privateSession.epoch - 1,
+    ),
+    /连接|session|会话/i,
+  );
 });

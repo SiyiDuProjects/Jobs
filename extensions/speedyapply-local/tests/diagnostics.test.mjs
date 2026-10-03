@@ -98,6 +98,51 @@ function harness(
     },
   };
 }
+
+test("timing detail keeps bounded numeric data before text redaction and seeds initial visibility", async () => {
+  const h = harness();
+  try {
+    Object.defineProperty(h.doc, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    await h.start();
+    h.w.JobsDiagnostics.beginRun();
+    h.w.JobsDiagnostics.note(
+      "auto_run_timing",
+      null,
+      JSON.stringify({
+        ms: 1234567,
+        scans: 2,
+        structuralScans: 1,
+        writes: {
+          writes: 1,
+          ms: 1234000,
+          heldMs: 10,
+          scans: 2,
+          answer: "PRIVATE_TEXT",
+        },
+        profileChecks: { count: 1, fresh: 1, ms: 40, reused: 0 },
+        question: "PRIVATE_TEXT",
+      }),
+    );
+    const events = h.w.JobsDiagnostics.snapshot().events;
+    const metric = JSON.parse(
+      events.find((event) => event.type === "auto_run_timing").detail,
+    );
+    assert.equal(metric.ms, 1234567);
+    assert.equal(metric.writes.ms, 1234000);
+    assert(!JSON.stringify(metric).includes("PRIVATE_TEXT"));
+    assert(
+      events.some(
+        (event) =>
+          event.type === "visibility_changed" && event.detail === "hidden",
+      ),
+    );
+  } finally {
+    h.close();
+  }
+});
 test("form mutation bursts share the scheduled diagnostic scan without losing changed fields", async () => {
   const h = harness(
     '<label>Answer<input value="Known"></label><span id="validation">Ready</span>',

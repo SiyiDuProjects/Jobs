@@ -75,6 +75,8 @@ export interface HistoryEvent {
   fieldId?: string;
   phase?: string;
   build?: string;
+  visibility?: "hidden" | "visible";
+  timing?: Record<string, number | Record<string, number>>;
 }
 export interface HistorySnapshot {
   at: number;

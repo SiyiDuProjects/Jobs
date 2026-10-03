@@ -374,3 +374,121 @@ test("cancelled queue pages remain stopped after browser session ownership is lo
   assert.equal(permission.owned, true);
   assert.equal(permission.allowed, false);
 });
+
+test("owner removal cancels only matching queue work without opening another job", async () => {
+  const h = fixture();
+  await h.add(1);
+  await h.add(2);
+  await h.start();
+  await h.engine.remove(url(1));
+  assert.equal(h.state().items[0].state, "cancelled");
+  assert.equal(h.state().items[0].paused, true);
+  assert.equal(h.state().items[1].state, "queued");
+  assert.equal(h.tabs.length, 1);
+  h.restart();
+  assert.equal((await h.page({ type: "hello" })).allowed, false);
+});
+
+for (const active of [false, true])
+  test(`trusted additional matching cancels ${active ? "active and queued" : "queued"} aliases without nearby jobs`, async () => {
+    const h = fixture(),
+      original = "https://fixture.wd1.myworkdayjobs.com/job/Role_R123456",
+      alias = original + "-1",
+      nearby = original + "-2",
+      foreign = alias.replace("fixture.wd1", "other.wd1");
+    for (const [index, candidate] of [
+      alias,
+      original,
+      nearby,
+      foreign,
+    ].entries())
+      await h.engine.command("add", { jobId: id(index + 1), url: candidate });
+    if (active) await h.start();
+    const before = h.state(),
+      calls = [],
+      eventCount = h.events.length;
+    await h.engine.remove(original, (...args) => {
+      calls.push(args);
+      return args[0] === alias;
+    });
+    const after = h.state();
+    assert.deepEqual(after.items.slice(2), before.items.slice(2));
+    for (const item of after.items.slice(0, 2)) {
+      assert.equal(item.state, "cancelled");
+      assert.equal(item.paused, true);
+    }
+    assert(
+      calls.every((args) => args.length === 1 && typeof args[0] === "string"),
+    );
+    assert.equal(h.tabs.length, active ? 1 : 0);
+    const effects = h.events.slice(eventCount);
+    assert.equal(effects[0][0], "save");
+    assert.equal(
+      effects.filter((event) => event[0] === "control").length,
+      active ? 1 : 0,
+    );
+    if (active) {
+      const control = effects.find((event) => event[0] === "control");
+      assert.equal(control[1], h.tabs[0].id);
+      assert.equal(control[2].allowed, false);
+      assert.equal(control[2].state, "cancelled");
+    }
+    assert(!effects.some((event) => ["create", "navigate"].includes(event[0])));
+  });
+
+for (const state of ["submission_uncertain", "confirmed", "cancelled"])
+  test(`additional alias removal preserves ${state} history and refuses replay`, async () => {
+    const h = fixture();
+    h.autoSubmit(true);
+    await h.add(2);
+    await h.start("apply");
+    await h.page({ type: "hello" });
+    if (state === "cancelled")
+      await h.engine.command("cancel", { id: h.state().items[0].id });
+    else {
+      await h.page({ type: "intent", action: "submit", step: "review" });
+      if (state === "confirmed")
+        await h.page({ type: "status", confirmed: true });
+    }
+    const before = h.state().items[0],
+      eventCount = h.events.length;
+    await h.engine.remove(url(1), (candidate) => candidate === url(2));
+    const after = h.state().items[0];
+    assert.equal(after.state, state);
+    assert.equal(after.paused, true);
+    for (const key of [
+      "id",
+      "jobId",
+      "url",
+      "intent",
+      "documents",
+      "ownerSession",
+      "tabId",
+    ])
+      assert.deepEqual(after[key], before[key]);
+    const controls = h.events
+      .slice(eventCount)
+      .filter((event) => event[0] === "control");
+    assert.equal(controls.length, 1);
+    assert.equal(controls[0][2].allowed, false);
+    assert.equal(controls[0][2].state, state);
+    await assert.rejects(
+      h.engine.command("resume", { id: after.id }),
+      /不能自动重试/,
+    );
+  });
+
+test("additional matching cannot replace same-URL removal or enter through command arguments", async () => {
+  const h = fixture();
+  await h.add(1);
+  await h.add(2);
+  const alsoMatches = () => true;
+  await h.engine.command("cancel", { id: h.state().items[0].id, alsoMatches });
+  assert.equal(h.state().items[1].state, "queued");
+  await assert.rejects(
+    h.engine.command("remove", { url: url(2), alsoMatches }),
+    /未知队列操作/,
+  );
+  await h.engine.remove(url(2), () => false);
+  assert.equal(h.state().items[1].state, "cancelled");
+});

@@ -1,3 +1,4 @@
+import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import { spawnSync } from "node:child_process";
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
@@ -10,7 +11,7 @@ const source = await readModule(
   new URL("../src/custom/control-background.js", import.meta.url),
   "utf8",
 );
-const historySource = await readModule(
+const historySource = await readWithDependencies(
   new URL("../src/custom/history-background.js", import.meta.url),
   "utf8",
 );
@@ -66,6 +67,49 @@ test("control heartbeat recovery pause stops pages before dispatch and retains p
     false,
   );
 });
+for (const boundary of ["response", "pause JSON"])
+  test(`old control recovery pause preserves the new connection during ${boundary}`, async () => {
+    const started = Promise.withResolvers(),
+      reply = Promise.withResolvers();
+    const h = harness({
+      respond() {
+        if (boundary === "response") {
+          started.resolve();
+          return reply.promise;
+        }
+        return {
+          status: 503,
+          ok: false,
+          clone: () => ({
+            json: () => {
+              started.resolve();
+              return reply.promise;
+            },
+          }),
+        };
+      },
+    });
+    h.context.JobsManagementSync = { pendingSnapshot: async () => ({}) };
+    await h.ready();
+    const operation = h.tick();
+    await started.promise;
+    await h.context.JobsPrivateSession.clear();
+    h.local.jobsSyncV1.profileToken = "y".repeat(64);
+    h.session.profile_2 = { profile: "New synthetic profile" };
+    reply.resolve(
+      boundary === "response"
+        ? Response.json({ code: "recovery_application_pause" }, { status: 503 })
+        : { code: "recovery_application_pause" },
+    );
+    await operation;
+    assert.deepEqual(h.session.profile_2, { profile: "New synthetic profile" });
+    assert.equal(h.local.jobsSyncV1.profileToken, "y".repeat(64));
+    assert.equal(
+      h.deliveries.some(({ msg }) => msg.type === "jobs:control-execute"),
+      false,
+    );
+    assert.equal(h.requests.length, 1);
+  });
 const page = (id, extra = {}) => ({
   tabId: id,
   frameId: 0,

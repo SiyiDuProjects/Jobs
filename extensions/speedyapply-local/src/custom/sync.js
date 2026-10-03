@@ -9,6 +9,7 @@ import { JobsPrivateConnection } from "./private-connection.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsAvailabilityRules } from "./availability-rules.js";
 import { JobsManagementSync } from "./management-sync.js";
+import { JobsQueueBackground } from "./queue-background.js";
 export var JobsSync;
 let initialized = false;
 export function initializeSync() {
@@ -113,6 +114,7 @@ export function initializeSync() {
       );
     }
     async function record(application, source) {
+      const epoch = JobsPrivateSession.epoch;
       try {
         if (!source?.url || application.status !== "applied") return;
         const page = new URL(source.url),
@@ -172,7 +174,9 @@ export function initializeSync() {
         if (application.profileName)
           payload.profile_name = application.profileName;
         await serial(async () => {
+          JobsPrivateSession.assertCurrent(epoch);
           const state = await read();
+          JobsPrivateSession.assertCurrent(epoch);
           if (state.disabled) return;
           const parsedDate = new Date(application.date || Date.now());
           const day = Number.isNaN(parsedDate.valueOf())
@@ -201,6 +205,7 @@ export function initializeSync() {
           state.seen[dedupe] = Date.now();
           for (const [key, at] of Object.entries(state.seen))
             if (Date.now() - at > 90 * 86400000) delete state.seen[key];
+          JobsPrivateSession.assertCurrent(epoch);
           await write(state);
         });
         void flush();
@@ -338,8 +343,55 @@ export function initializeSync() {
           }
         );
       });
+      if (msg.type === "jobs:availability-delete")
+        await JobsQueueBackground?.remove?.(url);
       void flush();
       return result;
+    }
+    /** @param {string} url @param {unknown} [identityJobKeys]
+     * identityJobKeys may only come from a fresh authenticated resolve response. */
+    async function removalPending(url, identityJobKeys) {
+      const current = JobsJobMatch.key(url);
+      // Standalone sign-in/root pages have no posting identity yet.
+      if (!current && identityJobKeys === undefined) return false;
+      const keys = identityJobKeys === undefined ? [current] : identityJobKeys;
+      if (
+        !current ||
+        !Array.isArray(keys) ||
+        !keys.length ||
+        keys.length > 64 ||
+        !keys.includes(current) ||
+        new Set(keys).size !== keys.length ||
+        !keys.every((key) => {
+          if (typeof key !== "string" || !key.length || key.length > 4096)
+            return false;
+          try {
+            const parts = JSON.parse(key);
+            return (
+              Array.isArray(parts) &&
+              parts.length >= 3 &&
+              parts.every((part) => typeof part === "string") &&
+              /^[a-z][a-z0-9_]*$/.test(parts[1]) &&
+              new URL("https://" + parts[0]).hostname === parts[0] &&
+              JSON.stringify(parts) === key
+            );
+          } catch {
+            return false;
+          }
+        })
+      )
+        throw Error("岗位身份校验失败，暂不继续");
+      await ready;
+      const state = await serial(read);
+      return keys.some((key) => {
+        const row = state.availability?.[key];
+        return (
+          !!row &&
+          (["removed", "already_removed"].includes(row.result?.state) ||
+            (row.payload.proof === "manual_remove" &&
+              (!row.result || row.result.state === "protected")))
+        );
+      });
     }
     async function jobAction(msg, sender) {
       if (
@@ -357,7 +409,7 @@ export function initializeSync() {
       const url = cleanUrl(tab.url);
       if (new URL(url).origin === ORIGIN || !JobsJobMatch.key(url))
         throw Error("当前页面无法识别岗位");
-      return availability(
+      const result = await availability(
         {
           ...msg,
           type: {
@@ -368,9 +420,17 @@ export function initializeSync() {
         },
         { id: chrome.runtime.id, tab, frameId: 0, url: tab.url },
       );
+      // A rejection cached by an older service is not a permanent UI lock.
+      if (msg.action === "status" && result.state === "protected") {
+        const current = await resolveJob(url);
+        if (current?.removal?.allowed && !current.removal.removed)
+          return { ...result, state: "ready" };
+      }
+      return result;
     }
     async function run() {
       for (let i = 0; i < 10; i++) {
+        const epoch = JobsPrivateSession.epoch;
         const snapshot = await serial(read);
         if (!snapshot.token || snapshot.disabled) break;
         const entry = snapshot.outbox.find((item) => item.next <= Date.now());
@@ -390,7 +450,10 @@ export function initializeSync() {
             signal: AbortSignal.timeout(10000),
           });
           code = response.status;
-          await checkRecoveryPause(response);
+          // Receipts remain valid for the same grant after a private-cache
+          // refresh. Only a pause response may invalidate the captured epoch.
+          if (response.status === 503)
+            await checkRecoveryPause(response, epoch);
           if (response.ok) result = await response.json();
         } catch {
           /* Persist the receipt and retry on the next alarm. */
@@ -487,7 +550,7 @@ export function initializeSync() {
           });
       return flushing;
     }
-    async function reconnectCheck(profileToken) {
+    async function reconnectCheck(profileToken, epoch) {
       const fail = (message) => {
         throw Object.assign(Error(message), { connectionMessage: message });
       };
@@ -508,7 +571,7 @@ export function initializeSync() {
           },
           signal: AbortSignal.timeout(20000),
         });
-        await checkRecoveryPause(response);
+        await checkRecoveryPause(response, epoch);
         const list = await response.json();
         if (!response.ok || !Array.isArray(list))
           fail("无法核对待恢复回答所属的 Profile，原草稿已保留");
@@ -558,7 +621,7 @@ export function initializeSync() {
           previous.token !== msg.token ||
           (profileToken && previous.profileToken !== profileToken);
         const checkPending = changing
-          ? await reconnectCheck(profileToken)
+          ? await reconnectCheck(profileToken, epoch)
           : async () => {};
         await serial(async () => {
           const state = await read();
@@ -605,8 +668,8 @@ export function initializeSync() {
       }
       throw Error("Unknown message");
     }
-    async function profileResult(response, token, fallback) {
-      await checkRecoveryPause(response);
+    async function profileResult(response, token, fallback, epoch) {
+      if (response.status === 503) await checkRecoveryPause(response, epoch);
       // A proxy's HTML error page must not hide expired authentication or turn
       // an unsuccessful request into a successful empty profile response.
       let result;
@@ -664,6 +727,7 @@ export function initializeSync() {
         response,
         state.profileToken,
         "资料同步暂时失败，本地资料已保留",
+        epoch,
       );
       JobsPrivateSession.assertCurrent(epoch);
       return result;
@@ -690,6 +754,7 @@ export function initializeSync() {
         response,
         state.profileToken,
         "管理同步失败，本地数据已保留",
+        epoch,
       );
       JobsPrivateSession.assertCurrent(epoch);
       return result;
@@ -704,6 +769,7 @@ export function initializeSync() {
       return { deviceId: state.deviceId };
     }
     async function migrationRequest(path, method = "GET", body = undefined) {
+      const epoch = JobsPrivateSession.epoch;
       await ready;
       const state = await serial(read);
       if (!state.profileToken || state.disabled)
@@ -736,6 +802,7 @@ export function initializeSync() {
         response,
         state.profileToken,
         "迁移暂时无法连接，原资料已保留",
+        epoch,
       );
       const current = await serial(read);
       if (
@@ -788,6 +855,7 @@ export function initializeSync() {
       });
       const request = async (method) => {
         for (let attempt = 0; ; attempt++) {
+          const epoch = JobsPrivateSession.epoch;
           const active = await serial(read);
           if (active.disabled || active.profileToken !== state.profileToken)
             throw Error("个人资料连接已改变，请重新开始");
@@ -814,7 +882,8 @@ export function initializeSync() {
           } catch (error) {
             if (attempt >= 2) throw error;
           }
-          if (response) await checkRecoveryPause(response);
+          if (response?.status === 503)
+            await checkRecoveryPause(response, epoch);
           // The same durable request ID fences provider work. Retry only transient
           // transport failures, never invalid answers or expired authentication.
           if (
@@ -832,6 +901,7 @@ export function initializeSync() {
             response,
             state.profileToken,
             "Luna 请求失败，重试会继续同一任务",
+            epoch,
           );
         }
       };
@@ -862,27 +932,47 @@ export function initializeSync() {
     }
     // Which listed job a page belongs to, for Profile binding of pages opened
     // outside the website. Read-only; the URL travels in the body, never a query.
-    async function resolveJob(url, hint) {
+    const resolvingJobs = new Map();
+    async function resolveJob(url, hint, { fresh = false } = {}) {
+      const epoch = JobsPrivateSession.epoch;
       await ready;
       const state = await serial(read);
+      JobsPrivateSession.assertCurrent(epoch);
       if (!state.token || state.disabled) return null;
       const body = {
         url: cleanUrl(url),
         ...(/^[a-f0-9]{24}$/.test(hint || "") ? { website_job_id: hint } : {}),
       };
+      // Submission and navigation checks must observe a new server read, even
+      // while an earlier identity lookup is still waiting for its response.
+      if (fresh) return resolveJobRequest(body, state.token, epoch);
+      // Only overlapping identity reads share a request. Completed results
+      // are never cached across runs or connection changes.
+      const key = JSON.stringify([epoch, state.token, body]);
+      if (resolvingJobs.has(key)) return resolvingJobs.get(key);
+      const task = resolveJobRequest(body, state.token, epoch).finally(() => {
+        if (resolvingJobs.get(key) === task) resolvingJobs.delete(key);
+      });
+      resolvingJobs.set(key, task);
+      return task;
+    }
+    async function resolveJobRequest(body, token, epoch) {
       const response = await fetch(ORIGIN + "/api/extension/resolve", {
         method: "POST",
         credentials: "omit",
         headers: {
           "X-Jobs-Protocol": "2",
           "Content-Type": "application/json",
-          Authorization: "Bearer " + state.token,
+          Authorization: "Bearer " + token,
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(8000),
       });
-      await checkRecoveryPause(response);
-      return response.ok ? await response.json() : null;
+      JobsPrivateSession.assertCurrent(epoch);
+      await checkRecoveryPause(response, epoch);
+      const result = response.ok ? await response.json() : null;
+      JobsPrivateSession.assertCurrent(epoch);
+      return result;
     }
     /** @param {string} url @param {string} title @param {string=} hint
      * @param {(()=>Promise<string|undefined>)=} verify */
@@ -918,7 +1008,7 @@ export function initializeSync() {
         signal: AbortSignal.timeout(8000),
       });
       JobsPrivateSession.assertCurrent(epoch);
-      await checkRecoveryPause(response);
+      await checkRecoveryPause(response, epoch);
       return response.ok
         ? await response.json()
         : { ok: false, reason: "not_accepted" };
@@ -933,6 +1023,7 @@ export function initializeSync() {
       generateAnswer,
       resolveJob,
       reportJobTitle,
+      removalPending,
       ready,
     };
     chrome.runtime.onMessage.addListener((msg, sender, reply) => {

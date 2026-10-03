@@ -1,45 +1,67 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button, Input, Label, TextField } from "@heroui/react";
 import {
   readAccountSettings,
   saveAccountSettings,
 } from "./account-settings.js";
 
-function AccountForm() {
+function AccountForm({ open }) {
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("正在读取本机设置…");
   const [error, setError] = useState(false);
+  const saving = useRef(false);
+  const mounted = useRef(false);
+  const revision = useRef(0);
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!open || draft) return;
     let active = true;
-    readAccountSettings(chrome.storage.local).then(
-      (settings) => {
+    setError(false);
+    setMessage("正在读取本机设置…");
+    async function load() {
+      try {
+        const settings = await readAccountSettings(chrome.storage.local);
         if (!active) return;
         setDraft({ ...settings, password: "", clearPassword: false });
         setMessage("");
-      },
-      () => {
+      } catch {
         if (!active) return;
         setError(true);
         setMessage("无法读取本机设置，请关闭后重新打开。 ");
-      },
-    );
+      }
+    }
+    void load();
     return () => {
       active = false;
     };
-  }, []);
+  }, [open]);
   const edit = (change) => {
+    revision.current++;
     setDraft((current) => ({ ...current, ...change }));
     setMessage("");
     setError(false);
   };
   async function save(event) {
     event.preventDefault();
-    if (busy || !draft) return;
+    if (saving.current || !draft) return;
+    saving.current = true;
+    const savedRevision = revision.current;
     setBusy(true);
     setError(false);
     try {
       const result = await saveAccountSettings(chrome.storage.local, draft);
+      if (!mounted.current) return;
+      if (revision.current !== savedRevision) {
+        setDraft((current) => ({ ...current, ...result }));
+        setMessage("先前修改已保存；当前修改尚未保存。");
+        return;
+      }
       setDraft((current) => ({
         ...current,
         ...result,
@@ -50,12 +72,15 @@ function AccountForm() {
         "已保存。新打开的申请页生效；已打开的页面需在保留进度后刷新。",
       );
     } catch {
+      if (!mounted.current) return;
       setError(true);
       setMessage("保存失败，请重试。 ");
     } finally {
-      setBusy(false);
+      saving.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
+  if (!open) return null;
   return (
     <form id="jobs-account-form" className="popup-section" onSubmit={save}>
       <p className="popup-hint">
@@ -134,6 +159,7 @@ function AccountForm() {
 
 export function PopupAccount() {
   const [open, setOpen] = useState(false);
+  const [opened, setOpened] = useState(false);
   return (
     <section className="popup-section" aria-label="账号自动填充">
       <Button
@@ -141,12 +167,15 @@ export function PopupAccount() {
         variant="secondary"
         aria-expanded={open}
         aria-controls="jobs-account-form"
-        onPress={() => setOpen(!open)}
+        onPress={() => {
+          setOpened(true);
+          setOpen((current) => !current);
+        }}
         fullWidth
       >
         {open ? "收起账号设置" : "账号自动填充"}
       </Button>
-      {open && <AccountForm />}
+      {opened && <AccountForm open={open} />}
     </section>
   );
 }

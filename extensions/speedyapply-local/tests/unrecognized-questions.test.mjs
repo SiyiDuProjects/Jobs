@@ -26,7 +26,7 @@ const diagnostics = await Promise.all(
     "control-content",
   ].map(read),
 );
-const historySource = await readModule(
+const historySource = await readWithDependencies(
   new URL("../src/custom/history-background.js", import.meta.url),
   "utf8",
 );

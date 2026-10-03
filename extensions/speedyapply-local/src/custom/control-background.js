@@ -519,7 +519,7 @@ export function initializeControlBackground() {
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(10000),
       });
-      await checkRecoveryPause(response);
+      await checkRecoveryPause(response, epoch);
       if (!response.ok)
         throw Error("Control endpoint unavailable (" + response.status + ")");
       const data = await response.json();

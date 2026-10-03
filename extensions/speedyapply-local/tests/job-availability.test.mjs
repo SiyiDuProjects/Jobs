@@ -169,6 +169,9 @@ function background(initial, respond) {
     // This suite isolates its contract; storage-upgrade.test covers the actual gate.
     JobsStorageUpgrade: { assertReady: async () => {}, peek: () => null },
     chrome,
+    JobsQueueBackground: {
+      remove: async (url) => announced.push({ type: "stopped", url }),
+    },
     URL,
     crypto: webcrypto,
     TextEncoder,
@@ -243,7 +246,7 @@ test("popup deletes current URL without page injection and shares durable undo w
     "岗位方向不匹配",
   );
   assert.equal(
-    h.announced.length,
+    h.announced.filter((m) => m.type !== "stopped").length,
     0,
     "manual action must not open the page toast",
   );
@@ -408,4 +411,48 @@ test("native status presents removal text literally with accessible restore and 
   assert.equal(dismissed, 1);
   assert(!w.document.querySelector("[data-jobs-ui]"));
   w.close();
+});
+
+test("pending owner removal gates the posting across worker restart and undo clears only its durable gate", async () => {
+  const h = background(undefined, () => {
+    throw Error("offline");
+  });
+  await h.message(jobAction("delete"), popupSender);
+  assert.equal(await h.api.removalPending(url), true);
+  assert.equal(await h.api.removalPending(url.replace("R123", "R999")), false);
+  assert.equal(h.announced[0].type, "stopped");
+  const saved = h.storage();
+  saved.jobsSyncV1.outbox[0].next = 0;
+  const next = background(saved);
+  assert.equal(await next.api.removalPending(url), true);
+  await next.api.flush();
+  const removed = await next.message(jobAction("status"), popupSender);
+  await next.message(
+    { ...jobAction("restore"), eventId: removed.event_id },
+    popupSender,
+  );
+  await next.api.flush();
+  assert.equal(await next.api.removalPending(url), false);
+});
+
+test("old protected deletion becomes actionable only when fresh service eligibility permits it", async () => {
+  const h = background(undefined, (body) => ({
+    ok: true,
+    status: 200,
+    json: async () =>
+      body.proof
+        ? { event_id: body.event_id, state: "protected" }
+        : { removal: { allowed: true, removed: false } },
+  }));
+  await h.message(jobAction("delete"), popupSender);
+  await h.api.flush();
+  assert.equal(
+    (await h.message(jobAction("status"), popupSender)).state,
+    "ready",
+  );
+  assert.equal(
+    await h.api.removalPending(url),
+    true,
+    "retry permission must not resume the page",
+  );
 });

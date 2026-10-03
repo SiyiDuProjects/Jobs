@@ -518,8 +518,9 @@ export function initializeControlFields() {
         platform.conditions?.(rows, ctx);
         return rows;
       }
-      function scan() {
-        scanned++;
+      let scannedNodes;
+      function scan(only = null) {
+        if (!only) scanned++;
         const rows = [],
           seen = new Set();
         const scope = root();
@@ -527,8 +528,10 @@ export function initializeControlFields() {
         // before their search inputs/backing selects so one question is scanned
         // exactly once.
         const { discovered, nodes } = structure(scope, platform, ctx, cache);
+        scannedNodes = nodes;
         const canonical = new Set(discovered);
         for (const node of nodes) {
+          if (only && !only.has(node)) continue;
           const owner = component(node);
           const details = owner?.api.describe?.(node);
           const facts = details ? null : owner?.api.facts?.(node, ctx) || null;
@@ -932,6 +935,22 @@ export function initializeControlFields() {
           });
         }
         return annotateCompletion(rows);
+      }
+      // Reuse discovery, never a field's old value/validity. Structural changes
+      // and cross-field conditions require the complete canonical scan again.
+      // Error-summary titles also need every row to detect ambiguous matches.
+      function read(row) {
+        const current = structure(root(), platform, ctx, cache);
+        const narrow =
+          current.nodes === scannedNodes &&
+          row.node.isConnected &&
+          !platform.conditions &&
+          !errorSummary().titles.length &&
+          !component(row.node) &&
+          !row.dependsOn?.length;
+        return scan(narrow ? new Set([row.node]) : null).find(
+          (item) => item.node === row.node,
+        );
       }
       // Every value written by the supplement, known answers, AI, remote review and
       // shared adapter entrances leaves one decision record: what was asked,
@@ -1581,6 +1600,7 @@ export function initializeControlFields() {
         write || JobsControlConfig?.enabled === true
           ? {
               scan,
+              read,
               unrecognized,
               response,
               apply,
@@ -1593,6 +1613,7 @@ export function initializeControlFields() {
             }
           : {
               scan,
+              read,
               unrecognized,
               response,
               visible,

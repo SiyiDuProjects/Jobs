@@ -14,7 +14,17 @@ export function initializeQueuePage() {
       disposed = false,
       reporting = false,
       entryBusy = false,
-      navigationPermit = false;
+      navigationPermit = false,
+      removed = false;
+    function accept(data) {
+      if (data?.removed && !removed) {
+        removed = true;
+        generation++;
+        navigationPermit = false;
+        bridge.cancel?.();
+      }
+      if (data) permission = data;
+    }
     const send = async (data) => {
       const reply = await chrome.runtime.sendMessage({
         type: "jobs:queue-page",
@@ -25,6 +35,7 @@ export function initializeQueuePage() {
     };
     const allowed = (epoch) =>
       !disposed &&
+      !removed &&
       (epoch === undefined || epoch === generation) &&
       (!permission.owned || permission.allowed || navigationPermit);
     const guard = (check) => {
@@ -33,7 +44,7 @@ export function initializeQueuePage() {
     };
     const ready = send({ type: "hello" })
       .then((data) => {
-        if (data) permission = data;
+        accept(data);
         return permission;
       })
       .catch(() => permission);
@@ -104,12 +115,25 @@ export function initializeQueuePage() {
     }
     async function verify() {
       await ready;
-      if (!permission.owned) return;
       const result = await send({ type: "check" });
-      if (result) permission = result;
+      accept(result);
       if (!allowed()) throw Error("队列已暂停或提交结果待核实");
       if (permission.entryOnly)
         throw Error("当前页面仅可处理登录／进入步骤，尚未核对同一岗位");
+    }
+    async function intent(action, signature) {
+      const result = await send({ type: "intent", action, step: signature });
+      // A removal or ownership change can arrive as the reply alone. A plain
+      // journal acknowledgement is not a replacement permission snapshot.
+      if (result?.removed || typeof result?.owned === "boolean") accept(result);
+      if (
+        result?.removed ||
+        result?.allowed === false ||
+        result?.ok === false ||
+        (result?.ok !== true &&
+          !(result?.owned === false && result?.allowed === true))
+      )
+        throw Error("队列未确认导航，已停止本次操作");
     }
     let submissionGuard,
       submissionAttempted = false,
@@ -118,6 +142,7 @@ export function initializeQueuePage() {
       manualSubmit = false;
     async function beforeNavigate(action, root, target) {
       await ready;
+      await verify();
       if (action === "submit" && !submissionGuard) {
         const reply = await chrome.runtime.sendMessage({
           type: "jobs:submission-prepare",
@@ -127,16 +152,11 @@ export function initializeQueuePage() {
           throw Error(reply?.error || "无法建立提交保护");
         submissionGuard = reply.data.id;
       }
-      if (!permission.owned) return;
       const epoch = generation;
       if (!allowed()) throw Error("队列已暂停");
       const reason = blocker();
       if (reason) throw Error(reason);
-      await send({
-        type: "intent",
-        action,
-        step: await step(action, root, target),
-      });
+      await intent(action, await step(action, root, target));
       if (epoch !== generation || !allowed())
         throw Error("队列状态已变化，原导航已停止");
       // The persisted attempt authorizes this immediate, revalidated click only.
@@ -346,7 +366,7 @@ export function initializeQueuePage() {
             candidate.textContent,
           ]);
         const signature = await step(action, document.body, candidate);
-        await send({ type: "intent", action, step: signature });
+        await intent(action, signature);
         if (
           !allowed(epoch) ||
           location.href !== url ||
@@ -384,7 +404,7 @@ export function initializeQueuePage() {
     }
     async function report({ confirmed = false } = {}) {
       await ready;
-      if (disposed || !permission.owned || reporting) return;
+      if (disposed || reporting) return;
       reporting = true;
       const epoch = generation;
       try {
@@ -407,8 +427,13 @@ export function initializeQueuePage() {
         const result = await send(payload);
         if (epoch !== generation) return;
         const wasEntryOnly = permission.entryOnly;
-        if (result) permission = result;
-        if (wasEntryOnly && !permission.entryOnly && permission.allowed)
+        accept(result);
+        if (
+          wasEntryOnly &&
+          !permission.entryOnly &&
+          permission.allowed &&
+          allowed()
+        )
           void bridge.resume?.();
         if (!state.active && allowed()) void enter();
       } catch {
@@ -425,7 +450,7 @@ export function initializeQueuePage() {
       )
         return;
       const previous = permission;
-      permission = message.state;
+      accept(message.state);
       navigationPermit = false;
       if (
         previous.allowed !== permission.allowed ||
@@ -434,10 +459,11 @@ export function initializeQueuePage() {
       )
         generation++;
       if (!allowed() && !bridge.pending?.()) bridge.cancel?.();
-      if (permission.allowed && !previous.allowed)
+      if (allowed() && permission.allowed && !previous.allowed)
         void send({ type: "hello" })
           .then((data) => {
-            permission = data;
+            accept(data);
+            if (!allowed()) return;
             if (bridge.resume) void bridge.resume();
             else void enter();
           })

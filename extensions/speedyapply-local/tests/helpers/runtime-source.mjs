@@ -7,6 +7,8 @@ import { readModule } from "./module-source.mjs";
 // Manifest ordering has its own contract test.
 const custom = new URL("../../src/custom/", import.meta.url);
 const dependencies = {
+  "history-background.js": ["history-store.js", "history-event-metrics.js"],
+  "diagnostics.js": ["history-event-metrics.js"],
   "control-fields.js": [
     "page-actions.js",
     "platform-config.js",

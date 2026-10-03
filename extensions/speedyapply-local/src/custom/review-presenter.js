@@ -35,11 +35,13 @@ export function initializeReviewPresenter() {
       // One write path and one button: an edit is written to the page when it
       // is committed (a choice, Enter, leaving the field) and at the latest by
       // Confirm, which never discards an answer typed in the card.
-      const submit = (value, version) =>
+      const submit = (value, version, acceptCurrent = false) =>
         (item.writing = (async () => {
           if (!view || item.reviewRow.editor?.disabled)
             return { error: "当前不能修改，请稍候。" };
-          const owner = view;
+          const owner = view,
+            control = box.querySelector("input,textarea,select"),
+            revision = control?.draftRevision;
           box
             .querySelectorAll("button,input,select,textarea")
             .forEach((node) => (node.disabled = true));
@@ -47,11 +49,17 @@ export function initializeReviewPresenter() {
             const result = await owner.act("answer", row.id, {
               value,
               version,
+              ...(acceptCurrent ? { acceptCurrent: true } : {}),
             });
-            if (result?.ok)
-              box.querySelectorAll("input,textarea,select").forEach((node) => {
-                node.draftVersion = null;
-              });
+            if (
+              control &&
+              control.draftRevision === revision &&
+              box.contains(control)
+            ) {
+              if (result?.ok) control.draftVersion = null;
+              control.failedDraft = !result?.ok;
+            } else if (control && result?.ok)
+              return { error: "卡片中的答案已更改，请重新确认。" };
             if (result?.error)
               item.querySelector(".error").textContent = result.error;
             return result || { error: "填入失败，请重试。" };
@@ -69,7 +77,21 @@ export function initializeReviewPresenter() {
           : control.value;
       item.flush = async () => {
         await item.writing;
-        const control = box.querySelector("input,textarea,select");
+        const control = box.querySelector("input,textarea,select"),
+          current = item.reviewRow.editor,
+          value =
+            control?.type === "date"
+              ? JobsControlFields.calendarDate(current?.value)?.iso
+              : current?.value;
+        if (
+          control?.draftVersion != null &&
+          control.failedDraft &&
+          Number.isInteger(control.draftSchemaVersion) &&
+          control.draftSchemaVersion === current?.schemaVersion &&
+          current.valid === true &&
+          JSON.stringify(draft(control)) === JSON.stringify(value)
+        )
+          return submit(value, current.version, true);
         return control && control.draftVersion != null
           ? submit(draft(control), control.draftVersion)
           : { ok: true };
@@ -99,7 +121,7 @@ export function initializeReviewPresenter() {
           } else {
             const choice = ["select", "multiple"].includes(editor.kind),
               control =
-                /** @type {(HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement)&{draftVersion?:number|null}} */ (
+                /** @type {(HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement)&{draftVersion?:number|null,draftRevision?:number,draftSchemaVersion?:number,failedDraft?:boolean}} */ (
                   document.createElement(
                     choice
                       ? "select"
@@ -133,6 +155,9 @@ export function initializeReviewPresenter() {
             else if (control instanceof HTMLTextAreaElement) control.rows = 3;
             control.oninput = () => {
               control.draftVersion = item.reviewRow.editor.version;
+              control.draftSchemaVersion = item.reviewRow.editor.schemaVersion;
+              control.draftRevision = (control.draftRevision || 0) + 1;
+              control.failedDraft = false;
             };
             box.append(control);
             control.onchange = (event) => {
@@ -161,6 +186,26 @@ export function initializeReviewPresenter() {
           String(button.valueKey === editor.value),
         );
       const control = box.querySelector("input,textarea,select");
+      box.querySelector(".use-page-value")?.remove();
+      if (
+        control?.draftVersion != null &&
+        control.draftVersion !== editor.version &&
+        editor.valid === true
+      ) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "choice use-page-value";
+        button.textContent = "使用网页当前值";
+        button.onclick = (event) => {
+          if (event.isTrusted)
+            void submit(
+              item.reviewRow.editor.value,
+              item.reviewRow.editor.version,
+              true,
+            );
+        };
+        box.append(button);
+      }
       if (control && control.draftVersion == null) {
         if (control.multiple)
           for (const option of control.options)

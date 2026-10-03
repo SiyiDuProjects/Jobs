@@ -57,6 +57,8 @@ export function initializeTabProfiles() {
       const operation = {
         epoch: JobsPrivateSession.epoch,
         revision: tabRevisions.get(id) || 0,
+        verifiedRecords: new WeakSet(),
+        freshlyBound: false,
       };
       const task = (tabQueues.get(id) || Promise.resolve()).then(async () => {
         operations.set(id, operation);
@@ -173,9 +175,12 @@ export function initializeTabProfiles() {
       assertTab(id);
       if (synchronized?.ok === false)
         throw Error("无法获取已保存回答，已暂停填写；请检查连接后重试");
+      const operation = operations.get(id);
+      if (operation)
+        operation.freshlyBound = operation.verifiedRecords.has(record);
       return (await selected(id)) || value;
     }
-    async function kindRecord(kind) {
+    async function kindRecord(kind, operation) {
       let data = await profileData(["jobsProfilesList", "jobsKindProfiles"]);
       let map = JobsManagementModel.mappings(
         data.jobsProfilesList || [],
@@ -189,16 +194,18 @@ export function initializeTabProfiles() {
           data.jobsKindProfiles,
         );
       }
-      return map[kind] ? latest(map[kind]) : null;
+      return map[kind] ? latest(map[kind], operation) : null;
     }
     // Pages opened outside the website (agent tools, bookmarks, after an
     // extension reload) ask the server which listed job they belong to. One
     // lookup per job identity; an offline server simply leaves them unresolved.
     async function remoteJob(url, hint) {
+      const epoch = JobsPrivateSession.epoch;
       const key = await jobDigest(url);
       if (!key || !JobsSync?.resolveJob) return null;
       const cached = resolved.get(key);
-      if (cached && Date.now() - cached.at < 600000) return cached.value;
+      if (cached?.epoch === epoch && Date.now() - cached.at < 600000)
+        return cached.value;
       let value = null;
       try {
         const reply = await JobsSync.resolveJob(url, hint);
@@ -209,14 +216,26 @@ export function initializeTabProfiles() {
           value = reply;
       } catch {}
       // A failed/offline lookup must not hide a later match for ten minutes.
-      if (value) resolved.set(key, { at: Date.now(), value });
+      JobsPrivateSession.assertCurrent(epoch);
+      if (value) resolved.set(key, { at: Date.now(), value, epoch });
       return value;
+    }
+    async function rememberResolution(url, value, epoch) {
+      if (
+        value?.state !== "matched" ||
+        !/^[a-f0-9]{24}$/.test(value.job_id || "") ||
+        !Array.isArray(value.kinds)
+      )
+        return;
+      const key = await jobDigest(url);
+      JobsPrivateSession.assertCurrent(epoch);
+      if (key) resolved.set(key, { at: Date.now(), value, epoch });
     }
     async function bindResolved(tab, url, hint) {
       const job = await remoteJob(url, hint);
       // A posting listed in both pools is a real ambiguity; keep the fallback.
       if (job?.kinds?.length !== 1) return null;
-      const record = await kindRecord(job.kinds[0]);
+      const record = await kindRecord(job.kinds[0], operations.get(tab.id));
       if (!record?.profile) return null;
       const value = await bind(tab.id, record, job.job_id, "resolved", url);
       await remember(tab, value, job.job_id);
@@ -256,6 +275,7 @@ export function initializeTabProfiles() {
     async function ensureTab(sender, bindDefault) {
       await JobsStorageUpgrade.assertReady();
       const id = sender.tab.id;
+      const operation = operations.get(id);
       let value = await selected(id);
       const tab = await chrome.tabs.get(id);
       if (!tab) throw Error("申请标签页已关闭，请重新打开岗位");
@@ -306,16 +326,16 @@ export function initializeTabProfiles() {
         );
         const chosen =
           new Set(manual.map((row) => row.id)).size === 1
-            ? await latest(manual[0].id)
+            ? await latest(manual[0].id, operation)
             : null;
         const manualDefault = await profileData([MANUAL_DEFAULT]);
         const record =
           chosen ||
           (website.ambiguous
             ? manualDefault[MANUAL_DEFAULT]?.id
-              ? await latest(manualDefault[MANUAL_DEFAULT].id)
+              ? await latest(manualDefault[MANUAL_DEFAULT].id, operation)
               : null
-            : await kindRecord(website.kind));
+            : await kindRecord(website.kind, operation));
         if (!record?.profile)
           throw Error("未找到岗位对应的 Profile，请选择资料后再填写");
         value = await bind(
@@ -341,7 +361,7 @@ export function initializeTabProfiles() {
           throw Error(
             "恢复的申请页有多个资料身份，请在本页确认 Profile 后再填写",
           );
-        const record = await latest(recovery[0].id);
+        const record = await latest(recovery[0].id, operation);
         value = await bind(
           id,
           record,
@@ -355,7 +375,7 @@ export function initializeTabProfiles() {
         // Unknown to the website and the server: the Profile the owner last chose
         // by hand, never whichever job tab happened to be viewed last.
         const manual = data[MANUAL_DEFAULT]?.id
-          ? await latest(data[MANUAL_DEFAULT].id)
+          ? await latest(data[MANUAL_DEFAULT].id, operation)
           : null;
         if (manual?.profile)
           value = await bind(id, manual, undefined, "default", url);
@@ -493,7 +513,7 @@ export function initializeTabProfiles() {
       return row;
     }
     const same = (a, b) => JobsManagementModel.same(a, b);
-    async function latest(id) {
+    async function latest(id, operation = undefined) {
       const epoch = JobsPrivateSession.epoch;
       let record;
       try {
@@ -508,6 +528,7 @@ export function initializeTabProfiles() {
       if (record?.id !== id || !record.profile || !record.last_sync)
         throw Error("本页 Profile 已删除或不可用，请重新选择资料");
       recordEpoch.set(record, epoch);
+      operation?.verifiedRecords.add(record);
       return record;
     }
     async function fresh(sender, { begin = false, remote = false } = {}) {
@@ -517,9 +538,12 @@ export function initializeTabProfiles() {
       return inTab(id, async () => {
         const value = await ensureTab(sender, begin);
         if (!value) return null;
+        // Only a record fetched and synchronized in this operation is fresh.
+        // Inheriting a parent's binding still requires a current server read.
+        if (begin && operations.get(id)?.freshlyBound) return value;
         const readLatest = async () => {
           try {
-            return await latest(value.id);
+            return await latest(value.id, operations.get(id));
           } catch (error) {
             const { lastSync, ...unverified } = value;
             assertTab(id);
@@ -616,6 +640,7 @@ export function initializeTabProfiles() {
       await JobsManagementSync.release?.();
     }
     JobsTabProfiles = {
+      rememberResolution,
       ensure,
       context,
       selected,

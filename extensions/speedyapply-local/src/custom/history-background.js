@@ -5,14 +5,15 @@ import { JobsJobMatch } from "./job-match.js";
 import { JobsBuildInfo } from "./build-info.js";
 import { JobsSync } from "./sync.js";
 import { JobsBrand } from "./brand.js";
+import { createDiagnosticHistoryStore } from "./history-store.js";
+import { historyEventMetrics } from "./history-event-metrics.js";
 export var JobsDiagnosticHistory;
 let initialized = false;
 export function initializeHistoryBackground() {
   if (initialized) return;
   initialized = true;
   (() => {
-    const KEY = "jobsDiagnosticHistoryV1",
-      MAX_BYTES = 150000,
+    const MAX_BYTES = 150000,
       MAX_ARCHIVE_BYTES = 25000000,
       MAX_RUNS = 1000,
       RETENTION_MS = 30 * 86400000;
@@ -26,11 +27,8 @@ export function initializeHistoryBackground() {
       );
       return task;
     };
-    const read = async () =>
-      /** @type {import('./sync-types').HistoryState} */ (
-        (await chrome.storage.local.get(KEY))[KEY] || { applications: {} }
-      );
-    const write = (state) => chrome.storage.local.set({ [KEY]: state });
+    const store = createDiagnosticHistoryStore();
+    const { read, write } = store;
     const bytes = (value) =>
       new TextEncoder().encode(JSON.stringify(value)).byteLength;
     const identity = publicJobUrl;
@@ -133,7 +131,6 @@ export function initializeHistoryBackground() {
         )
           return;
         const url = identity(report.pageUrl),
-          state = await read(),
           at = report.observedAt;
         const runId =
           report.runId ||
@@ -145,6 +142,7 @@ export function initializeHistoryBackground() {
               report.startedAt ||
               0);
         const storageKey = JobsJobMatch.key(report.pageUrl) + "|" + runId;
+        const state = await read(storageKey);
         const { synthetic, publicText, trace } = await redactor(report, runId);
         const entry = state.applications[storageKey] || {
           revision: 0,
@@ -229,6 +227,8 @@ export function initializeHistoryBackground() {
             e.fieldId || null,
             e.phase || null,
             e.build || null,
+            e.visibility || null,
+            historyEventMetrics(e.type, e.timing).timing || null,
           ]);
         const priorEventCount = data.events.length;
         data.events = [
@@ -244,6 +244,7 @@ export function initializeHistoryBackground() {
             document: report.sessionId,
             type: e.type,
             ...(e.fieldId ? { fieldId: e.fieldId } : {}),
+            ...historyEventMetrics(e.type, e.detail),
           });
           if (e.type === "phase" && /^[a-z_-]{1,80}$/.test(e.detail || ""))
             event.phase = e.detail;
@@ -304,7 +305,7 @@ export function initializeHistoryBackground() {
           .sort((a, b) => a[1].data.lastSeen - b[1].data.lastSeen);
         while (
           Object.keys(state.applications).length > MAX_RUNS ||
-          bytes(state) > MAX_ARCHIVE_BYTES
+          store.size(state) > MAX_ARCHIVE_BYTES
         ) {
           const oldest = disposable.shift();
           if (!oldest)
@@ -336,14 +337,23 @@ export function initializeHistoryBackground() {
         return { items, ack };
       });
     }
-    async function acknowledge(sent) {
+    async function acknowledge(sent, epoch = undefined) {
       return serial(async () => {
         const state = await read();
+        const check =
+          epoch === undefined
+            ? undefined
+            : () => JobsPrivateSession.assertCurrent(epoch);
+        check?.();
+        const pendingAcks = {};
         for (const { url, revision } of sent) {
           const entry = state.applications[url];
-          if (entry) entry.ack = Math.max(entry.ack, revision);
+          if (entry && revision > entry.ack) {
+            pendingAcks[url] = entry.ack;
+            entry.ack = revision;
+          }
         }
-        await write(state);
+        await write(state, check ? { check, pendingAcks } : undefined);
       });
     }
     let uploading;
@@ -359,24 +369,54 @@ export function initializeHistoryBackground() {
       const origin = JobsBrand.origin;
       if (!origin) throw Error("Diagnostics connection is unavailable");
       JobsPrivateSession.assertCurrent(epoch);
-      const response = await fetch(origin + "/api/extension/diagnostics", {
-        method: "POST",
-        credentials: "omit",
-        headers: {
-          "X-Jobs-Protocol": "2",
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + connection.profileToken,
-        },
-        body: JSON.stringify({ protocolVersion: 1, history: batch.items }),
-        signal: AbortSignal.timeout(10000),
-      });
-      await checkRecoveryPause(response);
-      if (!response.ok)
-        throw Error("Diagnostics upload failed (" + response.status + ")");
-      if ((await response.json()).historyAccepted !== true)
-        throw Error("Diagnostics were not acknowledged");
+      const post = async (history) => {
+        JobsPrivateSession.assertCurrent(epoch);
+        const response = await fetch(origin + "/api/extension/diagnostics", {
+          method: "POST",
+          credentials: "omit",
+          headers: {
+            "X-Jobs-Protocol": "2",
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + connection.profileToken,
+          },
+          body: JSON.stringify({ protocolVersion: 1, history }),
+          signal: AbortSignal.timeout(10000),
+        });
+        await checkRecoveryPause(response, epoch);
+        JobsPrivateSession.assertCurrent(epoch);
+        if (!response.ok) return { status: response.status };
+        const data = await response.json();
+        JobsPrivateSession.assertCurrent(epoch);
+        if (data.historyAccepted !== true)
+          throw Error("Diagnostics were not acknowledged");
+        return { status: 0, metrics: data.historyEventMetrics === 1 };
+      };
+      const accepted = (response) => {
+        if (response.status)
+          throw Error("Diagnostics upload failed (" + response.status + ")");
+        return response;
+      };
+      const hasMetrics = batch.items.some((item) =>
+        item.events.some((event) => event.timing || event.visibility),
+      );
+      const legacy = () =>
+        batch.items.map((item) => ({
+          ...item,
+          events: item.events.map(({ timing, visibility, ...event }) => event),
+        }));
+      // Probe with the existing empty-packet contract. Old servers never see
+      // new event fields; the local archive still retains those measurements.
+      const metrics = hasMetrics && accepted(await post([])).metrics;
+      const response = await post(
+        hasMetrics && !metrics ? legacy() : batch.items,
+      );
+      // The service can roll back between the probe and packet. Retry only a
+      // rejected rich shape, once; auth/pause/network failures keep it pending.
+      accepted(
+        metrics && response.status === 400 ? await post(legacy()) : response,
+      );
       JobsPrivateSession.assertCurrent(epoch);
-      await acknowledge(batch.ack);
+      await acknowledge(batch.ack, epoch);
     }
     function sync() {
       if (!uploading)

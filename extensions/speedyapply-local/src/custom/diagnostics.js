@@ -4,6 +4,7 @@ import { JobsBuildInfo } from "./build-info.js";
 import { JobsReproCase } from "./repro-case.js";
 import { JobsControlConfig } from "./control-config.js";
 import { JobsPlatformConfig } from "./platform-config.js";
+import { historyEventMetrics } from "./history-event-metrics.js";
 export var JobsDiagnostics;
 let initialized = false;
 export function initializeDiagnostics() {
@@ -217,7 +218,13 @@ export function initializeDiagnostics() {
         at: Date.now(),
         type,
         ...(node ? { fieldId: fieldId(node) } : {}),
-        ...(detail ? { detail: clean(detail) } : {}),
+        ...(detail
+          ? {
+              detail: ["auto_run_timing", "auto_write_timing"].includes(type)
+                ? JSON.stringify(historyEventMetrics(type, detail).timing || {})
+                : clean(detail),
+            }
+          : {}),
       });
       if (events.length > MAX_EVENTS) {
         events.shift();
@@ -697,6 +704,8 @@ export function initializeDiagnostics() {
       });
       options?.ctx?.onInvalidated?.(stop);
       add("adapter_started", null, ats);
+      // Seed the visibility stream even when no transition occurs in this run.
+      add("visibility_changed", null, doc.visibilityState);
       const build = JobsBuildInfo?.id;
       if (/^[a-f0-9]{16}$/.test(build || ""))
         events.push({
@@ -714,6 +723,7 @@ export function initializeDiagnostics() {
       truncatedEvents = 0;
       lastSignature = "";
       lastCaseSignature = "";
+      add("visibility_changed", null, doc.visibilityState);
     }
     function perform(operation, target, run) {
       if (!session || stopped) return run();

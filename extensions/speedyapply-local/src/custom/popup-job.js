@@ -1,13 +1,14 @@
 const labels = {
-  ready: "从岗位列表移除后，可在 24 小时内撤销。",
+  ready: "删除会停止该岗位的自动填写，可在 24 小时内撤销。",
   pending: "删除待同步，连接恢复后自动重试",
   removed: "已从岗位列表移除",
   already_removed: "该岗位已在回收站",
   restoring: "正在撤销删除…",
-  restored: "岗位已恢复",
+  restored: "岗位已恢复；不会自动继续填写。",
   unmatched: "未匹配到 jobs 岗位，未删除",
   expired: "操作已过期，请重新删除",
-  protected: "此岗位有申请记录或正在处理中，未删除",
+  protected:
+    "此岗位有提交记录或提交结果待核实，未删除；若尚未提交，请检查服务是否已更新。",
   restore_expired: "已超过 24 小时恢复期限",
   restore_conflict: "岗位状态已变化，请到回收站查看",
 };

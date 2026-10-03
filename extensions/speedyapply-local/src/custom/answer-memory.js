@@ -34,6 +34,7 @@ export function initializeAnswerMemory() {
       const doc = root.ownerDocument || root,
         view = doc.defaultView;
       const reader = JobsControlFields.create(doc, scope);
+      let lastRows = [];
       const pending = new Map(),
         review = new Map(),
         timers = new Map(),
@@ -49,9 +50,22 @@ export function initializeAnswerMemory() {
       function flush() {
         for (const timer of timers.values()) view.clearTimeout(timer);
         timers.clear();
-        const entries = [...pending.entries()].filter(
+        let entries = [...pending.entries()].filter(
           ([, item]) => !inFlight.has(item),
         );
+        if (!entries.length) return;
+        const profile = JobsPageSession?.profile?.();
+        if (profile && JobsProfileAnswers) {
+          const country = JobsProfileAnswers.scope(
+            reader.scan().map((row) => row.public),
+          );
+          entries = entries.filter(([id, item]) => {
+            if (!JobsProfileAnswers.covers(item.record, profile, { country }))
+              return true;
+            pending.delete(id);
+            return false;
+          });
+        }
         if (!entries.length) return;
         for (const [, item] of entries) {
           inFlight.add(item);
@@ -105,23 +119,9 @@ export function initializeAnswerMemory() {
           pending.delete(key(record));
           return;
         }
-        const profile = JobsPageSession?.profile?.();
         const id = key(record);
-        const answers = JobsProfileAnswers;
-        if (
-          profile &&
-          answers?.covers(record, profile, {
-            country: answers.scope(reader.scan().map((row) => row.public)),
-          })
-        ) {
-          // Only an equivalent answer in this form's country scope is redundant.
-          // Also discard a previously queued value after the user corrects it;
-          // a later blur must not retry the stale answer.
-          pending.delete(id);
-          view.clearTimeout(timers.get(id));
-          timers.delete(id);
-          return;
-        }
+        // Replace intermediate edits immediately, but evaluate Profile coverage
+        // once per save batch using the current form's country and Profile.
         pending.set(id, { record, node });
         view.clearTimeout(timers.get(id));
         if (immediate) flush();
@@ -132,20 +132,27 @@ export function initializeAnswerMemory() {
         const label = target.closest("label"),
           control = label?.control;
         const popup = target.closest('[role="listbox"]');
-        return reader
-          .scan()
-          .filter(
-            (row) =>
-              row.node === target ||
-              row.node.contains(target) ||
-              row.node === control ||
-              row.group.some(
-                (node) =>
-                  node === target || node.contains(target) || node === control,
-              ) ||
-              (popup?.id &&
-                row.node.getAttribute("aria-controls") === popup.id),
-          );
+        const matches = (row) =>
+          row.node === target ||
+          row.node.contains(target) ||
+          row.node === control ||
+          row.group.some(
+            (node) =>
+              node === target || node.contains(target) || node === control,
+          ) ||
+          (popup?.id && row.node.getAttribute("aria-controls") === popup.id);
+        const known = lastRows.filter(matches);
+        if (known.length) {
+          const current = known.map((row) => reader.read(row)).filter(Boolean);
+          if (current.length === known.length) {
+            lastRows = lastRows.map(
+              (row) => current.find((item) => item.node === row.node) || row,
+            );
+            return current;
+          }
+        }
+        lastRows = reader.scan();
+        return lastRows.filter(matches);
       }
       function capture(rows, immediate) {
         for (const row of rows) {

@@ -62,6 +62,44 @@ test("Ashby server summary blocks but does not guess which duplicate label owns 
     f.dom.window.close();
   }
 });
+test("targeted reads preserve ambiguity and current answers under a server summary", () => {
+  const f = fixture(
+    summary +
+      '<label>Name*<input value="First"></label><label>Name*<input value="Second"></label>',
+  );
+  try {
+    const rows = f.reader.scan();
+    rows[0].node.value = "Changed first";
+    for (const [index, row] of rows.entries()) {
+      const current = f.reader.read(row);
+      assert.equal(current.public.invalid, false);
+      assert.equal(
+        f.reader.response(current).response,
+        index === 0 ? "Changed first" : "Second",
+      );
+    }
+    assert.equal(f.reader.state().ready, false);
+  } finally {
+    f.dom.window.close();
+  }
+});
+test("targeted reads still reject a uniquely matched server error and recover when it clears", () => {
+  const f = fixture(
+    summary + '<label>Name*<input value="Fixture Applicant"></label>',
+  );
+  try {
+    const row = f.reader.scan()[0];
+    const rejected = f.reader.read(row);
+    assert.equal(rejected.public.invalid, true);
+    assert.equal(f.reader.response(rejected), null);
+    f.doc.querySelector('[role="alert"]').remove();
+    const accepted = f.reader.read(row);
+    assert.equal(accepted.public.invalid, false);
+    assert.equal(f.reader.response(accepted).response, "Fixture Applicant");
+  } finally {
+    f.dom.window.close();
+  }
+});
 test("ordinary alerts, hidden errors and non-Ashby content do not acquire Ashby error semantics", () => {
   for (const [alert, url] of [
     [

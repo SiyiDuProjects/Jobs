@@ -139,7 +139,10 @@ test("Workday account startup survives standalone login while posting status che
           };
         },
       };
-      h.w.JobsTabProfiles = { ensure: async () => null };
+      h.w.JobsTabProfiles = {
+        ensure: async () => null,
+        selected: async () => null,
+      };
       Object.assign(h.w.chrome.runtime, {
         id: "jobs",
         onMessage: { addListener() {} },
@@ -571,6 +574,50 @@ test("temporary job context retains the title through form steps and resets for 
     });
     assert.equal(session.job_7.title, "");
     assert.equal(session.job_7.description, "");
+  } finally {
+    h.close();
+  }
+});
+
+test("local account configuration does not bind a Profile, while Profile email still resolves it", async () => {
+  const h = fixture();
+  let binds = 0,
+    useProfileEmail = false;
+  try {
+    h.w.chrome.runtime.id = "jobs";
+    h.w.chrome.runtime.onMessage = { addListener() {} };
+    h.w.chrome.runtime.onConnect = { addListener() {} };
+    h.w.chrome.storage = {
+      local: {
+        get: async () => ({
+          autofillAccount: {
+            useProfileEmail,
+            accountEmail: "local@example.invalid",
+          },
+        }),
+      },
+    };
+    h.w.JobsTabProfiles = {
+      selected: async () => null,
+      ensure: async () => {
+        binds++;
+        return {
+          profile: { contactData: { email: "profile@example.invalid" } },
+        };
+      },
+    };
+    h.w.eval(worker);
+    const sender = { id: "jobs", tab: { id: 1 }, url: h.w.location.href };
+    let result = await h.w.handle({ type: "getAutofillConfig" }, sender);
+    assert.equal(binds, 0);
+    assert.equal(result.accountSettings.accountEmail, "local@example.invalid");
+    useProfileEmail = true;
+    result = await h.w.handle({ type: "getAutofillConfig" }, sender);
+    assert.equal(binds, 1);
+    assert.equal(
+      result.accountSettings.accountEmail,
+      "profile@example.invalid",
+    );
   } finally {
     h.close();
   }

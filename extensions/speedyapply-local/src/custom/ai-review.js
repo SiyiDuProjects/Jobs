@@ -79,6 +79,17 @@ export function initializeAiReview() {
           const response = record?.response,
             unchanged = response === item.originalResponse;
           const signature = row && own.signature(row);
+          const schema =
+            row &&
+            JSON.stringify([
+              row.public.question,
+              row.public.type,
+              row.public.options,
+            ]);
+          if (schema !== item.schema) {
+            item.schema = schema;
+            item.schemaVersion = (item.schemaVersion || 0) + 1;
+          }
           if (signature !== item.signature) {
             item.signature = signature;
             item.version = (item.version || 0) + 1;
@@ -138,6 +149,8 @@ export function initializeAiReview() {
             if (editor)
               Object.assign(editor, {
                 version: item.version,
+                schemaVersion: item.schemaVersion,
+                valid: !!record && !row.public.invalid,
                 disabled: own.busy || !own.onConfirm,
               });
           }
@@ -331,6 +344,13 @@ export function initializeAiReview() {
         row = own.reader.scan().find((row) => row.node === node);
         if (!current() || !row || own.signature(row) !== expected)
           throw Error("页面已变化，请重新选择。");
+        // The card may acknowledge a manual correction without writing its old
+        // draft. Keep freshness/context validation and ordinary confirmation.
+        if (payload.acceptCurrent === true) {
+          if (row.public.invalid || !own.reader.response(row))
+            throw Error("网页当前答案仍需检查，请先完成该题。");
+          return { ok: true };
+        }
         // The person's answer goes through the run's one write, as decider "user".
         const written = await JobsFormPipeline.write(
           row.node,
