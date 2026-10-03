@@ -71,12 +71,16 @@ def test_release_failure_restores_matching_website_code_and_data(tmp_path, failu
     assert 'probe' not in state
 
 
-def test_compatible_rollback_keeps_post_release_writes_and_restores_code(tmp_path):
+@pytest.mark.parametrize('trailing_newline', [True, False])
+def test_compatible_rollback_keeps_post_release_writes_and_restores_code(tmp_path, trailing_newline):
     live, _, _ = setup(tmp_path)
     result, state = run(tmp_path)
     assert result.returncode == 0, result.stdout + result.stderr
     assert state['active'] == 'bbbbbbbbbbbb'
     assert (live / 'website.js').read_text() == 'new website'
+    if not trailing_newline:
+        metadata = live / '.rollback-target'
+        metadata.write_text(metadata.read_text().removesuffix('\n'))
     (live / 'data' / 'jobs.sqlite').write_text('new owner records after release')
     result, state = run(tmp_path, '--rollback')
     assert result.returncode == 0, result.stdout + result.stderr
@@ -175,7 +179,7 @@ def test_host_and_existing_live_lock_both_refuse_before_image_or_data_operations
     assert state['calls'] == [['flock', '-n', '8']] + ([['flock', '-n', '9']] if locked == '9' else [])
 
 
-@pytest.mark.parametrize('tamper', ['archive', 'image', 'metadata'])
+@pytest.mark.parametrize('tamper', ['archive', 'image', 'metadata', 'metadata_extra'])
 def test_rollback_refuses_unpaired_recorded_image_and_archive(tmp_path, tamper):
     live, _, _ = setup(tmp_path)
     result, state = run(tmp_path)
@@ -187,6 +191,8 @@ def test_rollback_refuses_unpaired_recorded_image_and_archive(tmp_path, tamper):
     elif tamper == 'image':
         state['images']['jobs-radar:previous'] = 'cccccccccccc'
         (tmp_path / 'state.json').write_text(json.dumps(state))
+    elif tamper == 'metadata_extra':
+        (live / '.rollback-target').write_text('\n'.join(metadata) + '\n\n')
     else:
         (live / '.rollback-target').write_text('\n'.join(metadata[:2]) + '\n')
     before = len(state['calls'])
@@ -299,7 +305,8 @@ def test_isolated_release_uses_only_private_namespace_and_never_host_timers(tmp_
     assert not any('jobs-radar:0.1.0' in call or 'jobs-radar:previous' in call for call in state['calls'])
 
 
-@pytest.mark.parametrize('escape', ['timers_only', 'project', 'root', 'live_mount', 'public_port', 'network', 'compose_file'])
+@pytest.mark.parametrize('escape', ['timers_only', 'project', 'root', 'live_mount', 'public_port', 'network', 'compose_file',
+                                   'missing_stage', 'dangling_compose', 'symlink_stage'])
 def test_rehearsal_overrides_cannot_disable_production_guards(tmp_path, escape):
     root, stage, env = rehearsal(tmp_path)
     if escape == 'timers_only':
@@ -310,6 +317,20 @@ def test_rehearsal_overrides_cannot_disable_production_guards(tmp_path, escape):
         env['JOBS_RELEASE_REHEARSAL_ROOT'] = str(root / 'live')
     elif escape == 'compose_file':
         env['COMPOSE_FILE'] = str(root / 'outside.yaml')
+    elif escape == 'missing_stage':
+        stage = root / 'stages' / 'missing'
+    elif escape in {'dangling_compose', 'symlink_stage'}:
+        if escape == 'dangling_compose':
+            link, target = root / 'compose.yaml', root / 'missing.yaml'
+            link.unlink()
+        else:
+            link, target = stage, tmp_path / 'outside-stage'
+            stage.rename(stage.with_name('retained-stage'))
+            target.mkdir()
+        try:
+            link.symlink_to(target, target_is_directory=escape == 'symlink_stage')
+        except OSError:
+            pytest.skip('Host does not permit fixture symlinks')
     else:
         path = root / 'compose.yaml'
         config = json.loads(path.read_text())

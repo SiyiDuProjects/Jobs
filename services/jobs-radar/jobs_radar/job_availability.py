@@ -76,8 +76,8 @@ class JobAvailability:
         candidates, method = resolve(c, p['job_url'], hinted)
         if not candidates: return {'state':'unmatched'}
         # An external application can share this posting before reconciliation.
-        if any(not can_remove_unsubmitted(row) for row in c.execute(
-                'SELECT * FROM applications WHERE job_key=?', (job_key(p['job_url']),))):
+        from .application_records import matching_applications
+        if any(not can_remove_unsubmitted(row) for row in matching_applications(c, job_key(p['job_url']))):
             return {'state':'protected','reason':'application_history','job_id':sorted(candidates)[0]}
         # All IDs indexed by the same scoped requisition key are source aliases.
         # Remove the complete group atomically, never just the hinted source row.

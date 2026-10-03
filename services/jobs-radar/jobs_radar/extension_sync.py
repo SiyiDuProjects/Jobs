@@ -76,7 +76,7 @@ class ExtensionSync:
             from .job_availability import JobAvailability
             return JobAvailability(self.store).receive(device_id, payload)
         self.validate(payload)
-        from .application_records import upsert, write_state
+        from .application_records import upsert, write_state, receipt_application
         from .submission_events import observed_timestamp
         observed=observed_timestamp(payload.get('observed_at'))
         if not 1577836800 <= observed <= time.time()+600:
@@ -105,9 +105,11 @@ class ExtensionSync:
                 application_id=None
             else:
                 jid=payload.get('website_job_id') if payload.get('website_job_id') in ids else ids[0] if ids else None
-                before=c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone() if jid else None
+                from .job_match import posting_key
+                before=receipt_application(c,jid,posting_key(payload['job_url']))
+                if before is not None:jid=before['job_id']
                 value=upsert(c,dict(job_id=jid,jobTitle=payload.get('job_title',''),jobLink=payload['job_url'],companyName=payload.get('company',''),
-                    companyLink='',date=payload['observed_at'],status='applied',profileName=payload.get('profile_name','')))
+                    companyLink='',date=payload['observed_at'],status='applied',profileName=payload.get('profile_name','')),receipt_proof=payload['proof'])
                 application_id=value['id'];jid=value['job_id']
                 app=c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone()
                 if payload['proof']=='submit_validation_error' and app['attempted_at'] is None:
@@ -117,7 +119,12 @@ class ExtensionSync:
                 # truth. A receipt enriches provenance; it is not a second gate.
                 error=(payload.get('detail') or '提交后报错，待核实') if payload['proof']=='submit_validation_error' else (
                     None if payload['proof'] in {'tracker_record','ats_confirmation'} else app['submission_error'])
-                new_status='submitted' if confirmed or app['confirmed_at'] is not None or not error else 'submitted_unconfirmed'
+                receipt_error=error
+                has_confirmation=confirmed or app['confirmed_at'] is not None
+                # Out-of-order receipts remain evidence, but cannot replace
+                # the displayed result of an authoritative ATS confirmation.
+                if has_confirmation:error=None
+                new_status='submitted' if has_confirmation or not error else 'submitted_unconfirmed'
                 evidence=json.loads(app['evidence'] or '[]')
                 evidence.append(dict(type='extension_confirmation' if confirmed else payload['proof'],reference=payload['job_url'],
                     observed_at=payload['observed_at'],reported_by='jobs-extension',event_id=payload['event_id']))
@@ -129,7 +136,7 @@ class ExtensionSync:
                     app['confirmed_at'] is not None or app['attempted_at'] is not None and payload['proof'] in {'submit_attempt','tracker_record'}))
                 write_state(c,jid,dict(status=new_status,updated=now,evidence=json.dumps(evidence),
                     attempted_at=app['attempted_at'] or observed,confirmed_at=app['confirmed_at'] or (observed if confirmed else None),
-                    submission_error=error,detail='网站已确认' if confirmed else error or '插件已记录投递'),
+                    submission_error=error,detail='网站已确认' if has_confirmation else error or '插件已记录投递'),
                     version_step=0 if unchanged else 1,reason='extension')
                 if not unchanged:
                     # Attempt, validation and confirmation are evidence for the
@@ -140,10 +147,13 @@ class ExtensionSync:
                 for alias in ids:
                     if alias==jid:continue
                     alias_app=c.execute('SELECT * FROM applications WHERE job_id=?',(alias,)).fetchone()
-                    write_state(c,alias,dict(status='submitted' if alias_app['confirmed_at'] else new_status,
+                    alias_confirmed=confirmed or alias_app['confirmed_at'] is not None
+                    alias_error=None if alias_confirmed else receipt_error
+                    write_state(c,alias,dict(status='submitted' if alias_confirmed or not alias_error else 'submitted_unconfirmed',
                         attempted_at=alias_app['attempted_at'] or observed,
                         confirmed_at=alias_app['confirmed_at'] or (observed if confirmed else None),evidence=json.dumps(evidence),
-                        submission_error=error,detail='网站已确认' if confirmed else error or '插件已记录投递'),
+                        submission_error=alias_error,
+                        detail='网站已确认' if alias_confirmed else alias_error or '插件已记录投递'),
                         version_step=1,reason='extension_alias')
                 # Late submission evidence remains authoritative, but must not
                 # undo the owner's explicit removal or restart the application.
@@ -165,18 +175,20 @@ class ExtensionSync:
         if not isinstance(url, str) or len(url) > 2000 or (hint is not None and not isinstance(hint, str)):
             raise ValueError('Invalid resolve request')
         identity(url)
-        from .job_match import resolve, job_key
-        from .application_records import submission_state, can_remove_unsubmitted
+        from .job_match import resolve, posting_key, identity_job_keys
+        from .application_records import submission_state, can_remove_unsubmitted, matching_applications
         def application_state(rows):
             held = sorted(rows, key=lambda row: (row['confirmed_at'] is not None,
-                bool(row['submission_error']), row['attempted_at'] is not None or row['status'] in {'submitted', 'submitted_unconfirmed'}, row['updated']), reverse=True)
+                bool(row['submission_error']), row['attempted_at'] is not None or row['status'] in {'submitted', 'submitted_unconfirmed'},
+                bool(row['application_id'] and row['record']), row['updated']), reverse=True)
             return ({'id': held[0]['application_id'], 'version': held[0]['record_version'],
                      **submission_state(held[0])} if held else None)
         with self.store.connect() as c:
             ids, method = resolve(c, url, hint)
             if not ids:
-                external = c.execute('SELECT * FROM applications WHERE job_key=?', (job_key(url),)).fetchall()
+                external = matching_applications(c, posting_key(url))
                 return {'state': 'unmatched', 'application': application_state(external)}
+            identity_keys = identity_job_keys(c, ids, url)
             marks = ','.join('?' for _ in ids)
             rows = [json.loads(r[0]) for r in c.execute(f'SELECT payload FROM observations WHERE job_id IN ({marks})', ids)]
             # Read-only queue eligibility uses the board's discovery boundary
@@ -188,12 +200,18 @@ class ExtensionSync:
                 WHERE {scope} AND s.job_id IN ({marks}) AND s.active=1 AND s.visible=1 AND o.present=1
                 AND NOT EXISTS (SELECT 1 FROM job_screening q WHERE q.job_id=s.job_id AND q.kind=s.kind AND q.state='trash') LIMIT 1''',
                 [*scope_values, *ids]).fetchone()
-            applications = c.execute(f'SELECT * FROM applications WHERE job_id IN ({marks}) OR job_key=?', [*ids, job_key(url)]).fetchall()
+            applications = list({r['job_id']:r for r in [
+                *c.execute(f'SELECT * FROM applications WHERE job_id IN ({marks})', ids).fetchall(),
+                *matching_applications(c, posting_key(url))]}.values())
             statuses = [r['status'] for r in applications]
             removed = c.execute(f"SELECT 1 FROM job_screening WHERE job_id IN ({marks}) AND state='trash' LIMIT 1", ids).fetchone() is not None
             removal = {'allowed': len(statuses) >= len(ids) and all(can_remove_unsubmitted(r) for r in applications), 'removed': removed}
             pending_screening = c.execute(f"SELECT 1 FROM job_screening WHERE job_id IN ({marks}) AND state='pending' LIMIT 1", ids).fetchone()
-            reason = ('not_in_current_list' if not visible else 'application_history' if len(statuses) != len(ids) or any(s != 'not_started' for s in statuses) else 'screening_required' if pending_screening else '')
+            missing_application = set(ids) - {r['job_id'] for r in applications}
+            reason = ('not_in_current_list' if not visible else 'application_history' if missing_application or any(
+                r['status'] != 'not_started' or r['attempted_at'] is not None or r['confirmed_at'] is not None
+                or r['record'] or r['submission_error'] or r['job_id'] not in ids and r['version'] > 0
+                for r in applications) else 'screening_required' if pending_screening else '')
             queue = {'version': 1, 'allowed': not reason, 'reason': reason, 'checked_at': int(time.time() * 1000)}
             application = application_state(applications)
             selected_id = hint if hint in ids else ids[0]
@@ -201,6 +219,7 @@ class ExtensionSync:
         kinds = sorted({{'internship': 'intern'}.get(r.get('kind'), r.get('kind')) for r in rows} & {'intern', 'newgrad'})
         first = rows[0] if rows else {}
         return {'state': 'matched', 'job_id': selected_id, 'job_ids': ids, 'kinds': kinds,
+                **({'identity_job_keys': identity_keys} if identity_keys is not None else {}),
                 'matched_by': method, 'company': str(first.get('company', ''))[:250], 'title': title_override['title'] if title_override else str(first.get('title', ''))[:500],
                 'queue': queue, 'application': application, 'removal': removal}
 

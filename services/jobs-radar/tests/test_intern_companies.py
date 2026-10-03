@@ -1,6 +1,3 @@
-import json
-from pathlib import Path
-
 import pytest
 from starlette.testclient import TestClient
 
@@ -34,9 +31,22 @@ def test_reviewed_names_and_aliases_only():
     assert not recommended_intern_company('GSK Internships & Co-ops powered by Atrium')
     assert not recommended_intern_company('Google Contractor Agency')
     assert not recommended_intern_company('Perpay')
-    source=Path(__file__).resolve().parents[3]/'reports/intern-company-review-2026-09-15/selection-final/company-selection.json'
-    selected=json.loads(source.read_text(encoding='utf-8'))['companies']
-    assert set(COMPANIES)=={c['company'] for c in selected if c['decision']=='留'}
+
+
+def test_every_reviewed_alias_obeys_the_browsing_policy():
+    # The historical review report is not a checkout dependency. Exercise the
+    # shipped decisions and alias boundaries without loading private archives.
+    for company, aliases in COMPANIES.items():
+        for name in [company, *aliases]:
+            assert recommended_intern_company(name), name
+            assert matches_company_review(name), name
+            assert recommended_intern_company('  '+name.upper()+'  '), name
+            assert not recommended_intern_company(name+' Contractor Agency'), name
+    for company, aliases in EXCLUDED_COMPANIES.items():
+        for name in [company, *aliases]:
+            assert not recommended_intern_company(name), name
+            assert not matches_company_review('  '+name.upper()+'  '), name
+            assert matches_company_review(name+' Unreviewed Subsidiary'), name
 
 
 def test_company_filter_is_internship_only_before_pagination(tmp_path):

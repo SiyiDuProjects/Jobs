@@ -14,6 +14,42 @@ MAX_RUNS = 2000
 MAX_BYTES = 160_000
 
 
+def event_metrics(event):
+    """Accept only named counters/durations and page visibility, never free text."""
+    from .browser_control import shape, integer
+    result = {}
+    if 'visibility' in event:
+        if event['type'] != 'visibility_changed' or event['visibility'] not in ('hidden', 'visible'):
+            raise ValueError('Invalid diagnostic visibility')
+        result['visibility'] = event['visibility']
+    if 'timing' not in event:
+        return result
+    kind = event['type']
+    if kind not in ('auto_write_timing', 'auto_run_timing'):
+        raise ValueError('Invalid diagnostic timing event')
+
+    def numbers(value, keys):
+        shape(value, (), keys)
+        if not value:
+            raise ValueError('Empty diagnostic timing')
+        return {key: integer(number, 86_400_000 if key in ('ms', 'heldMs') else 1_000_000)
+                for key, number in value.items()}
+
+    if kind == 'auto_write_timing':
+        result['timing'] = numbers(event['timing'], ('ms', 'heldMs', 'scans'))
+        return result
+    timing = shape(event['timing'], (), ('ms', 'scans', 'structuralScans', 'writes', 'profileChecks'))
+    if not timing:
+        raise ValueError('Empty diagnostic timing')
+    scalar = {key: value for key, value in timing.items() if key not in ('writes', 'profileChecks')}
+    result['timing'] = numbers(scalar, ('ms', 'scans', 'structuralScans')) if scalar else {}
+    for key, fields in (('writes', ('writes', 'ms', 'heldMs', 'scans')),
+                        ('profileChecks', ('count', 'fresh', 'ms', 'reused'))):
+        if key in timing:
+            result['timing'][key] = numbers(timing[key], fields)
+    return result
+
+
 def redact(item, salt, scope=''):
     """Preserve equality and option ordering using synthetic values only."""
     def synthetic(value):
@@ -99,13 +135,14 @@ def validate(value, now):
                                                  structure=text(entry['structure'], 800, empty=True)))
         result['snapshots'].append(item)
     for event in sequence(value['events'], 1500):
-        shape(event, ('at', 'document', 'type'), ('fieldId', 'phase', 'build'))
+        shape(event, ('at', 'document', 'type'), ('fieldId', 'phase', 'build', 'timing', 'visibility'))
         item = dict(at=integer(event['at'], now + 60_000), document=text(event['document'], 128),
                     type=text(event['type'], 80))
         for key in ('fieldId', 'phase', 'build'):
             if key in event:
                 item[key] = text(event[key], 80)
         # No arbitrary detail, answer, options, HTML, command args or values.
+        item.update(event_metrics(event))
         result['events'].append(item)
     if len(encoded(result).encode()) > MAX_BYTES:
         raise ValueError('History packet is too large')
@@ -129,8 +166,8 @@ def save(c, device, items, now=None):
         item = redact(item, redaction_salt(c), device + ':' + item['runId'])
         key = hashlib.sha256(encoded([device, item['jobKey'], item['runId']]).encode()).hexdigest()[:24]
         old = c.execute('SELECT data FROM browser_diagnostic_history WHERE id=?', (key,)).fetchone()
+        previous = json.loads(old['data']) if old else {'snapshots': [], 'events': []}
         if old:
-            previous = json.loads(old['data'])
             prior_retention = previous.get('caseRetention')
             incoming_retention = item.get('caseRetention')
             if prior_retention:
@@ -141,11 +178,19 @@ def save(c, device, items, now=None):
             item = {**item, 'firstSeen': min(item['firstSeen'], previous['firstSeen']),
                     'lastSeen': max(item['lastSeen'], previous['lastSeen']),
                     'truncated': item['truncated'] or previous['truncated']}
-            for kind, limit in (('snapshots', 60), ('events', 1500)):
-                merged = {encoded(v): v for v in previous[kind] + item[kind]}
-                rows = sorted(merged.values(), key=lambda v: v['at'])
-                item['truncated'] |= len(rows) > limit
-                item[kind] = rows[-limit:]
+        for kind, limit in (('snapshots', 60), ('events', 1500)):
+            merged = {encoded(v): v for v in previous[kind] + item[kind]}
+            rows = sorted(merged.values(), key=lambda v: v['at'])
+            if kind == 'events':
+                # A legacy upload may precede the same event with metrics.
+                # Keep the enriched event, preserving distinct measurements
+                # even if two events happened within the same millisecond.
+                def base(event):
+                    return encoded({k: v for k, v in event.items() if k not in ('timing', 'visibility')})
+                enriched = {base(v) for v in rows if 'timing' in v or 'visibility' in v}
+                rows = [v for v in rows if 'timing' in v or 'visibility' in v or base(v) not in enriched]
+            item['truncated'] |= len(rows) > limit
+            item[kind] = rows[-limit:]
         while len(encoded(item).encode()) > MAX_BYTES:
             item['truncated'] = True
             if len(item['snapshots']) > 1:
@@ -196,7 +241,7 @@ class Diagnostics:
         items = [validate(v, now) for v in sequence(payload['history'], 10)]
         with self.store.connect(True) as c:
             save(c, device, items, now)
-        return {'historyAccepted': True}
+        return {'historyAccepted': True, 'historyEventMetrics': 1}
 
     def history(self, application_id=None):
         with self.store.connect(True) as c:
@@ -212,6 +257,14 @@ class Diagnostics:
 def read(c, application_id=None):
     if application_id is not None:
         row = c.execute('SELECT * FROM browser_diagnostic_history WHERE id=?', (application_id,)).fetchone()
+        if not row:
+            # A client runId is not globally unique across devices or job keys.
+            # Keep the archive ID authoritative and never choose an arbitrary run.
+            matches = c.execute("SELECT * FROM browser_diagnostic_history WHERE json_extract(data,'$.runId')=? LIMIT 2",
+                                (application_id,)).fetchall()
+            if len(matches) > 1:
+                raise ValueError('Diagnostic runId is ambiguous; pass applications[].id from the history index')
+            row = matches[0] if matches else None
         if not row:
             raise ValueError('Diagnostic run is unknown or its retention period ended')
         return dict(id=row['id'], **redact(json.loads(row['data']), redaction_salt(c), row['id']), valuePolicy='synthetic_values_only',

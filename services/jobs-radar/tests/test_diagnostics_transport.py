@@ -46,7 +46,7 @@ def test_diagnostics_upload_is_independent_of_remote_control(tmp_path, monkeypat
         body = {'protocolVersion': 1, 'history': [data]}
         assert client.post('/api/extension/diagnostics', json=body).status_code == 401
         response = client.post('/api/extension/diagnostics', json=body, headers={'authorization': 'Bearer ' + token})
-        assert response.json() == {'historyAccepted': True}
+        assert response.json() == {'historyAccepted': True, 'historyEventMetrics': 1}
     assert len(Diagnostics(store).history()['applications']) == 1
 
 

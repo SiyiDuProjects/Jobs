@@ -7,6 +7,7 @@ import json
 import re
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, parse_qsl, urlencode
+from .verified_postings import canonical_key
 
 RULES = json.loads(Path(__file__).with_name('job_match_rules.json').read_text())
 # Marketing/referral parameters never identify a posting. Everything else in an
@@ -58,19 +59,61 @@ def job_key(url):
     except (ValueError,TypeError):
         return None
 
+def posting_key(url):
+    """Server posting identity, including explicitly reviewed official aliases."""
+    return canonical_key(job_key(url))
+
+
 def job_index(c):
     index = {}
     for row in c.execute("SELECT id,job_key FROM jobs WHERE job_key IS NOT NULL AND id NOT IN (SELECT alias_id FROM job_aliases)"):
-        index.setdefault(row['job_key'],set()).add(row['id'])
+        index.setdefault(canonical_key(row['job_key']),set()).add(row['id'])
     return index
+
+
+def identity_job_keys(c, ids, url):
+    """Read-only raw keys for one resolved, reviewed posting identity.
+
+    Hints and arbitrary job_aliases rows do not create new URL equivalences.
+    Refuse an invalid/oversized group rather than omit a submission guard key.
+    """
+    from .verified_postings import equivalent_keys
+    marks = ','.join('?' for _ in ids)
+    groups = {canonical_key(r[0]) for r in c.execute(f'SELECT job_key FROM jobs WHERE id IN ({marks})', ids)}
+    if len(groups) != 1 or None in groups:
+        raise ValueError('Ambiguous posting identity key group')
+    group = next(iter(groups))
+    current = job_key(url)
+    # A supported request-local hint can connect a careers hub and an ATS
+    # without establishing a durable raw-key equivalence. Omit the optional
+    # field for that hint rather than expand the reviewed group.
+    if canonical_key(current) != group:
+        return None
+    values = equivalent_keys(group)
+    if any(not isinstance(key, str) or not 1 <= len(key) <= 4096 for key in values):
+        raise ValueError('Invalid posting identity key length')
+    keys = sorted(set(values))
+    if not 1 <= len(keys) <= 64 or current not in keys or any(canonical_key(key) != canonical_key(current) for key in keys):
+        raise ValueError('Invalid posting identity key group')
+    return keys
 
 
 def _tokens(url):
     p = urlsplit(url)
-    text = p.path + '?' + p.query + '#' + p.fragment
     # Requisition numbers (Workday REF088587W / JR100691-1, gh_jid, pid) and
     # UUIDs. Title slugs and years are shared by sibling postings, so no.
     ident = re.compile(r'[A-Za-z]{0,4}-?\d{5,}(?:-\d{1,3})?[A-Za-z]?|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I)
+    key = job_key(url)
+    parts = json.loads(key) if key else None
+    if parts and parts[1] != 'exact':
+        # Known ATS identity outranks unrelated query values and nested URLs.
+        text = '/'.join(parts[2:])
+    else:
+        # Unknown sites may identify postings by a scalar query ID, but a
+        # returnUrl containing another posting is not this page's identity.
+        query = '&'.join(value for key, value in parse_qsl(p.query, keep_blank_values=True)
+                         if not TRACKING.match(key) and ident.fullmatch(value))
+        text = p.path + '?' + query
     return {t.lower() for t in re.split(r'[^A-Za-z0-9-]+', text) if ident.fullmatch(t)}
 
 
@@ -107,11 +150,21 @@ def _corroborates(url, listed):
     """Same posting: its own site and a shared requisition number, or a company
     careers hub and its ATS (squarepoint-capital.com -> Greenhouse squarepointcapital,
     careers.amd.com -> campus-amd.icims.com) sharing the number and the company name."""
+    page_key, listed_key = job_key(url), job_key(listed)
+    if page_key and listed_key and page_key != listed_key:
+        page_parts, listed_parts = json.loads(page_key), json.loads(listed_key)
+        if page_parts[:2] == listed_parts[:2] and page_parts[1] != 'exact':
+            return False
     shared = _tokens(url) & _tokens(listed)
     if not shared:
         return False
-    if _scope(url) == _scope(listed):
+    page_scope, listed_scope = _scope(url), _scope(listed)
+    if page_scope == listed_scope:
         return True
+    # Explicit tenant scopes on the same ATS host outrank fuzzy brand names:
+    # Acme and AcmeLabs may reuse a requisition number but are distinct tenants.
+    if page_scope[0] == listed_scope[0]:
+        return False
     here, there = _brands(url), _brands(listed)
     return any(a == b or (len(a) >= 4 and len(b) >= 4 and (a in b or b in a)) for a in here for b in there)
 
@@ -124,7 +177,7 @@ def resolve(c, url, hint=None):
     Returns (job_ids, method): method is 'url', 'hint' or None.
     """
     index = job_index(c)
-    ids = index.get(job_key(url), set()) if job_key(url) else set()
+    ids = index.get(posting_key(url), set()) if posting_key(url) else set()
     if ids: return sorted(ids), 'url'
     if not hint or not re.fullmatch(r'[a-f0-9]{24}', hint): return [], None
     alias = c.execute('SELECT canonical_id FROM job_aliases WHERE alias_id=?', (hint,)).fetchone() \
@@ -136,5 +189,5 @@ def resolve(c, url, hint=None):
     except ValueError:
         return [], None
     group = set()
-    for u in urls: group |= index.get(job_key(u), set())
+    for u in urls: group |= index.get(posting_key(u), set())
     return sorted(group or {target}), 'hint'

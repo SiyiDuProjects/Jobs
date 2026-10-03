@@ -20,16 +20,19 @@ docker() {
   case "${1:-}" in compose) deadline=180;; exec) deadline=90;; esac
   python3 "$DRIVER_DIR/release_helpers.py" docker-command --timeout "$deadline" -- "$@"
 }
+# BSD realpath has no -e. Check existence first so missing or dangling paths
+# still fail closed before resolving the isolated rehearsal namespace.
+existing_path() { [ -e "$1" ] && realpath "$1"; }
 if [ "$IMAGE_PREFIX:$PROJECT:$VERIFY_MODE:$MANAGE_TIMERS" != jobs-radar:jobs-radar:host:1 ] || [ -n "$REHEARSAL_ROOT" ]; then
   # No override may silently target production or its shared image tags. The
   # root suffix binds every writable path, Compose project and image namespace.
-  ROOT=$(realpath -e "$REHEARSAL_ROOT")
+  ROOT=$(existing_path "$REHEARSAL_ROOT")
   [[ "$ROOT" =~ /jobs-radar-stage/rehearsal-([a-f0-9]{12,32})$ ]] || { echo 'Invalid isolated rehearsal root' >&2; exit 2; }
   NAMESPACE=jobs-radar-rehearsal-${BASH_REMATCH[1]}
   [ "$IMAGE_PREFIX:$PROJECT:$VERIFY_MODE:$MANAGE_TIMERS" = "$NAMESPACE:$NAMESPACE:container:0" ] || { echo 'Incomplete rehearsal isolation' >&2; exit 2; }
-  [ "$(realpath -e "$LIVE")" = "$ROOT/live" ] && [ "$(realpath -e "$ARCHIVE")" = "$ROOT/archive" ] || exit 2
-  [[ "$(realpath -e "$STAGE")" = "$ROOT"/stages/* ]] || exit 2
-  [ "$(realpath -e "${COMPOSE_FILE:-}")" = "$ROOT/compose.yaml" ] || exit 2
+  [ "$(existing_path "$LIVE")" = "$ROOT/live" ] && [ "$(existing_path "$ARCHIVE")" = "$ROOT/archive" ] || exit 2
+  [[ "$(existing_path "$STAGE")" = "$ROOT"/stages/* ]] || exit 2
+  [ "$(existing_path "${COMPOSE_FILE:-}")" = "$ROOT/compose.yaml" ] || exit 2
   export COMPOSE_PROJECT_NAME=$PROJECT
   # The isolated Compose file must not mount live data/secrets or publish ports.
   docker compose --project-directory "$LIVE" config --format json | python3 -c '
@@ -77,7 +80,10 @@ HELPER_ID=$EXPECTED_IMAGE_ID
 if [ "$REQUEST" = --rollback ]; then
   MODE=rollback
   [ -f .rollback-target ] || { echo 'No verified rollback target is recorded' >&2; exit 1; }
-  mapfile -t ROLLBACK < .rollback-target
+  ROLLBACK=()
+  while IFS= read -r rollback_line || [ -n "$rollback_line" ]; do
+    ROLLBACK+=("$rollback_line")
+  done < .rollback-target
   [ "${#ROLLBACK[@]}" = 4 ] || { echo 'Rollback metadata lacks recorded image/archive digests; review the legacy record before recovery.' >&2; exit 1; }
   TARGET=${ROLLBACK[0]}
   TARGET_CODE=${ROLLBACK[1]}

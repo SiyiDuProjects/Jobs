@@ -7,15 +7,18 @@ Call consolidate inside an administrator-owned transaction after a DB backup.
 import json
 import time
 
-from .job_match import job_index, job_key
+from .job_match import job_index, posting_key
 
 
 def preferred_job(c, ids):
     # Reuse existing processed records before untouched ones on new ingestion.
     rank = {'submitted': 0, 'submitted_unconfirmed': 1, 'needs_input': 2,
             'in_progress': 3, 'skipped': 4, 'retryable_failure': 5, 'not_started': 6}
-    rows = [c.execute('SELECT j.id,j.first_seen,a.status FROM jobs j JOIN applications a ON a.job_id=j.id WHERE j.id=?', (jid,)).fetchone() for jid in ids]
-    return min(rows, key=lambda r: (rank.get(r['status'], 9), r['first_seen'], r['id']))['id']
+    rows = [c.execute('SELECT j.id,j.first_seen,a.status,a.record,a.attempted_at,a.confirmed_at FROM jobs j JOIN applications a ON a.job_id=j.id WHERE j.id=?', (jid,)).fetchone() for jid in ids]
+    # Keep the sole owner inventory/timeline on the active canonical member.
+    # Multiple owners are held by consolidate, never combined by this ranking.
+    return min(rows, key=lambda r: (not bool(r['record']), r['confirmed_at'] is None,
+        r['attempted_at'] is None, rank.get(r['status'], 9), r['first_seen'], r['id']))['id']
 
 
 def consolidate(c, dry_run=True):
@@ -36,12 +39,14 @@ def consolidate(c, dry_run=True):
         if c.execute(f'SELECT 1 FROM owner_submission_undo WHERE job_id IN ({marks}) AND expires>?', [*ids, now]).fetchone(): reason = 'active_submission_undo'
         if c.execute(f"SELECT 1 FROM job_screening WHERE job_id IN ({marks}) AND state='trash' AND expires_at>?", [*ids, now]).fetchone(): reason = 'active_removal_undo'
         # An old job ID must not connect two different requisitions transitively.
-        keys = {job_key(r[0]) for r in c.execute(f"SELECT json_extract(payload,'$.apply_url') FROM observations WHERE job_id IN ({marks})", ids)}
+        keys = {posting_key(r[0]) for r in c.execute(f"SELECT json_extract(payload,'$.apply_url') FROM observations WHERE job_id IN ({marks})", ids)}
         if keys != {key}: reason = 'conflicting_source_identities'
         reviews = [dict(r) for r in c.execute(f'SELECT * FROM job_screening WHERE job_id IN ({marks})', ids)]
         from .application_progress import job_progress
         progress = [p for jid in ids if (p:=job_progress(c,jid))]
         if len({(r['stage'], r['message_id']) for r in progress}) > 1: reason = 'recruiting_progress_conflict'
+        if len({r['application_id'] for r in apps if r['application_id']}) > 1:
+            reason = 'application_identity_conflict'
         group = {'canonical_id': canonical, 'aliases': [i for i in ids if i != canonical], 'reason': reason}
         groups.append(group)
         if dry_run or reason: continue

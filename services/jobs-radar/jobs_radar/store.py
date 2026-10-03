@@ -101,7 +101,7 @@ class Store:
         accepted = 0
         accepted_ids = set()
         with self.connect(True) as c:
-            from .job_match import job_key, job_index
+            from .job_match import posting_key, job_index
             from .job_duplicates import preferred_job
             matches = job_index(c)
             c.execute("UPDATE observations SET present=0 WHERE stream=?", (stream,))
@@ -117,7 +117,7 @@ class Store:
                 accepted += 1
                 key = identity(observation["apply_url"]) if observation.get("apply_url") else f"{observation['source']}:{observation['source_id']}"
                 jid = stable_id(key)
-                match_key = job_key(observation.get("apply_url"))
+                match_key = posting_key(observation.get("apply_url"))
                 candidates = matches.get(match_key, set())
                 if candidates:
                     # Existing duplicates are consolidated only by the explicit

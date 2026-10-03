@@ -167,3 +167,56 @@ def test_hub_corroboration_requires_the_same_company(tmp_path, page):
     hub = 'https://careers.amd.com/jobs/90910?icims=1'
     store, sync = listed(tmp_path, hub)
     assert sync.receive(DEVICE, manual_delete(page, job_id(store, hub)))['state'] == 'unmatched'
+
+
+@pytest.mark.parametrize('listed_url,page', [
+    ('https://job-boards.greenhouse.io/acme/jobs/1234567',
+     'https://job-boards.greenhouse.io/acme/jobs/7654321?returnUrl=%2Facme%2Fjobs%2F1234567'),
+    ('https://job-boards.greenhouse.io/acme/jobs/1234567',
+     'https://job-boards.greenhouse.io/acme/jobs/7654321?previousJob=1234567'),
+    ('https://careers.example.com/jobs/1234567',
+     'https://careers.example.com/jobs/7654321?returnUrl=%2Fjobs%2F1234567'),
+    ('https://careers.example.com/jobs/1234567',
+     'https://careers.example.com/jobs/7654321?returnUrl=/jobs/1234567'),
+    ('https://www.squarepoint-capital.com/open-opportunities?gh_jid=1234567',
+     'https://job-boards.greenhouse.io/squarepointcapital/jobs/7654321?previousJob=1234567'),
+    ('https://careers.example.com/jobs/1234567?utm_campaign=20261002',
+     'https://careers.example.com/jobs/7654321?UTM_campaign=20261002'),
+    ('https://job-boards.greenhouse.io/acme/jobs/1234567',
+     'https://job-boards.greenhouse.io/acme/jobs/7654321?gh_src=1234567'),
+    ('https://jobs.smartrecruiters.com/Acme/7440001413263',
+     'https://jobs.smartrecruiters.com/AcmeLabs/7440001413263'),
+    ('https://job-boards.greenhouse.io/acme/jobs/1234567',
+     'https://boards.greenhouse.io/acme-labs/jobs/1234567'),
+])
+@pytest.mark.parametrize('action', ['resolve', 'remove', 'receipt'])
+def test_hint_cannot_use_tracking_numbers_or_similar_ats_tenants(tmp_path, listed_url, page, action):
+    store, sync = listed(tmp_path, listed_url)
+    jid = job_id(store, listed_url)
+    before = store.get_jobs([jid])[0]
+    if action == 'resolve':
+        assert sync.resolve({'url': page, 'website_job_id': jid})['state'] == 'unmatched'
+    elif action == 'remove':
+        assert sync.receive(DEVICE, manual_delete(page, jid))['state'] == 'unmatched'
+        with store.connect() as c:
+            assert c.execute('SELECT count(*) FROM job_screening').fetchone()[0] == 0
+    else:
+        payload = dict(event_id=str(uuid.uuid4()), job_url=page, website_job_id=jid,
+            job_title='Synthetic engineer', company='Synthetic employer',
+            observed_at=datetime.now(timezone.utc).isoformat(), proof='ats_confirmation')
+        result = sync.receive(DEVICE, payload)
+        assert result['job_ids'] == [] and result['job_id'] != jid
+        assert sync.receive(DEVICE, payload) == result
+        with store.connect() as c:
+            external = c.execute('SELECT record FROM applications WHERE job_id=?', (result['job_id'],)).fetchone()
+            assert json.loads(external['record'])['jobLink'] == page
+    assert store.get_jobs([jid])[0] == before
+
+
+def test_scalar_query_identifier_still_corroborates_generic_application_step(tmp_path):
+    url = 'https://careers.example.com/jobs?jobId=1234567'
+    store, sync = listed(tmp_path, url)
+    jid = job_id(store, url)
+    page = 'https://careers.example.com/apply?jobId=1234567&returnUrl=%2Fjobs%2F7654321'
+    result = sync.resolve({'url': page, 'website_job_id': jid})
+    assert result['state'] == 'matched' and result['matched_by'] == 'hint'

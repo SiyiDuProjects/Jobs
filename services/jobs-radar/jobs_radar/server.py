@@ -129,7 +129,7 @@ def create_server(store, origin=None):
 
     @operation_tool(annotations=read)
     def get_browser_history(application_id: str | None = None) -> dict[str, Any]:
-        """Read redacted run diagnostics independently of remote observation. Omit application_id for a 30-day index; pass its run id for structure, decisions, matches and events. Values are synthetic. Pinned unresolved cases remain until resolved. Historical records never execute commands or prove a submission."""
+        """Read redacted run diagnostics independently of remote observation. Omit application_id for a 30-day index; pass an applications[].id (archive ID) for structure, decisions, matches and events. Archive ID takes priority; a unique runId is also accepted, but ambiguous runIds require the index id. Values are synthetic. Pinned unresolved cases remain until resolved. Historical records never execute commands or prove a submission."""
         require('jobs:read')
         return diagnostics.history(application_id)
 

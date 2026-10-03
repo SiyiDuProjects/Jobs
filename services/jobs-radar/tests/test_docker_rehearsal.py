@@ -33,6 +33,18 @@ def test_synthetic_real_container_data_helper_creates_post_migration_writes(tmp_
     assert after['applications']['count'] == 2
     assert after['application_events']['count'] >= 4
     assert after['oauth_tokens']['hash'] != before['oauth_tokens']['hash']
+    # Both states must be genuine receipts, not direct SQL status mutations.
+    import sqlite3
+    with sqlite3.connect(path) as db:
+        states = db.execute('SELECT status,attempted_at,confirmed_at,submission_error FROM applications').fetchall()
+        confirmed = next(row for row in states if row[0] == 'submitted')
+        uncertain = next(row for row in states if row[0] == 'submitted_unconfirmed')
+        assert confirmed[1] is not None and confirmed[2] is not None and not confirmed[3]
+        assert uncertain[1] is not None and uncertain[2] is None
+        assert uncertain[3] == 'Synthetic post-submit validation failure'
+        proofs = [json.loads(row[0])['proof'] for row in db.execute("SELECT payload FROM application_events WHERE kind='extension' ORDER BY created")]
+        assert proofs == ['ats_confirmation', 'submit_attempt', 'submit_validation_error']
+    assert helper.recovery_invariants(path)['applications'] == after['applications']
     with pytest.raises(AssertionError, match='must not overwrite'):
         helper.seed(path, Path(__file__).parent / 'fixtures/legacy-release-schema.sql')
 

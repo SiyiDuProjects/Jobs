@@ -59,6 +59,12 @@ def write(path):
     for url, proof in zip(urls, ('ats_confirmation', 'submit_attempt')):
         sync.receive(device, dict(event_id=str(uuid.uuid4()), job_url=url, job_title='Synthetic engineer',
             company='Synthetic fixture', observed_at=datetime.now(timezone.utc).isoformat(), proof=proof))
+    # A plain attempt is an Applied record under the current contract. Produce
+    # the actual post-submit error needed to rehearse preservation of an
+    # uncertain submission, rather than changing the runtime status policy.
+    sync.receive(device, dict(event_id=str(uuid.uuid4()), job_url=urls[1], job_title='Synthetic engineer',
+        company='Synthetic fixture', observed_at=datetime.now(timezone.utc).isoformat(),
+        proof='submit_validation_error', detail='Synthetic post-submit validation failure'))
     with store.connect(True) as db:
         db.execute("DELETE FROM oauth_tokens WHERE hash='rehearsal-revoke'")
         db.execute("INSERT INTO oauth_tokens VALUES('rehearsal-new','access','{}',9999999999,'rehearsal')")

@@ -8,7 +8,8 @@ import time
 import uuid
 from urllib.parse import urlsplit
 from datetime import datetime, timezone
-from .job_match import job_key, job_index
+from .job_match import job_key, posting_key, job_index
+from .verified_postings import canonical_key, equivalent_keys
 from .profiles import ProfileConflict
 
 STATUSES = {'applied','assessment','phone_screen','screen','interview','offer','accepted','rejected','withdrawn','offer_declined','archived'}
@@ -28,7 +29,7 @@ def can_remove_unsubmitted(app):
 
 def submission_state(app):
     """Same submission facts for the website and the extension's current page."""
-    submitted = app['attempted_at'] is not None or app['status'] in {'submitted', 'submitted_unconfirmed'}
+    submitted = app['attempted_at'] is not None or app['confirmed_at'] is not None or app['status'] in {'submitted', 'submitted_unconfirmed'}
     confirmed = app['confirmed_at'] is not None
     return {'status': app['status'], 'attempted_at': app['attempted_at'], 'confirmed_at': app['confirmed_at'],
             'error': app['submission_error'], 'submitted': submitted, 'confirmed': confirmed,
@@ -102,18 +103,41 @@ def seed_progress(aid, stage='applied', source='owner'):
                 manual_updated_at=0,ended_from=None,receipt_confirmed=False)
 
 
-def upsert(c,row,*,migration=False,submission_status=None):
-    value=validate(row);key=job_key(value['jobLink']);now=time.time()
+def matching_applications(c, key, *, verified=True):
+    keys=equivalent_keys(key) if verified else (key,) if key else ()
+    if not keys:return []
+    marks=','.join('?' for _ in keys)
+    return c.execute(f'SELECT * FROM applications WHERE job_key IN ({marks}) ORDER BY CASE WHEN record IS NULL THEN 1 ELSE 0 END,updated DESC',keys).fetchall()
+
+
+def receipt_application(c, job_id, key):
+    """A source row is not a new owner inventory identity for the same posting."""
+    matches=matching_applications(c,key)
+    identities={r['application_id'] for r in matches if r['application_id']}
+    if len(identities)>1:
+        raise ValueError('Multiple applications share the posting identity; review required')
+    owner=next((r for r in matches if r['application_id'] and r['record']),None)
+    return owner if owner is not None else (
+        c.execute('SELECT * FROM applications WHERE job_id=?',(job_id,)).fetchone() if job_id else None)
+
+
+def upsert(c,row,*,migration=False,submission_status=None,receipt_proof=None):
+    value=validate(row);key=(job_key if migration else posting_key)(value['jobLink']);now=time.time()
     current=c.execute('SELECT * FROM applications WHERE application_id=?',(row.get('id'),)).fetchone() if row.get('id') else None
     if current is None and row.get('job_id'):
         current=c.execute('SELECT * FROM applications WHERE job_id=?',(row['job_id'],)).fetchone()
-    matches=c.execute('SELECT * FROM applications WHERE job_key=? ORDER BY CASE WHEN record IS NULL THEN 1 ELSE 0 END,updated DESC',(key,)).fetchall() if key else []
+    if receipt_proof:
+        current=receipt_application(c,row.get('job_id'),key)
+    matches=matching_applications(c,key,verified=not migration)
     if current is None and matches:
         identities={r['application_id'] for r in matches if r['application_id']}
         if len(identities)>1: raise ValueError('Multiple applications share the posting identity; review required')
         current=matches[0]
     if current is None:
-        ids={r['id'] for r in c.execute('SELECT id FROM jobs WHERE job_key=? AND id NOT IN (SELECT alias_id FROM job_aliases)',(key,))} if key else set()
+        if migration:
+            ids={r['id'] for r in c.execute('SELECT id FROM jobs WHERE job_key=? AND id NOT IN (SELECT alias_id FROM job_aliases)',(key,))} if key else set()
+        else:
+            ids=job_index(c).get(key,set()) if key else set()
         if len(ids)>1:
             from .job_duplicates import preferred_job
             jid=preferred_job(c,ids)
@@ -121,6 +145,18 @@ def upsert(c,row,*,migration=False,submission_status=None):
         if jid: current=c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone()
     aid=(current['application_id'] if current else None) or row.get('id') or str(uuid.uuid4())
     jid=current['job_id'] if current else 'external:'+aid
+    if receipt_proof and current and current['record']:
+        from .submission_events import observed_timestamp
+        old=json.loads(current['record'])
+        latest=max(observed_timestamp(old.get('date')),current['attempted_at'] or 0,current['confirmed_at'] or 0)
+        owner_edited=c.execute("SELECT 1 FROM application_events WHERE application_id=? AND kind='record_edit' LIMIT 1",(aid,)).fetchone()
+        # Receipts enrich submission evidence independently of editable record
+        # metadata. Older events and validation failures cannot rewrite it;
+        # explicit owner edits retain precedence even over newer receipts.
+        if (owner_edited or receipt_proof=='submit_validation_error'
+                or observed_timestamp(value['date']) <= latest
+                or current['confirmed_at'] is not None and receipt_proof!='ats_confirmation'):
+            return record(current)
     if current and current['record']:
         # Existing progress never comes from an uploaded metadata copy.
         old=json.loads(current['record'])
@@ -152,13 +188,13 @@ def reconcile(c,job_ids=None):
     """Attach external records when a known posting is collected, preserving IDs."""
     changed=0
     for external in c.execute("SELECT * FROM applications WHERE job_id LIKE 'external:%' OR job_id LIKE 'historical:%'").fetchall():
-        ids=job_index(c).get(external['job_key'],set())
+        ids=job_index(c).get(canonical_key(external['job_key']),set())
         if job_ids is not None: ids &= set(job_ids)
         if len(ids)!=1: continue
         jid=next(iter(ids));target=c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone()
         if not target or target['record'] or target['status']!='not_started' or target['version']>0:continue
         c.execute('DELETE FROM applications WHERE job_id=?',(jid,))
-        c.execute('UPDATE applications SET job_id=? WHERE job_id=?',(jid,external['job_id']))
+        c.execute('UPDATE applications SET job_id=?,job_key=? WHERE job_id=?',(jid,canonical_key(external['job_key']),external['job_id']))
         c.execute('UPDATE application_events SET job_id=? WHERE job_id=?',(jid,external['job_id']))
         changed+=1
     return changed
@@ -171,14 +207,14 @@ def add_manual(c,jid):
     app=c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone()
     if not app:return
     if app['record']: return record(app)
-    existing=c.execute('SELECT * FROM applications WHERE job_key=? AND record IS NOT NULL',(app['job_key'],)).fetchall() if app['job_key'] else []
+    existing=[r for r in matching_applications(c,app['job_key']) if r['record'] is not None]
     if len(existing)>1:raise ValueError('Multiple applications share the posting identity; review required')
     if existing:return record(existing[0])
     source=next((json.loads(r[0]) for r in c.execute('SELECT payload FROM observations WHERE job_id=? ORDER BY last_seen DESC',(jid,)) if json.loads(r[0]).get('apply_url')),None)
     if not source:return
-    source_key=job_key(source['apply_url'])
-    if app['job_key'] and source_key!=app['job_key']:raise ValueError('Application source posting identity changed; review required')
-    existing=c.execute('SELECT * FROM applications WHERE job_key=? AND record IS NOT NULL',(source_key,)).fetchall() if source_key else []
+    source_key=posting_key(source['apply_url'])
+    if app['job_key'] and source_key!=canonical_key(app['job_key']):raise ValueError('Application source posting identity changed; review required')
+    existing=[r for r in matching_applications(c,source_key) if r['record'] is not None]
     if len(existing)>1:raise ValueError('Multiple applications share the posting identity; review required')
     if existing:return record(existing[0])
     return upsert(c,dict(id=manual_id(jid),jobTitle=source['title'],jobLink=source['apply_url'],companyName=source.get('company',''),companyLink='',
@@ -205,8 +241,8 @@ class ApplicationRecords:
                 app=c.execute('SELECT * FROM applications WHERE application_id=? AND deleted=0',(aid,)).fetchone() if aid else None
                 if action=='create':
                     value=validate(change.get('value'))
-                    key=job_key(value['jobLink'])
-                    duplicate=c.execute('SELECT application_id FROM applications WHERE job_key=? AND record IS NOT NULL',(key,)).fetchone() if key else None
+                    key=posting_key(value['jobLink'])
+                    duplicate=any(r['record'] is not None for r in matching_applications(c,key))
                     if duplicate:raise ProfileConflict('This posting already has an application record')
                     result=upsert(c,value,submission_status='submitted_unconfirmed')
                     c.execute('UPDATE applications SET attempted_at=?,version=version+1 WHERE application_id=?',(time.time(),result['id']))
@@ -216,7 +252,7 @@ class ApplicationRecords:
                         raise ProfileConflict('申请记录已修改，请刷新后重试')
                     if action=='update':
                         value=validate(change.get('value'))
-                        if job_key(value['jobLink'])!=app['job_key']:raise ValueError('Posting identity cannot be changed by a metadata edit')
+                        if posting_key(value['jobLink'])!=canonical_key(app['job_key']):raise ValueError('Posting identity cannot be changed by a metadata edit')
                         old_value=json.loads(app['record']);value['status']=old_value['status']
                         c.execute('UPDATE applications SET record=?,record_version=record_version+1,version=version+1 WHERE application_id=?',(json.dumps(value,ensure_ascii=False),aid))
                     else:
