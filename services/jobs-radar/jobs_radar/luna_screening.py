@@ -14,11 +14,28 @@ from .screening_progress import ScreeningProgress
 MODEL = 'gpt-6-luna'
 from .screening_policy import POLICY, PROMPT
 
-SCHEMA = {'type':'object','properties':{'jobs':{'type':'array','items':{
-    'type':'object','properties':{'id':{'type':'string'},'decision':{'type':'string','enum':['keep','trash']},
+DECISION_SCHEMA = {
+    'type':'object','properties':{'decision':{'type':'string','enum':['keep','trash']},
                                 'reason':{'type':'string'},'evidence_quote':{'type':'string'}},
-    'required':['id','decision','reason','evidence_quote'],'additionalProperties':False,
-}}},'required':['jobs'],'additionalProperties':False}
+    'required':['decision','reason','evidence_quote'],'additionalProperties':False,
+}
+
+
+def response_schema(references):
+    # Fixed required keys make an incomplete/foreign identity set invalid in
+    # Structured Outputs itself, instead of merely discovering it after billing.
+    return {'type':'object','properties':{'jobs':{
+        'type':'object','properties':{ref:DECISION_SCHEMA for ref in references},
+        'required':list(references),'additionalProperties':False,
+    }},'required':['jobs'],'additionalProperties':False}
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result: raise ScreeningError('job_coverage')
+        result[key] = value
+    return result
 
 
 class ScreeningError(ValueError):
@@ -58,19 +75,23 @@ def failure_summary(exc):
     return result
 
 
-def public_input(row):
-    return {'id':row['id'],'kind':row['kind'],'company':row['company'],'title':row['title'],
+def public_input(row, reference):
+    return {'id':reference,'kind':row['kind'],'company':row['company'],'title':row['title'],
             'sources':[{k:s.get(k,'') for k in ('company','title','repository','category','source_category','section')}
                        for s in row['all_sources']]}
 
 
 def classify(client, rows):
+    # One short reference per (job, kind) row; copying long canonical IDs is
+    # unnecessary, and one job can legitimately occur in both kind queues.
+    references = {f'job_{index}':row for index,row in enumerate(rows)}
     try:
         response = client.post('https://api.openai.com/v1/responses', json={
-        'model':MODEL,'store':False,'instructions':PROMPT,
-        'input':json.dumps([public_input(row) for row in rows],ensure_ascii=False),
-        'reasoning':{'effort':'low'},'max_output_tokens':8192,
-        'text':{'format':{'type':'json_schema','name':'job_screening','strict':True,'schema':SCHEMA}},
+            'model':MODEL,'store':False,
+            'instructions':PROMPT+'\nReturn jobs as an object keyed by every supplied id. Each id names one row, including its kind. Copy evidence_quote exactly from that row\'s source title.',
+            'input':json.dumps([public_input(row,ref) for ref,row in references.items()],ensure_ascii=False),
+            'reasoning':{'effort':'low'},'max_output_tokens':8192,
+            'text':{'format':{'type':'json_schema','name':'job_screening','strict':True,'schema':response_schema(references)}},
         })
     except httpx.RequestError as exc:
         raise ScreeningError('provider_transport') from exc
@@ -95,24 +116,28 @@ def classify(client, rows):
     try:
         content = ''.join(part.get('text','') for output in data.get('output',[]) for part in output.get('content',[])
                           if part.get('type') == 'output_text')
-        decisions = json.loads(content)['jobs']
-        if not isinstance(decisions, list) or not all(isinstance(item,dict) and
-                all(isinstance(item.get(k),str) for k in ('id','decision','reason','evidence_quote')) for item in decisions):
+        decoded = json.loads(content, object_pairs_hook=unique_object)
+        if not isinstance(decoded,dict) or set(decoded)!={'jobs'}: raise ScreeningError('provider_shape')
+        decisions = decoded['jobs']
+        if not isinstance(decisions, dict) or not all(isinstance(item,dict) and
+                set(item)=={'decision','reason','evidence_quote'} and
+                all(isinstance(item[k],str) for k in item) for item in decisions.values()):
             raise ScreeningError('provider_shape')
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         if isinstance(exc, ScreeningError): raise
         raise ScreeningError('provider_shape') from exc
-    ids = [item['id'] for item in decisions]
-    if len(ids)!=len(rows) or len(set(ids))!=len(rows) or set(ids)!={r['id'] for r in rows}:
+    if set(decisions)!=set(references):
         raise ScreeningError('job_coverage')
-    lookup={r['id']:r for r in rows}
-    for item in decisions:
+    checked = []
+    for ref,row in references.items():
+        item=decisions[ref]
         if item['decision'] not in {'keep','trash'} or not item['reason'].strip() or len(item['reason'])>1200:
             raise ScreeningError('decision_invalid')
         quote=item['evidence_quote'].strip()
-        if not quote or not any(quote in source.get('title','') for source in lookup[item['id']]['all_sources']):
+        if not quote or not any(quote in source.get('title','') for source in row['all_sources']):
             raise ScreeningError('evidence_mismatch')
-    return decisions, data.get('usage',{})
+        checked.append({**item,'id':row['id'],'kind':row['kind']})
+    return checked, data.get('usage',{})
 
 
 def api_key():
@@ -158,12 +183,12 @@ def run(store, max_batches=20, batch_size=20, client=None):
             stage='provider'
             decisions,usage=classify(client,rows)
             stage='review'
-            lookup={r['id']:r for r in rows}
+            lookup={(r['id'],r['kind']):r for r in rows}
             with store.connect(True) as c:
                 c.execute("INSERT INTO audit(event,actor,created,payload) VALUES('luna_usage',?,?,?)",
                           (MODEL,time.time(),json.dumps({'run_id':batch['id'],'policy':POLICY,'jobs':len(rows),'usage':usage})))
             for item in decisions:
-                row=lookup[item['id']]
+                row=lookup[(item['id'],item['kind'])]
                 source=next(s for s in row['all_sources'] if item['evidence_quote'].strip() in s.get('title',''))
                 evidence=[{'url':source.get('source_url') or source.get('apply_url'),
                            'quote':item['evidence_quote'].strip(),'observed_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}]

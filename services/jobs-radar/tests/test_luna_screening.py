@@ -2,6 +2,7 @@ import json
 import time
 
 import httpx
+import jsonschema
 import pytest
 
 from jobs_radar.board import Board
@@ -30,9 +31,9 @@ def setup_store(tmp_path):
 
 
 def reply(rows,partial=False,bad_quote=False):
-    jobs=[{'id':r['id'],'decision':'trash' if r['title']=='Firmware Engineer' else 'keep',
-           'reason':'Title-based occupation decision','evidence_quote':'Invented title' if bad_quote else r['title']} for r in rows]
-    if partial:jobs=jobs[:1]
+    jobs={r['id']:{'decision':'trash' if r['title']=='Firmware Engineer' else 'keep',
+           'reason':'Title-based occupation decision','evidence_quote':'Invented title' if bad_quote else r['title']} for r in rows}
+    if partial:jobs=dict(list(jobs.items())[:1])
     return {'status':'completed','model':'gpt-6-luna','usage':{'input_tokens':10,'output_tokens':10},
             'output':[{'content':[{'type':'output_text','text':json.dumps({'jobs':jobs})}]}]}
 
@@ -60,11 +61,12 @@ def test_bad_provider_result_does_not_write_and_can_resume(tmp_path,failure):
 
 def test_manual_change_during_request_stays_protected(tmp_path):
     s=setup_store(tmp_path)
+    protected=next(r['id'] for r in Board(s)._rows('newgrad') if r['title']=='Firmware Engineer')
     def handler(request):
         rows=json.loads(json.loads(request.content)['input'])
         with s.connect(True) as c:
             c.execute("UPDATE applications SET status='submitted',version=version+1 WHERE job_id=?",
-                      (next(r['id'] for r in rows if r['title']=='Firmware Engineer'),))
+                      (protected,))
         return httpx.Response(200,json=reply(rows))
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:result=run(s,client=client)
     assert result['changed']==1 and result['trash']==0
@@ -127,7 +129,7 @@ def test_model_validation_and_transport_failures_are_distinguishable(tmp_path,fa
         if failure=='shape': data['output']=[{'content':[{'type':'output_text','text':'{"jobs":[null]}'}]}]
         if failure=='decision':
             jobs=json.loads(data['output'][0]['content'][0]['text'])
-            jobs['jobs'][0]['decision']='private invalid decision'
+            next(iter(jobs['jobs'].values()))['decision']='private invalid decision'
             data['output'][0]['content'][0]['text']=json.dumps(jobs)
         return httpx.Response(200,json=data)
     with httpx.Client(transport=httpx.MockTransport(bad)) as client:
@@ -164,3 +166,76 @@ def test_cli_keeps_failure_exit_and_redacts_diagnostics(tmp_path,monkeypatch,cap
     assert caught.value.code==1
     result=json.loads(capsys.readouterr().out)
     assert result['error_code']=='provider_http' and result['provider_code']=='insufficient_quota'
+
+
+def test_requested_schema_rejects_partial_batch_before_generation(tmp_path):
+    s=setup_store(tmp_path)
+    def handler(request):
+        payload=json.loads(request.content)
+        rows=json.loads(payload['input'])
+        partial=json.loads(reply(rows,partial=True)['output'][0]['content'][0]['text'])
+        schema=payload['text']['format']['schema']
+        with pytest.raises(jsonschema.ValidationError): jsonschema.validate(partial,schema)
+        full=reply(rows)
+        jsonschema.validate(json.loads(full['output'][0]['content'][0]['text']),schema)
+        return httpx.Response(200,json=full)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        assert run(s,client=client)['status']=='complete'
+
+
+@pytest.mark.parametrize('failure',['missing','foreign','extra','duplicate'])
+def test_bad_reference_sets_still_fail_without_writes_and_resume(tmp_path,failure):
+    s=setup_store(tmp_path)
+    original=ScreeningProgress(s).manage('begin')
+    def bad(request):
+        payload=json.loads(request.content)
+        rows=json.loads(payload['input'])
+        data=reply(rows)
+        value=json.loads(data['output'][0]['content'][0]['text'])
+        keys=list(value['jobs'])
+        if failure=='missing': value['jobs'].pop(keys[0])
+        if failure=='foreign': value['jobs']['foreign']=value['jobs'].pop(keys[0])
+        if failure=='extra': value['jobs']['foreign']=value['jobs'][keys[0]]
+        if failure=='duplicate':
+            entries=[json.dumps(k)+':'+json.dumps(v) for k,v in value['jobs'].items()]
+            content='{"jobs":{'+','.join(entries+[entries[0]])+'}}'
+        else:
+            with pytest.raises(jsonschema.ValidationError):
+                jsonschema.validate(value,payload['text']['format']['schema'])
+            content=json.dumps(value)
+        data['output'][0]['content'][0]['text']=content
+        return httpx.Response(200,json=data)
+    with httpx.Client(transport=httpx.MockTransport(bad)) as client:
+        with pytest.raises(ScreeningError) as caught: run(s,client=client)
+    assert caught.value.code=='job_coverage'
+    with s.connect() as c:
+        assert c.execute('SELECT count(*) FROM job_screening').fetchone()[0]==0
+        assert c.execute("SELECT count(*) FROM audit WHERE event='luna_usage'").fetchone()[0]==0
+    assert ScreeningProgress(s).manage('status')['id']==original['id']
+    def good(request):return httpx.Response(200,json=reply(json.loads(json.loads(request.content)['input'])))
+    with httpx.Client(transport=httpx.MockTransport(good)) as client: result=run(s,client=client)
+    assert result['run_id']==original['id'] and result['status']=='complete'
+
+
+def test_one_canonical_job_in_two_kinds_keeps_each_decision_separate(tmp_path):
+    s=Store(tmp_path/'kinds.sqlite')
+    for kind,title in [('newgrad','Firmware Engineer'),('internship','Software Engineer')]:
+        s.ingest('simplify:'+kind,[{**observation(url='https://example.org/shared'),
+                 'source_url':'https://example.org/shared','kind':kind,'title':title}],'seed',scoped_only=True)
+    ScreeningProgress(s).initialize(time.time()-10)
+    calls=[]
+    def handler(request):
+        payload=json.loads(request.content);rows=json.loads(payload['input']);calls.append(rows)
+        assert len(rows)==2 and len({r['id'] for r in rows})==2
+        assert set(payload['text']['format']['schema']['properties']['jobs']['required'])=={r['id'] for r in rows}
+        data=reply(rows); value=json.loads(data['output'][0]['content'][0]['text'])
+        value['jobs']=dict(reversed(list(value['jobs'].items())))
+        data['output'][0]['content'][0]['text']=json.dumps(value)
+        return httpx.Response(200,json=data)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client: result=run(s,client=client)
+    assert len(calls)==1 and result['status']=='complete'
+    assert result['keep']==result['trash']==1 and result['changed']==0
+    with s.connect() as c:
+        rows=c.execute('SELECT job_id,kind,state FROM job_screening ORDER BY kind').fetchall()
+        assert len(rows)==2 and rows[0]['job_id']==rows[1]['job_id']
+        assert {(r['kind'],r['state']) for r in rows}=={('newgrad','trash'),('internship','keep')}
