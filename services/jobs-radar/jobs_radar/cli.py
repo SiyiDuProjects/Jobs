@@ -54,19 +54,19 @@ def main():
         from .sources import collect
         rows = asyncio.run(collect(store, args.stream))
         if os.environ.get('JOBS_SCREENING_ENABLED')=='1':
-            from .luna_screening import run
+            from .luna_screening import run, failure_summary
             try:
                 print(json.dumps(run(store)),flush=True)
             except Exception as exc:
-                print(json.dumps({'screening':'failed','error_type':type(exc).__name__}),flush=True)
+                print(json.dumps(failure_summary(exc)),flush=True)
                 raise SystemExit(1)
         raise SystemExit(0 if all(r["ok"] for r in rows) else 1)
     elif args.command == 'screen':
-        from .luna_screening import run
+        from .luna_screening import run, failure_summary
         try:
             print(json.dumps(run(store,max_batches=args.max_batches)),flush=True)
         except Exception as exc:
-            print(json.dumps({'screening':'failed','error_type':type(exc).__name__}),flush=True)
+            print(json.dumps(failure_summary(exc)),flush=True)
             raise SystemExit(1)
     elif args.command == "status":
         print(json.dumps({**store.health(), **store.progress()}, ensure_ascii=False, indent=2))

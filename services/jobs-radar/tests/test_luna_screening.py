@@ -6,7 +6,7 @@ import pytest
 
 from jobs_radar.board import Board
 from jobs_radar.employer_blacklist import blocked_employer
-from jobs_radar.luna_screening import classify, run
+from jobs_radar.luna_screening import ScreeningError, classify, failure_summary, run
 from jobs_radar.screening_progress import ScreeningProgress
 from jobs_radar.store import Store
 from test_store import observation
@@ -80,3 +80,87 @@ def test_blacklisted_employer_is_suppressed_before_luna(tmp_path):
     assert [r['company'] for r in Board(s).list()['jobs']]==['General Motors']
     trash=Board(s).list(view='trash')['jobs']
     assert len(trash)==2 and all(r['review']['reason']=='employer_blacklist' for r in trash)
+
+
+@pytest.mark.parametrize('status,provider_code',[
+    (429,'insufficient_quota'),(429,'rate_limit_exceeded'),(401,'invalid_api_key'),
+    (403,'permission_denied'),(400,'unsupported_value'),(500,'server_error'),
+    (400,'untrusted-secret-code'),
+])
+def test_provider_failure_is_bounded_and_preserves_original_batch(tmp_path,status,provider_code):
+    s=setup_store(tmp_path)
+    original=ScreeningProgress(s).manage('begin')
+    def bad(request):
+        return httpx.Response(status,json={'error':{'code':provider_code,'message':'private provider response'}},
+                              headers={'x-private':'private header'})
+    with httpx.Client(transport=httpx.MockTransport(bad)) as client:
+        with pytest.raises(ScreeningError) as caught: run(s,client=client)
+    summary=failure_summary(caught.value)
+    assert summary['error_code']=='provider_http' and summary['stage']=='provider'
+    assert summary['http_status']==status
+    if provider_code=='untrusted-secret-code': assert 'provider_code' not in summary
+    else: assert summary['provider_code']==provider_code
+    assert 'private' not in json.dumps(summary) and 'untrusted' not in json.dumps(summary)
+    current=ScreeningProgress(s).manage('status')
+    assert current['id']==original['id'] and current['remaining']==original['remaining']
+    with s.connect() as c:
+        assert not c.execute("SELECT 1 FROM locks WHERE name='luna-screening'").fetchone()
+        assert c.execute('SELECT count(*) FROM job_screening').fetchone()[0]==0
+    def good(request): return httpx.Response(200,json=reply(json.loads(json.loads(request.content)['input'])))
+    with httpx.Client(transport=httpx.MockTransport(good)) as client: result=run(s,client=client)
+    assert result['run_id']==original['id'] and result['status']=='complete'
+
+
+@pytest.mark.parametrize('failure,code',[
+    ('coverage','job_coverage'),('quote','evidence_mismatch'),('decision','decision_invalid'),
+    ('incomplete','provider_incomplete'),('shape','provider_shape'),('json','provider_json'),
+    ('transport','provider_transport'),
+])
+def test_model_validation_and_transport_failures_are_distinguishable(tmp_path,failure,code):
+    s=setup_store(tmp_path)
+    def bad(request):
+        if failure=='transport': raise httpx.ConnectError('private transport detail',request=request)
+        if failure=='json': return httpx.Response(200,text='private non-json body')
+        rows=json.loads(json.loads(request.content)['input'])
+        data=reply(rows,partial=failure=='coverage',bad_quote=failure=='quote')
+        if failure=='incomplete': data.update(status='incomplete',incomplete_details={'reason':'max_output_tokens'})
+        if failure=='shape': data['output']=[{'content':[{'type':'output_text','text':'{"jobs":[null]}'}]}]
+        if failure=='decision':
+            jobs=json.loads(data['output'][0]['content'][0]['text'])
+            jobs['jobs'][0]['decision']='private invalid decision'
+            data['output'][0]['content'][0]['text']=json.dumps(jobs)
+        return httpx.Response(200,json=data)
+    with httpx.Client(transport=httpx.MockTransport(bad)) as client:
+        with pytest.raises(ScreeningError) as caught: run(s,client=client)
+    summary=failure_summary(caught.value)
+    assert summary['error_code']==code and summary['stage']=='provider'
+    assert 'private' not in json.dumps(summary)
+    assert all(r['screening']=='pending' for r in Board(s)._rows('newgrad'))
+
+
+def test_unexpected_failure_logs_only_stage_and_keeps_failure(tmp_path,monkeypatch):
+    s=setup_store(tmp_path)
+    def bad(*args,**kwargs): raise ValueError('private progress data')
+    monkeypatch.setattr(ScreeningProgress,'manage',bad)
+    with pytest.raises(ScreeningError) as caught: run(s,client=object())
+    assert failure_summary(caught.value)=={
+        'screening':'failed','error_type':'ValueError','error_code':'unexpected','stage':'progress'}
+    assert failure_summary(ValueError('private arbitrary message'))['stage']=='unknown'
+
+
+@pytest.mark.parametrize('command',['screen','collect'])
+def test_cli_keeps_failure_exit_and_redacts_diagnostics(tmp_path,monkeypatch,capsys,command):
+    import sys
+    from jobs_radar import cli, luna_screening, sources
+    s=setup_store(tmp_path)
+    def fail(*args,**kwargs):
+        raise ScreeningError('provider_http',http_status=429,provider_code='insufficient_quota')
+    async def collected(*args,**kwargs): return [{'ok':True}]
+    monkeypatch.setattr(luna_screening,'run',fail)
+    monkeypatch.setattr(sources,'collect',collected)
+    monkeypatch.setenv('JOBS_SCREENING_ENABLED','1')
+    monkeypatch.setattr(sys,'argv',['jobs-radar','--db',str(tmp_path/'luna.sqlite'),command])
+    with pytest.raises(SystemExit) as caught: cli.main()
+    assert caught.value.code==1
+    result=json.loads(capsys.readouterr().out)
+    assert result['error_code']=='provider_http' and result['provider_code']=='insufficient_quota'
