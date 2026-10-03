@@ -76,7 +76,7 @@ async function workableFillApplication(profile, canProceed = () => true) {
       },
     ]),
   );
-  await section(`education`, () =>
+  const education = await section(`education`, () =>
     workableAddEntries(
       `education`,
       profile.educationData,
@@ -102,7 +102,8 @@ async function workableFillApplication(profile, canProceed = () => true) {
       canProceed,
     ),
   );
-  await section(`experience`, () =>
+  if (education?.hold) return education;
+  const experience = await section(`experience`, () =>
     workableAddEntries(
       `experience`,
       profile.jobData,
@@ -130,6 +131,7 @@ async function workableFillApplication(profile, canProceed = () => true) {
       canProceed,
     ),
   );
+  if (experience?.hold) return experience;
   profile.resumeData?.resumeBase64 &&
     jobsUploadResume(profile.resumeData, `input[data-ui='resume']`);
 }
@@ -143,8 +145,11 @@ async function workableAddEntries(
 ) {
   const button = (kind) =>
     document.querySelector(`[data-ui='${name}'] button[data-ui='${kind}']`);
-  if (!document.querySelector(`[data-ui='${name}']`)) return;
+  const scope = document.querySelector(`[data-ui='${name}']`);
+  if (!scope) return;
   for (const entry of entries) {
+    if (button(`save-section`))
+      return { hold: `${name} entry is still being edited` };
     if (!JobsPageActions.live(canProceed) || !button(`add-section`)) break;
     jobsClick(`[data-ui='${name}'] button[data-ui='add-section']`);
     if (
@@ -153,11 +158,30 @@ async function workableAddEntries(
       }))
     ) {
       JobsDiagnostics?.note(`auto_repeat_section_failed`, null, name);
-      break;
+      return { hold: `${name} editor did not open` };
     }
-    await JobsFormPipeline.bind(bindings(entry));
+    // The absent -> present Save transition confirms Add opened a new entry.
+    // The persistent section alone is not an entry identity.
+    if (
+      !JobsPageActions.live(canProceed) ||
+      !JobsFormPipeline.beginEntry(scope)
+    )
+      return { hold: `${name} filling stopped` };
+    await JobsFormPipeline.bind(
+      bindings(entry).map((binding) => ({
+        ...binding,
+        find: () => scope.querySelector(binding.find),
+      })),
+    );
+    if (!JobsPageActions.live(canProceed))
+      return { hold: `${name} filling stopped` };
     jobsClick(`[data-ui='${name}'] button[data-ui='save-section']`);
-    await JobsDOMWait.until(() => !button(`save-section`), { timeout: 5000 });
+    if (
+      !(await JobsDOMWait.until(() => !button(`save-section`), {
+        timeout: 5000,
+      }))
+    )
+      return { hold: `${name} entry was not saved` };
   }
 }
 function workableFormatMonth(monthValue) {

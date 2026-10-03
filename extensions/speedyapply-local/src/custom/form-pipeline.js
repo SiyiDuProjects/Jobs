@@ -38,6 +38,7 @@ export function initializeFormPipeline() {
         const record = {
           node,
           key,
+          entryScope: JobsControlFields.entryScope(node),
           state: "open",
           decider: null,
           ruled: false,
@@ -49,6 +50,20 @@ export function initializeFormPipeline() {
         records.set(node, record);
         return record;
       };
+      function known(node) {
+        const record = records.get(node);
+        // Reusing the exact input element for a confirmed new entry is a new
+        // field. Ordinary re-renders keep their entry and its decider guard.
+        if (
+          record &&
+          node.isConnected &&
+          record.entryScope !== JobsControlFields.entryScope(node)
+        ) {
+          records.delete(node);
+          return null;
+        }
+        return record;
+      }
       // A record whose element the page replaced moves to its field's new row
       // (same question and type, not already recorded). Ambiguity moves nothing.
       function followAll(rows) {
@@ -64,7 +79,7 @@ export function initializeFormPipeline() {
       }
       // The record of the field that holds this node, following a re-render.
       function find(node, rows) {
-        if (records.has(node)) return { record: records.get(node), node };
+        if (known(node)) return { record: known(node), node };
         rows ??= scan();
         followAll(rows);
         // A radio member or a binding's wrapper maps to the row that owns it.
@@ -73,7 +88,7 @@ export function initializeFormPipeline() {
         );
         const row = matches.length === 1 ? matches[0] : null,
           canonical = row?.node || node;
-        return { record: records.get(canonical) || null, node: canonical, row };
+        return { record: known(canonical) || null, node: canonical, row };
       }
       const book = {
         root,
@@ -81,7 +96,7 @@ export function initializeFormPipeline() {
         stats: { writes: 0, ms: 0, heldMs: 0, scans: 0 },
         // A lookup scans only when an earlier record may have lost its element.
         peek(node) {
-          if (records.has(node)) return records.get(node);
+          if (known(node)) return known(node);
           if (![...records.values()].some((record) => !record.node.isConnected))
             return null;
           return find(node).record;
@@ -144,6 +159,7 @@ export function initializeFormPipeline() {
             [...records.values()]
               .filter(
                 (record) =>
+                  known(record.node) === record &&
                   record.state === "decided" &&
                   !["ai", "user"].includes(record.decider),
               )
@@ -587,6 +603,16 @@ export function initializeFormPipeline() {
         .filter(Boolean);
     }
     JobsFormPipeline = Object.freeze({
+      beginEntry(scope) {
+        if (
+          !act().allowed() ||
+          !scope?.isConnected ||
+          (active && !active.root.contains(scope))
+        )
+          return false;
+        JobsControlFields.beginEntry(scope);
+        return true;
+      },
       bind,
       write,
       unresolved,

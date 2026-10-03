@@ -32,6 +32,14 @@ export function initializeControlFields() {
         .trim();
     const empty = (value) =>
       value === "" || value == null || (Array.isArray(value) && !value.length);
+    // An adapter may confirm a new entry in a reused section. Its identity
+    // survives control replacement until the adapter confirms the next entry.
+    const entryScopes = new WeakMap();
+    function entryScope(node) {
+      for (let current = node; current; current = current.parentElement)
+        if (entryScopes.has(current)) return entryScopes.get(current);
+      return null;
+    }
     // The fields answered by picking an option: from the field's own list, or
     // (search-choice) from the results of a search whose committed values are
     // pills. Every caller uses this one list.
@@ -915,7 +923,7 @@ export function initializeControlFields() {
             ...(options ? { options } : {}),
           };
           descriptor.completion = completion(descriptor);
-          const identityScope = platform.fieldScope?.(node);
+          const identityScope = entryScope(node) || platform.fieldScope?.(node);
           rows.push({
             node,
             group,
@@ -2492,6 +2500,8 @@ export function initializeControlFields() {
     // chooseSpec transaction records the complete answer and final page result.
     JobsControlFields = {
       create,
+      beginEntry: (scope) => entryScopes.set(scope, {}),
+      entryScope,
       dispose,
       describeQuestions,
       continuation,
