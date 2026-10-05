@@ -1,9 +1,7 @@
 """General first-party identity reconciliation; no company allowlist."""
 import asyncio
 import json
-import sqlite3
 import uuid
-from pathlib import Path
 
 import httpx
 import pytest
@@ -52,9 +50,12 @@ def test_general_merge_retains_sources_history_receipts_and_old_links(tmp_path, 
         events = [dict(r) for r in c.execute('SELECT * FROM application_events ORDER BY event_key')]
     result = run(store, lambda r: httpx.Response(200, json=response(req)))
     assert result['merged'] == 1 and result['verified'] == 2
-    assert Path(result['backup']).exists()
-    with sqlite3.connect(result['backup']) as c:
-        assert c.execute('SELECT count(*) FROM job_aliases').fetchone()[0] == 0
+    with store.connect() as c:
+        journal = json.loads(c.execute("SELECT payload FROM audit WHERE event='source_alias_consolidation'").fetchone()[0])
+        assert journal['before']['job_aliases'] == []
+        assert len({r['job_id'] for r in journal['before']['observations']}) == 2
+        assert len({r['job_id'] for r in journal['before']['search_index']}) == 2
+        assert set(journal['before']) == {'observations', 'search_index', 'job_screening', 'web_opened', 'job_aliases', 'first_seen'}
     jobs = store.search()['jobs']
     assert len(jobs) == 1 and jobs[0]['status'] == 'submitted'
     assert len(store.get_jobs([jobs[0]['id']])[0]['all_sources']) == 2

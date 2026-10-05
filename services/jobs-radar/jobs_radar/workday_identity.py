@@ -154,15 +154,6 @@ async def refresh(store, client, *, limit=200):
                       (target['cxs_url'], now, error or 'verified'))
         from .job_duplicates import consolidate
         keys = {r[0] for r in c.execute('SELECT DISTINCT canonical_key FROM workday_postings')}
-        preview = consolidate(c, keys=keys)
-    backup = None
-    if preview['mergeable']:
-        import secrets
-        backup = store.backup(store.path.parent / 'identity-backups' / f'workday-{int(now)}-{secrets.token_hex(4)}.sqlite')
-        with store.connect(True) as c:
-            merged = consolidate(c, False, keys=keys)
-    else:
-        merged = preview
+        merged = consolidate(c, False, keys=keys)
     return dict(checked=len(selected), verified=verified, unavailable=failed, conflicts=conflicts,
-                remaining=max(0, len(due) - len(selected)), merged=merged['mergeable'] if backup else 0,
-                held=merged['held'], backup=backup)
+                remaining=max(0, len(due) - len(selected)), merged=merged['mergeable'], held=merged['held'])
