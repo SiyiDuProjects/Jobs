@@ -8,7 +8,7 @@ import time
 from urllib.parse import urlsplit
 
 from .scope import STREAM_IDS, discovery_scope
-from .geography import matches_region
+from .geography import matches_region, non_us_only, screening_locations
 from .role_families import FAMILIES, classify
 from .intern_companies import matches_company_review, normalize_company
 from .recruiting import STAGES, email_url, authorized_mailbox
@@ -135,11 +135,16 @@ class Board:
                     'group':'other','fingerprint':review['fingerprint'],'review_version':review['version'],'review':review,'screening':'trash','all_sources':[]})
         def visible(r):
             # The displayed FAANG+ tag exempts jobs only from compact presets.
-            compact_exempt = view=='jobs' and compact=='1' and r['group']=='faang'
+            foreign = non_us_only(screening_locations(r['all_sources']))
+            compact_exempt = (view=='jobs' and compact=='1' and r['group']=='faang'
+                              and not foreign)
             trash = r['review'] and r['review']['state']=='trash'
             if view=='trash':
                 if not trash or r['review']['expires_at'] <= time.time(): return False
             elif trash: return False
+            if (view=='jobs' and compact=='1' and foreign and r['status']=='not_started'
+                    and r['application_version']==0 and not (r['review'] and r['review']['manual_keep'])):
+                return False
             if view=='jobs' and any(normalize_company(s.get('company','')) in excluded_companies for s in r['all_sources']): return False
             # The shared browser preference must never filter full-time or recycle rows.
             if view=='jobs' and kind=='internship' and intern_companies=='1' and not compact_exempt:
@@ -256,6 +261,13 @@ class Board:
                 if reason=='phd' and not re.search(r'\bph\.?\s*d\b',titles,re.I): raise ValueError('Title does not contain PhD / Ph.D.')
                 if reason=='data_analyst' and not re.search(r'\bdata\s+analyst\b',titles,re.I): raise ValueError('Title does not identify a Data Analyst role')
                 if reason=='data_science' and not re.search(r'\bdata\s+scien(?:ce|tist)\b',titles,re.I): raise ValueError('Title does not identify a Data Science role')
+                if reason=='non_us_only':
+                    if not non_us_only(screening_locations(sources)):
+                        raise ValueError('Mixed or unresolved locations cannot prove a non-US-only role')
+                    if not any(e.get('url') in {src.get('source_url'), src.get('apply_url')}
+                               and any(e['quote'].strip() in loc for loc in src.get('locations', []))
+                               for e in evidence for src in sources):
+                        raise ValueError('Non-US removal needs an exact current source location excerpt')
                 if reason=='off_target_role':
                     # Verify that the judgment cites this job's actual available
                     # material; the AI, not a keyword allowlist, judges relevance.

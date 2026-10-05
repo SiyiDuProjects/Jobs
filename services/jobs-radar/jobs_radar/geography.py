@@ -1,5 +1,37 @@
-"""Optional board filters using explicit source locations, never eligibility claims."""
+"""Source-location screening and optional board region filters."""
 import re
+import json
+from pathlib import Path
+
+# Reuse the static country vocabulary, never a person's Profile. Ambiguous US
+# state names and US territories cannot prove that a location is foreign.
+_COUNTRIES = json.loads(Path(__file__).with_name('profile.schema.json').read_text())['x-uiOptions']['countries']
+_US_OR_AMBIGUOUS = {'Georgia', 'Jersey', 'United States of America',
+                    'United States Minor Outlying Islands', 'U. S. Virgin Islands',
+                    'American Samoa', 'Guam', 'Northern Mariana Islands', 'Puerto Rico'}
+_FOREIGN = re.compile(r'(?<!\w)(?:' + '|'.join(re.escape(c) for c in
+    [c for c in _COUNTRIES if c not in _US_OR_AMBIGUOUS] +
+    ['UK', 'U.K.', 'GB', 'GBR', 'Great Britain', 'England', 'Scotland', 'Wales', 'Northern Ireland',
+     'South Korea', 'Republic of Korea', 'Czech Republic', 'Turkey', 'UAE']) + r')(?!\w)', re.I)
+_US = re.compile(r'\b(?:USA|US|United States|U\.?\s*S\.?(?:\s*A\.?)?)\b|'
+    r'(?:^|[,;/])\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)(?=$|[\s,;/)])|'
+    r'\b(?:Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|District of Columbia|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington State|West Virginia|Wisconsin|Wyoming|Puerto Rico|Guam|American Samoa|Northern Mariana Islands)\b', re.I)
+_UNRESOLVED = re.compile(r'\+\s*\d+|\b(?:unknown|TBD|worldwide|global|international|multiple locations|various locations|other locations)\b', re.I)
+
+
+def screening_locations(sources):
+    # A source without locations is unresolved; do not silently discard it.
+    return [loc for source in sources for loc in (source.get('locations') or [''])]
+
+
+def non_us_only(locations):
+    """True only when every listed location explicitly identifies a foreign country."""
+    if not locations: return False
+    for location in locations:
+        if not isinstance(location, str) or _US.search(location) or _UNRESOLVED.search(location): return False
+        parts = re.split(r'[/;|\n]|\s+and\s+', location, flags=re.I)
+        if any(not _FOREIGN.search(part) for part in parts): return False
+    return True
 
 CA_ALIASES = {'sf', 'san francisco', 'san francisco bay area', 'bay area',
               'silicon valley', 'los angeles', 'san diego', 'san jose',
