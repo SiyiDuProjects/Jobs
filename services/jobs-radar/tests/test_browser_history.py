@@ -192,7 +192,7 @@ def test_history_keeps_unrecognized_questions_with_structure_only(history):
 
 def test_history_metrics_survive_storage_restart_and_empty_capability_probe(history):
     store, control, send = history
-    assert send([]) == {'historyAccepted': True, 'historyEventMetrics': 1}
+    assert send([]) == {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1}
     assert control.history()['applications'] == []
     p = packet()
     p['events'] = [
@@ -254,3 +254,52 @@ def test_history_rich_reupload_replaces_legacy_shell_without_merging_distinct_me
     send([first])
     row = next(row for row in control.history()['applications'] if row['url'] == first['url'])
     assert control.history(row['id'])['events'] == enriched
+
+
+def test_causal_journal_survives_restart_redaction_and_same_millisecond_events(history):
+    store, control, send = history
+    p = packet()
+    p['events'] = [
+        {'at': NOW, 'document': 'doc-1', 'type': 'causal_evidence', 'sequence': 1,
+         'fieldId': 'field-1', 'evidence': {'stage': 'item', 'operation': 1, 'item': 0, 'total': 2, 'result': 'started'}},
+        {'at': NOW, 'document': 'doc-1', 'type': 'fill_trace', 'sequence': 2,
+         'fieldId': 'field-1', 'trace': {'answer': 'PRIVATE_FIRST', 'result': 'no-options', 'options': ['PRIVATE_FIRST']}},
+        {'at': NOW, 'document': 'doc-1', 'type': 'fill_trace', 'sequence': 3,
+         'fieldId': 'field-1', 'trace': {'answer': 'PRIVATE_SECOND', 'chosen': 'PRIVATE_SECOND', 'result': 'committed'}},
+        {'at': NOW, 'document': 'doc-1', 'type': 'causal_evidence', 'sequence': 4,
+         'evidence': {'stage': 'guard', 'reason': 'user_input', 'result': 'blocked', 'hidden': True}},
+    ]
+    send([p]); send([p])
+    data = Diagnostics(store, lambda: NOW + 1000).history('run-1')
+    assert len(data['events']) == 4
+    assert data['events'][1]['trace']['answer'] == data['events'][1]['trace']['options'][0]
+    assert data['events'][2]['trace']['answer'] == data['events'][2]['trace']['chosen']
+    assert data['findings'][0]['evidence']['reason'] == 'user_input'
+    assert data['evidenceCoverage']['missingSequences'] == 0
+    with store.connect() as c:
+        assert 'PRIVATE_' not in c.execute('SELECT data FROM browser_diagnostic_history').fetchone()['data']
+
+
+@pytest.mark.parametrize('patch', [
+    {'reason': 'private answer'}, {'detail': 'secret'}, {'operation': True}, {'hidden': 'yes'},
+])
+def test_causal_evidence_rejects_unknown_text_and_wrong_types(history, patch):
+    _, _, send = history
+    p = packet()
+    p['events'] = [{'at': NOW, 'document': 'doc-1', 'type': 'causal_evidence',
+                    'evidence': {'stage': 'guard', **patch}}]
+    with pytest.raises(ValueError):
+        send([p])
+
+
+def test_client_server_evidence_categories_match():
+    import json, pathlib, subprocess
+    from jobs_radar.diagnostic_evidence import ENUMS
+    root = pathlib.Path(__file__).resolve().parents[3]
+    module = root / 'extensions/speedyapply-local/src/custom/diagnostic-evidence.js'
+    if not module.exists():
+        pytest.skip('Extension contract is checked in the combined source checkout')
+    result = subprocess.run(['node', '--input-type=module', '-e',
+                             f'import {{diagnosticEnums}} from {json.dumps(module.as_uri())}; console.log(JSON.stringify(diagnosticEnums))'],
+                            check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == ENUMS
