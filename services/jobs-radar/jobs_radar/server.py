@@ -236,11 +236,23 @@ def create_server(store, origin=None):
     @server.tool(annotations=write, description=tool_description())
     def screen_job(job_id: str, kind: Literal['newgrad','internship'], decision: Literal['keep','review','trash','restore'],
         reason: str, detail: str, evidence: list[dict[str,str]], expected_fingerprint: str, expected_version: int,
-        idempotency_key: str, role_family: str | None = None, role_evidence: list[dict[str,str]] | None = None,
-        company_recommended: bool | None = None, expected_company_fingerprint: str | None = None) -> dict[str, Any]:
+        idempotency_key: str, role_family: str | None = None, role_evidence: list[dict[str,str]] | None = None) -> dict[str, Any]:
         require('applications:write')
-        return board.review(job_id,kind,decision,reason,detail,evidence,expected_fingerprint,expected_version,idempotency_key,role_family=role_family,role_evidence=role_evidence,
-                            company_recommended=company_recommended,expected_company_fingerprint=expected_company_fingerprint)
+        return board.review(job_id,kind,decision,reason,detail,evidence,expected_fingerprint,expected_version,idempotency_key,role_family=role_family,role_evidence=role_evidence)
+
+    @server.tool(annotations=read)
+    def get_company_preferences(query: str = '', limit: int = 100, cursor: str = '') -> dict[str, Any]:
+        """Read the one shared selected-company set, including evaluated non-members and version numbers."""
+        require('jobs:read')
+        from .company_screening import list_preferences
+        return list_preferences(store,query,limit,cursor)
+
+    @server.tool(annotations=write)
+    def set_company_preference(company: str, selected: bool, expected_version: int) -> dict[str, Any]:
+        """Apply an explicit owner company preference to all its jobs and both kinds. Use version from get_company_preferences, or 0 for a new company. Autonomous daily screening must not use this owner override."""
+        require('applications:write')
+        from .company_screening import set_preference
+        return set_preference(store,company,selected,expected_version)
 
     @server.tool(annotations=read)
     def get_recycle_bin(kind: Literal['newgrad','internship'], page: int = 1) -> dict[str, Any]:

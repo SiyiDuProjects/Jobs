@@ -53,7 +53,7 @@ def board(tmp_path):
 def decision(board,kind='newgrad',reason='data_science',state='trash',key='screen-test-001'):
     row=board._rows(kind)[0]
     return board.review(row['id'],kind,state,reason,'Explicit authorized test rule',
-        [{'url':'https://example.org/same','quote':'Data Scientist','observed_at':'2026-09-15T10:00:00Z'}],row['fingerprint'],row['review_version'],key,**({'company_recommended':False,'expected_company_fingerprint':row['company_fingerprint']} if state=='keep' else {}))
+        [{'url':'https://example.org/same','quote':'Data Scientist','observed_at':'2026-09-15T10:00:00Z'}],row['fingerprint'],row['review_version'],key)
 
 def test_trash_mcp_sync_idempotence_and_no_resurrection(board):
     row=board._rows('newgrad')[0]

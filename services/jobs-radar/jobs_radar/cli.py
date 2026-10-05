@@ -17,6 +17,9 @@ def main():
     screening = commands.add_parser('screen')
     screening.add_argument('--max-batches',type=int,default=20)
     screening.add_argument('--backfill-company', action='store_true', help='Reevaluate existing unprocessed jobs and fill employer preference labels')
+    companies=commands.add_parser('screen-companies')
+    companies.add_argument('--max-batches',type=int,default=20)
+    companies.add_argument('--include-history',action='store_true',help='Include submitted and closed historical companies')
     commands.add_parser("status")
     identities = commands.add_parser('refresh-workday-identities')
     identities.add_argument('--limit', type=int, default=200)
@@ -30,7 +33,7 @@ def main():
     web.add_argument('request_id')
     args = parser.parse_args()
     from .maintenance import paused
-    if args.command in {'collect', 'screen', 'refresh-workday-identities'} and paused():
+    if args.command in {'collect', 'screen', 'screen-companies', 'refresh-workday-identities'} and paused():
         print(json.dumps({'status': 'release_maintenance'}))
         return
     from .restricted_recovery import active_recovery, RecoveryStore
@@ -76,6 +79,14 @@ def main():
         from .luna_screening import run, failure_summary
         try:
             print(json.dumps(run(store,max_batches=args.max_batches,backfill_company=args.backfill_company)),flush=True)
+        except Exception as exc:
+            print(json.dumps(failure_summary(exc)),flush=True)
+            raise SystemExit(1)
+    elif args.command == 'screen-companies':
+        from .company_screening import run_companies
+        from .luna_screening import failure_summary
+        try:
+            print(json.dumps(run_companies(store,max_batches=args.max_batches,include_history=args.include_history)),flush=True)
         except Exception as exc:
             print(json.dumps(failure_summary(exc)),flush=True)
             raise SystemExit(1)

@@ -140,7 +140,7 @@ def test_targeted_recheck_preserves_completed_progress_and_resumes_by_version(tm
     rows={r['apply_url'].rsplit('/',1)[1]:r for r in b._rows('newgrad')}
     verified=rows['verified']
     b.review(verified['id'],'newgrad','keep','','Read official page',[],verified['fingerprint'],1,
-             'verified',company_recommended=True,expected_company_fingerprint=verified['company_fingerprint'],role_family='software',role_evidence=[{'url':'https://example.org/verified','quote':'Build software','observed_at':'2026-09-17T00:00:00Z'}])
+             'verified',role_family='software',role_evidence=[{'url':'https://example.org/verified','quote':'Build software','observed_at':'2026-09-17T00:00:00Z'}])
     with s.connect(True) as c:
         c.execute("UPDATE applications SET status='submitted',version=1 WHERE job_id=?",(rows['protected']['id'],))
         snapshot=[tuple(r) for r in c.execute('SELECT * FROM job_screening ORDER BY job_id')]
@@ -192,7 +192,7 @@ def test_daily_triage_includes_changed_tiktok_and_faang_without_company_exceptio
     assert len(b.list()['jobs'])==3
     assert 'upstream repository/README classifications' in queue['rules']['screening_mode']
     row=queue['jobs'][0]
-    b.review(row['id'],'newgrad','keep','','Title/source triage: software; no supported exclusion.',[],row['fingerprint'],0,'title-only-keep',company_recommended=True,expected_company_fingerprint=row['company_fingerprint'])
+    b.review(row['id'],'newgrad','keep','','Title/source triage: software; no supported exclusion.',[],row['fingerprint'],0,'title-only-keep')
     p.manage('complete',batch['id'])
     now[0]=3000
     s.ingest('simplify:newgrad',[{**old,'description':'Material update'}, {**tik,'description':'Material update'}, fresh],'changed')

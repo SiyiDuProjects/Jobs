@@ -50,6 +50,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS job_screening(job_id TEXT,kind TEXT,state TEXT,reason TEXT,detail TEXT,
                 evidence TEXT,fingerprint TEXT,reviewed_at REAL,expires_at REAL,version INTEGER DEFAULT 1,
                 manual_keep INTEGER DEFAULT 0,PRIMARY KEY(job_id,kind));
+            CREATE TABLE IF NOT EXISTS company_preferences(company_key TEXT PRIMARY KEY,name TEXT NOT NULL,
+                keep INTEGER NOT NULL CHECK(keep IN (0,1)),actor TEXT NOT NULL,policy TEXT NOT NULL,
+                reviewed_at REAL NOT NULL,version INTEGER NOT NULL DEFAULT 1);
             CREATE TABLE IF NOT EXISTS job_company_screening(job_id TEXT,kind TEXT,keep INTEGER NOT NULL CHECK(keep IN (0,1)),
                 fingerprint TEXT NOT NULL,policy TEXT NOT NULL,reviewed_at REAL NOT NULL,PRIMARY KEY(job_id,kind));
             """)

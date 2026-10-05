@@ -68,8 +68,7 @@ def test_title_only_changes_list_and_resolve_display_and_survives_reingest(title
     assert result.status_code==200 and result.json()['changed']
     assert snapshot(store)==before
     shown=Board(store)._rows('newgrad')[0]
-    assert shown['company_fingerprint']!=original['company_fingerprint']
-    assert shown=={**original,'title':body['title'],'company_fingerprint':shown['company_fingerprint']}
+    assert shown=={**original,'title':body['title']}
     assert ExtensionSync(store).resolve({'url':body['url']})['title']==body['title']
     assert Board(store).list(status='needs_input')['jobs'][0]['title']==body['title']
     metadata=snapshot(store,('job_title_overrides',))

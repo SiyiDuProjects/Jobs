@@ -11,7 +11,6 @@ from .scope import STREAM_IDS, discovery_scope
 from .geography import matches_region, non_us_only, screening_locations
 from .role_families import FAMILIES, classify
 from .intern_companies import normalize_company
-from .company_screening import input_fingerprint as company_token
 from .screening_policy import POLICY
 from .recruiting import STAGES, email_url, authorized_mailbox
 
@@ -58,7 +57,7 @@ class Board:
             mailbox=authorized_mailbox(c,required=False)
             for p in progress.values(): p['email_url']=email_url(p['message_id'],mailbox) if p['message_id'] else None
             reviews = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM job_screening WHERE kind=?',(kind,))}
-            company_tags = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM job_company_screening WHERE kind=?',(kind,))}
+            company_tags = {r['company_key']:bool(r['keep']) for r in c.execute('SELECT * FROM company_preferences')}
             from .job_titles import display_titles
             titles = display_titles(c)
             role_families = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM job_role_family WHERE kind=?',(kind,))}
@@ -95,10 +94,7 @@ class Board:
                 'screening': 'pending' if not review or (fp != token and review['state'] != 'trash' and not review['manual_keep']) else review['state'],
                 'all_sources':sources})
             row = result[-1]
-            row['company_fingerprint'] = company_token(sources, kind, row['title'])
-            tag = company_tags.get(jid)
-            row['company_recommended'] = (bool(tag['keep']) if tag and tag['policy']==POLICY
-                and tag['fingerprint']==row['company_fingerprint'] else None)
+            row['company_recommended'] = company_tags.get(normalize_company(row['company']))
         return result
 
     def list(self, *args, **filters):
@@ -223,7 +219,7 @@ class Board:
             return ScreeningProgress(self.store).queue(run_id,kind,limit,cursor)
         if not 1<=limit<=100: raise ValueError('limit must be 1..100')
         rows = sorted((r for r in self._rows(kind) if r['status']=='not_started' and r['application_version']==0
-                       and (r['screening']=='pending' or r['screening']=='keep' and r['company_recommended'] is None)
+                       and r['screening']=='pending'
                        and not (r['review'] and r['review']['manual_keep']) and (not cursor or r['id']>cursor)), key=lambda r:r['id'])
         selected = rows[:limit]
         return {'jobs':selected,'next_cursor':selected[-1]['id'] if len(rows)>limit else None,'rules':RULES}
@@ -233,8 +229,8 @@ class Board:
             raise ValueError('Invalid screening decision')
         if not detail.strip() or len(detail)>2000 or len(evidence)>5:
             raise ValueError('A concise reason and at most five evidence items are required')
-        if company_recommended is not None and (type(company_recommended) is not bool or decision not in {'keep','trash'} or decision=='trash' and company_recommended):
-            raise ValueError('Invalid company_recommended decision')
+        if company_recommended is not None or expected_company_fingerprint is not None:
+            raise ValueError('Company decisions belong to the shared company list; use set_company_preference')
         if decision=='trash':
             if reason not in REASONS or (reason=='manual' and actor!='web-owner'):
                 raise ValueError('Not an authorized removal reason')
@@ -248,7 +244,6 @@ class Board:
         elif role_evidence: raise ValueError('Role evidence requires a role family')
         payload = [job_id,kind,decision,reason,detail,evidence,expected_fingerprint,expected_version,actor]
         if role_family is not None: payload += [role_family,role_evidence]
-        if company_recommended is not None: payload += [{'company_recommended':company_recommended,'input':expected_company_fingerprint,'policy':POLICY}]
         with self.store.connect(True) as c:
             checksum, old = self.store._idem(c,key,['screening',payload])
             if old is not None: return old
@@ -267,14 +262,6 @@ class Board:
                 current_fp = current_fp if sources else previous['fingerprint']
             elif not sources or current_fp!=expected_fingerprint:
                 raise ValueError('Source content changed; inspect the latest job')
-            if company_recommended is not None:
-                if app['status']!='not_started' or app['version']!=0 or previous and previous['manual_keep']:
-                    raise ValueError('Processed or manually kept jobs are protected')
-                from .job_titles import display_titles
-                primary = min(sources,key=lambda s:({'simplify':0,'speedyapply':1}.get(s['source'],9),s.get('source_id','')))
-                tag_fp = company_token(sources, kind, display_titles(c).get(job_id, primary['title']))
-                if tag_fp != expected_company_fingerprint:
-                    raise ValueError('Company input changed; inspect the latest job')
             if decision=='trash':
                 from .application_records import can_remove_unsubmitted
                 # An owner may abandon an unsubmitted draft without erasing its
@@ -322,9 +309,6 @@ class Board:
                 reviewed_at=excluded.reviewed_at,expires_at=excluded.expires_at,version=excluded.version,manual_keep=excluded.manual_keep''',
                 (job_id,kind,state,reason,detail,json.dumps(evidence),current_fp,now,now+86400 if state=='trash' else None,version,manual_keep))
             c.execute("INSERT INTO audit(job_id,event,actor,created,payload) VALUES(?,'screening',?,?,?)",(job_id,actor,now,json.dumps(payload)))
-            if company_recommended is not None:
-                c.execute('INSERT OR REPLACE INTO job_company_screening VALUES(?,?,?,?,?,?)',
-                          (job_id,kind,int(company_recommended),tag_fp,POLICY,now))
             if role_family is not None:
                 c.execute('INSERT OR REPLACE INTO job_role_family VALUES(?,?,?,?,?,?)',(job_id,kind,role_family,current_fp,json.dumps(role_evidence),now))
             result={'job_id':job_id,'kind':kind,'state':state,'version':version,'expires_at':now+86400 if state=='trash' else None}

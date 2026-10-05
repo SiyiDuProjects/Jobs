@@ -47,7 +47,7 @@ class ScreeningProgress:
     @staticmethod
     def pending(row):
         return (ScreeningProgress.included(row) and row['status']=='not_started' and row['application_version']==0
-                and (row['screening']=='pending' or row['screening']=='keep' and row['company_recommended'] is None)
+                and row['screening']=='pending'
                 and not (row['review'] and row['review']['manual_keep']))
 
     def _current(self):
@@ -127,7 +127,7 @@ class ScreeningProgress:
             if batch:
                 if action=='begin' and backfill_company:
                     for row in self._current():
-                        if self.pending(row) and row['company_recommended'] is None:
+                        if self.pending(row):
                             c.execute('INSERT OR IGNORE INTO screening_batch_items VALUES(?,?,?)',
                                       (batch['id'],row['id'],row['kind']))
                 return self._describe(c,batch)
@@ -150,7 +150,7 @@ class ScreeningProgress:
                 bootstrap = not checkpoint['initialized'] and (r['added_at']>=checkpoint['cutoff'] or r['review'])
                 if ((r['id'],r['kind']) in rechecks or
                         self.pending(r) and (changed or newly_seen or bootstrap or (r['id'],r['kind']) in admitted
-                                             or backfill_company and r['company_recommended'] is None)):
+                                             or backfill_company)):
                     c.execute('INSERT INTO screening_batch_items VALUES(?,?,?)',(run_id,r['id'],r['kind']))
                     selected.append(r)
                 c.execute('INSERT OR REPLACE INTO screening_seen VALUES(?,?,?,1)',(r['id'],r['kind'],r['fingerprint']))

@@ -24,13 +24,13 @@ def test_unknown_facts_and_current_exclusions_do_not_become_broader_filters():
     assert 'Does Not Offer Sponsorship' in ' '.join(RULES['remove_both'])
 
 
-def test_mcp_screen_job_persists_employer_label_with_input_fence(tmp_path,monkeypatch):
+def test_mcp_company_preference_is_shared_and_owner_versioned(tmp_path,monkeypatch):
     from test_compact_screening import seed
     monkeypatch.setattr('jobs_radar.server.require',lambda scope:None)
-    store,board=seed(tmp_path);row=board._rows('newgrad')[0]
+    store,board=seed(tmp_path)
     server=create_server(store)
-    asyncio.run(server.call_tool('screen_job',dict(job_id=row['id'],kind='newgrad',decision='keep',
-        reason='eligible',detail='Matching occupation',evidence=[],expected_fingerprint=row['fingerprint'],
-        expected_version=0,idempotency_key='mcp-company-review',company_recommended=True,
-        expected_company_fingerprint=row['company_fingerprint'])))
-    assert next(r for r in board._rows('newgrad') if r['id']==row['id'])['company_recommended'] is True
+    asyncio.run(server.call_tool('set_company_preference',dict(company='Duolingo',selected=True,expected_version=0)))
+    for kind in ('newgrad','internship'):
+        assert next(r for r in board._rows(kind) if r['company']=='Duolingo')['company_recommended'] is True
+    with store.connect() as c:
+        assert c.execute('SELECT count(*) FROM job_screening').fetchone()[0]==0

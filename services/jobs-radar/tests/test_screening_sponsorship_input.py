@@ -4,7 +4,6 @@ import httpx
 import pytest
 
 from jobs_radar.board import fingerprint
-from jobs_radar.company_screening import input_fingerprint
 from jobs_radar.luna_screening import classify, public_input
 from test_luna_screening import reply
 
@@ -47,5 +46,5 @@ def test_disagreeing_sources_remain_distinct_and_changes_invalidate_cached_input
         'Offers Sponsorship', 'Does Not Offer Sponsorship']
     changed = [{**source, 'sponsorship': 'Other'}, sources[1]]
     assert fingerprint(sources) != fingerprint(changed)
-    assert input_fingerprint(sources, 'newgrad', row['title']) != input_fingerprint(changed, 'newgrad', row['title'])
-    assert input_fingerprint(sources, 'newgrad', row['title']) == input_fingerprint(sources[::-1], 'newgrad', row['title'])
+
+    assert fingerprint(sources) == fingerprint(sources[::-1])

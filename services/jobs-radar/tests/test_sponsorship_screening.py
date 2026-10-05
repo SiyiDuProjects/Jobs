@@ -53,12 +53,12 @@ def test_provider_restriction_quote_can_be_validated_and_saved_for_internship(tm
     row=board._rows('internship')[0]
     def provider(request):
         return httpx.Response(200,json={'status':'completed','output':[{'content':[{'type':'output_text','text':json.dumps({'jobs':{'job_0':{
-            'decision':'trash','company_recommended':False,'reason':'明确不提供签证支持','evidence_quote':s['sponsorship']}}})}]}]})
+            'decision':'trash','reason':'明确不提供签证支持','evidence_quote':s['sponsorship']}}})}]}]})
     with httpx.Client(transport=httpx.MockTransport(provider)) as client: decisions,_=classify(client,[row])
     d=decisions[0]
     board.review(row['id'],'internship',d['decision'],d['reason_code'],d['reason'],[
         {'url':s['source_url'],'quote':d['evidence_quote'],'observed_at':'2026-10-05T00:00:00Z'}],
-        row['fingerprint'],0,'sponsorship-test',company_recommended=False,expected_company_fingerprint=row['company_fingerprint'])
+        row['fingerprint'],0,'sponsorship-test')
     assert board._rows('internship')[0]['review']['reason']=='no_sponsorship'
 
 

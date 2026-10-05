@@ -22,8 +22,10 @@ def setup_store(tmp_path):
 
 
 def reply(rows,partial=False,bad_quote=False):
+    if rows and rows[0]['id'].startswith('company_'):
+        return {'status':'completed','output':[{'content':[{'type':'output_text','text':json.dumps({'companies':{r['id']:True for r in rows}})}]}]}
     jobs={r['id']:{'decision':'trash' if r['title']=='Firmware Engineer' else 'keep',
-           'company_recommended':r['title']!='Firmware Engineer','reason':'Title-based occupation decision','evidence_quote':'Invented title' if bad_quote else r['title']} for r in rows}
+           'reason':'Title-based occupation decision','evidence_quote':'Invented title' if bad_quote else r['title']} for r in rows}
     if partial:jobs=dict(list(jobs.items())[:1])
     return {'status':'completed','model':'gpt-6-luna','usage':{'input_tokens':10,'output_tokens':10},
             'output':[{'content':[{'type':'output_text','text':json.dumps({'jobs':jobs})}]}]}
@@ -164,6 +166,7 @@ def test_requested_schema_rejects_partial_batch_before_generation(tmp_path):
     def handler(request):
         payload=json.loads(request.content)
         rows=json.loads(payload['input'])
+        if rows[0]['id'].startswith('company_'): return httpx.Response(200,json=reply(rows))
         partial=json.loads(reply(rows,partial=True)['output'][0]['content'][0]['text'])
         schema=payload['text']['format']['schema']
         with pytest.raises(jsonschema.ValidationError): jsonschema.validate(partial,schema)
@@ -216,7 +219,9 @@ def test_one_canonical_job_in_two_kinds_keeps_each_decision_separate(tmp_path):
     ScreeningProgress(s).initialize(time.time()-10)
     calls=[]
     def handler(request):
-        payload=json.loads(request.content);rows=json.loads(payload['input']);calls.append(rows)
+        payload=json.loads(request.content);rows=json.loads(payload['input'])
+        if rows[0]['id'].startswith('company_'):return httpx.Response(200,json=reply(rows))
+        calls.append(rows)
         assert len(rows)==2 and len({r['id'] for r in rows})==2
         assert set(payload['text']['format']['schema']['properties']['jobs']['required'])=={r['id'] for r in rows}
         data=reply(rows); value=json.loads(data['output'][0]['content'][0]['text'])

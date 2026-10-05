@@ -141,7 +141,9 @@ def test_compact_faang_exemption_keeps_us_and_unclear_but_not_foreign(tmp_path, 
     for row in board._rows('internship'):
         if not non_us_only(row['locations']):
             board.review(row['id'],'internship','keep','eligible','Matching role',[],row['fingerprint'],0,
-                         row['id'],company_recommended=True,expected_company_fingerprint=row['company_fingerprint'])
+                         row['id'])
+    from jobs_radar.company_screening import set_preference
+    for company in {r['company'] for r in board._rows('internship')}:set_preference(store,company,True,0)
     result=board.list(kind='internship', compact='1', region=region)
     assert {r['apply_url'].rsplit('/',1)[-1] for r in result['jobs']}=={'us','mixed','unknown'}
     assert board.filter_counts(compact='1', region=region)['internship']['total']==3
@@ -169,7 +171,7 @@ def test_model_receives_locations_and_geographic_evidence_has_its_own_reason(loc
         assert json.loads(payload['input'])[0]['locations']==locations
         assert 'source location' in payload['instructions']
         return httpx.Response(200,json={'status':'completed', 'output':[{'content':[{'type':'output_text',
-            'text':json.dumps({'jobs':{'job_0':{'decision':'trash','company_recommended':False,'reason':'仅限英国','evidence_quote':'London, UK'}}})}]}]})
+            'text':json.dumps({'jobs':{'job_0':{'decision':'trash','reason':'仅限英国','evidence_quote':'London, UK'}}})}]}]})
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         if valid:
             decisions,_=classify(client,[row])
