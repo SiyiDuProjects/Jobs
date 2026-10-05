@@ -279,7 +279,13 @@ class Board:
                             e['quote']==supported[1] and e['url'] in {supported[0].get('source_url'),supported[0].get('apply_url')}
                             for e in evidence):
                         raise ValueError('Removal needs an explicit, uncontradicted source restriction')
-                if reason=='phd' and not re.search(r'\bph\.?\s*d\b',titles,re.I): raise ValueError('Title does not contain PhD / Ph.D.')
+                if reason=='phd':
+                    from .education import restriction as education_restriction
+                    supported = education_restriction(sources)
+                    if not supported or not any(e['quote']==supported[1] and
+                            e['url'] in {supported[0].get('source_url'),supported[0].get('apply_url')}
+                            for e in evidence):
+                        raise ValueError('Doctoral removal needs exact, uncontradicted title or degree evidence')
                 if reason=='data_analyst' and not re.search(r'\bdata\s+analyst\b',titles,re.I): raise ValueError('Title does not identify a Data Analyst role')
                 if reason=='data_science' and not re.search(r'\bdata\s+scien(?:ce|tist)\b',titles,re.I): raise ValueError('Title does not identify a Data Science role')
                 if reason=='non_us_only':

@@ -6,6 +6,28 @@ clearance, citizenship and sponsorship exclusions to both employment kinds.
 Missing information is not a rejection. Front-end roles are allowed; there is
 no employer blacklist or salary, experience or graduation-date threshold.
 
+Initial-screening input preserves public source facts: title, company, location,
+degree eligibility, sponsorship, available description and its completeness,
+source categories, terms, salary and evidence URLs. Raw ingestion metadata and
+application/Profile records stay outside the model request. Missing fields stay
+unknown. Terms and salary do not create new eligibility thresholds.
+
+Doctoral-only degree lists and PhD-only/postdoctoral titles are excluded before
+publication using the same evidence check as model and manual review validation.
+Mixed-degree eligibility (including BS/MS/PhD titles) and explicit non-doctoral
+eligibility in another source prevent a doctoral-only rejection. Missing data
+in another source is not a contradiction. URL slugs are not eligibility facts.
+Changed evidence reopens automatic doctoral exclusions; submitted/claimed and
+manually kept roles remain protected. Exact degree labels are accepted evidence
+only when the current sources support a doctoral-only restriction.
+
+Regression case (2026-10-05): Autodesk's `26WD101433` research internship had a
+plain research title and `degrees: ["PhD"]` in both Simplify observations. The
+old model input omitted degrees, the policy required PhD in the title, and the
+review validator rejected degree evidence. It was incorrectly kept. The parser
+to provider contract and degree screening tests cover this case, mixed-degree
+alternatives, cross-source conflicts and protected application history.
+
 Initial screening is evaluated per job. Company selection is evaluated once
 per normalized company name, independently of role, location, employment kind
 and application outcomes. `company_preferences` stores both selected and

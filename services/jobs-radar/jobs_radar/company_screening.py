@@ -8,11 +8,15 @@ from .intern_companies import normalize_company
 from .screening_policy import RULES
 
 COMPANY_POLICY = '2026-10-05-company-set-v1'
-SOURCE_FIELDS = ('company', 'title', 'locations', 'repository', 'category', 'source_category', 'section', 'sponsorship')
+# Public job facts only. Keep eligibility and source evidence together; never
+# pass raw ingestion records or application/Profile data to the screening model.
+SOURCE_FIELDS = ('company', 'title', 'locations', 'repository', 'category', 'source_category',
+                 'section', 'sponsorship', 'degrees', 'description', 'description_complete',
+                 'terms', 'salary', 'source_url', 'apply_url')
 
 
 def source_input(source):
-    return {key: source.get(key, None if key == 'sponsorship' else '') for key in SOURCE_FIELDS}
+    return {key: source.get(key) for key in SOURCE_FIELDS}
 
 
 def public_input(row, reference):

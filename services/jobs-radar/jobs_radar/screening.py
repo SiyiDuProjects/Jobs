@@ -7,10 +7,11 @@ from .board import fingerprint, safe_url
 from .scope import discovery_scope
 from .sponsorship import restriction, title_citizenship
 from .geography import non_us_only, screening_locations
+from .education import restriction as education_restriction
 
 
 def title_reason(title):
-    if re.search(r'\bph\.?\s*d\b', title, re.I):
+    if education_restriction([{'title':title}]):
         return 'phd'
     if re.search(r'\bdata\s+analyst\b', title, re.I):
         return 'data_analyst'
@@ -28,11 +29,11 @@ def screen_titles(connection, job_ids=None, now=None):
     # sources add US or unresolved locations. Owner deletions remain permanent.
     prior_locations = connection.execute("""SELECT q.* FROM job_screening q
         JOIN applications a ON a.job_id=q.job_id
-        WHERE q.state='trash' AND q.reason IN ('non_us_only','no_sponsorship','citizenship') AND q.manual_keep=0
+        WHERE q.state='trash' AND q.reason IN ('non_us_only','no_sponsorship','citizenship','phd') AND q.manual_keep=0
         AND a.status='not_started' AND a.version=0
         AND (SELECT actor FROM audit WHERE job_id=q.job_id AND event='screening'
              AND json_extract(payload,'$[1]')=q.kind ORDER BY id DESC LIMIT 1)
-            IN ('sync-location-rule','sync-sponsorship-rule')""").fetchall()
+            IN ('sync-location-rule','sync-sponsorship-rule','sync-degree-rule','sync-title-rule')""").fetchall()
     for prior in prior_locations:
         if job_ids is not None and prior['job_id'] not in job_ids: continue
         current = [json.loads(r[0]) for r in connection.execute(f'''SELECT o.payload FROM observations o
@@ -42,10 +43,12 @@ def screen_titles(connection, job_ids=None, now=None):
         if not current: continue
         if prior['reason']=='non_us_only':
             if non_us_only(screening_locations(current)): continue
+        elif prior['reason']=='phd':
+            if education_restriction(current): continue
         elif restriction(current) or any(title_citizenship(s.get('title','')) for s in current):
             continue
         token=fingerprint(current)
-        if token==prior['fingerprint']: continue
+        if token==prior['fingerprint'] and prior['reason']!='phd': continue
         detail='当前来源的自动排除依据已变化，重新初筛。'
         connection.execute("""UPDATE job_screening SET state='pending',reason='',detail=?,evidence='[]',
             fingerprint=?,reviewed_at=?,expires_at=NULL,version=version+1 WHERE job_id=? AND kind=?""",
@@ -66,7 +69,10 @@ def screen_titles(connection, job_ids=None, now=None):
     counts = {'newgrad':0,'internship':0}
     observed_at = time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime(now))
     for (jid,kind), sources in grouped.items():
-        match = next((s for s in sources if title_reason(s.get('title','')) and safe_url(s.get('source_url'))), None)
+        education = education_restriction(sources)
+        match = (education[0] if education and safe_url(education[0].get('source_url')) else
+                 next((s for s in sources if title_reason(s.get('title','')) in {'data_analyst','data_science'}
+                       and safe_url(s.get('source_url'))), None))
         location_match = not match and non_us_only(screening_locations(sources))
         restricted = restriction(sources) if not match and not location_match else None
         citizen = next((s for s in sources if title_citizenship(s.get('title','')) and safe_url(s.get('source_url'))),None) if not match and not location_match and not restricted else None
@@ -78,11 +84,12 @@ def screen_titles(connection, job_ids=None, now=None):
             match = citizen
         if not match: continue
         reason = ('non_us_only' if location_match else restricted[2] if restricted else
-                  'citizenship' if citizen else title_reason(match['title']))
-        quote = match['locations'][0] if location_match else restricted[1] if restricted else match['title']
+                  'citizenship' if citizen else 'phd' if education and match is education[0] else title_reason(match['title']))
+        quote = (education[1] if reason=='phd' else match['locations'][0] if location_match
+                 else restricted[1] if restricted else match['title'])
         evidence = [{'url':match['source_url'],'quote':quote,'observed_at':observed_at}]
         if reason=='phd':
-            detail = '岗位标题包含 PhD / Ph.D.，按用户要求在采集阶段自动删除。'
+            detail = '来源标题或学历字段明确为仅限博士／博士后，按用户要求在采集阶段自动删除。'
         elif reason=='non_us_only':
             detail = '来源明确仅列出美国境外地点：' + '；'.join(screening_locations(sources)) + '。按用户要求排除，FAANG+ 也不豁免。'
         elif reason in {'no_sponsorship','citizenship'}:
@@ -97,7 +104,8 @@ def screen_titles(connection, job_ids=None, now=None):
             detail=excluded.detail,evidence=excluded.evidence,fingerprint=excluded.fingerprint,
             reviewed_at=excluded.reviewed_at,expires_at=excluded.expires_at,version=excluded.version''',
             (jid,kind,'trash',reason,detail,json.dumps(evidence),token,now,now+86400,old_version+1))
-        actor='sync-location-rule' if location_match else 'sync-sponsorship-rule' if restricted or citizen else 'sync-title-rule'
+        actor=('sync-degree-rule' if reason=='phd' else 'sync-location-rule' if location_match
+               else 'sync-sponsorship-rule' if restricted or citizen else 'sync-title-rule')
         payload = [jid,kind,'trash',reason,detail,evidence,token,old_version,actor]
         connection.execute("INSERT INTO audit(job_id,event,actor,created,payload) VALUES(?,'screening',?,?,?)",
                            (jid,actor,now,json.dumps(payload)))

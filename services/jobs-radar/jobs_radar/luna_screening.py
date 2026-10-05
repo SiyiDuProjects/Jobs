@@ -13,6 +13,7 @@ from .screening_progress import ScreeningProgress
 from .geography import non_us_only, screening_locations
 from .company_screening import public_input
 from .sponsorship import restriction, title_citizenship
+from .education import restriction as education_restriction
 
 MODEL = 'gpt-6-luna'
 from .screening_policy import POLICY, PROMPT
@@ -32,7 +33,9 @@ def response_schema(references):
         schema=DECISION_SCHEMA
         if isinstance(references,dict):
             row=references[ref]
-            quotes=[s.get('title','') for s in row['all_sources']]
+            quotes=[s.get(field,'') for s in row['all_sources'] for field in ('title','description')]
+            education=education_restriction(row['all_sources'])
+            if education: quotes.append(education[1])
             if non_us_only(screening_locations(row['all_sources'])):
                 quotes.extend(loc for s in row['all_sources'] for loc in s.get('locations',[]))
             limited=restriction(row['all_sources'])
@@ -156,16 +159,19 @@ def classify(client, rows):
             raise ScreeningError('decision_invalid')
         quote=item['evidence_quote'].strip()
         title_quote = any(quote in source.get('title','') for source in row['all_sources'])
+        description_quote = any(quote == source.get('description') for source in row['all_sources'])
+        education = education_restriction(row['all_sources'])
+        education_quote = bool(education and quote==education[1])
         location_quote = any(quote in loc for source in row['all_sources'] for loc in source.get('locations', []))
-        geographic = item['decision']=='trash' and not title_quote and location_quote
+        geographic = item['decision']=='trash' and not (title_quote or description_quote or education_quote) and location_quote
         sponsored = restriction(row['all_sources'])
         restriction_quote = bool(sponsored and quote==sponsored[1])
-        if not quote or not (title_quote or location_quote or restriction_quote):
+        if not quote or not (title_quote or description_quote or education_quote or location_quote or restriction_quote):
             raise ScreeningError('evidence_mismatch')
         if geographic and not non_us_only(screening_locations(row['all_sources'])):
             raise ScreeningError('evidence_mismatch')
         checked.append({**item,'id':row['id'],'kind':row['kind'],
-                        'reason_code':sponsored[2] if restriction_quote else 'non_us_only' if geographic
+                        'reason_code':'phd' if education_quote else sponsored[2] if restriction_quote else 'non_us_only' if geographic
                         else 'citizenship' if title_quote and title_citizenship(quote) else 'off_target_role'})
     return checked, usage
 
@@ -226,7 +232,9 @@ def run(store, max_batches=20, batch_size=20, client=None, backfill_company=Fals
                           (MODEL,time.time(),json.dumps({'run_id':batch['id'],'policy':POLICY,'jobs':len(rows),'usage':usage})))
             for item in decisions:
                 row=lookup[(item['id'],item['kind'])]
-                source=next(s for s in row['all_sources'] if item['evidence_quote'].strip() in s.get('title','')
+                education=education_restriction(row['all_sources']) if item['reason_code']=='phd' else None
+                source=education[0] if education else next(s for s in row['all_sources'] if item['evidence_quote'].strip() in s.get('title','')
+                            or item['evidence_quote'].strip()==s.get('description')
                             or any(item['evidence_quote'].strip() in loc for loc in s.get('locations', []))
                             or item['evidence_quote'].strip()==s.get('sponsorship'))
                 evidence=[{'url':source.get('source_url') or source.get('apply_url'),
