@@ -28,8 +28,23 @@ DECISION_SCHEMA = {
 def response_schema(references):
     # Fixed required keys make an incomplete/foreign identity set invalid in
     # Structured Outputs itself, instead of merely discovering it after billing.
+    properties={}
+    for ref in references:
+        schema=DECISION_SCHEMA
+        if isinstance(references,dict):
+            row=references[ref]
+            quotes=[s.get('title','') for s in row['all_sources']]
+            if non_us_only(screening_locations(row['all_sources'])):
+                quotes.extend(loc for s in row['all_sources'] for loc in s.get('locations',[]))
+            limited=restriction(row['all_sources'])
+            if limited: quotes.append(limited[1])
+            quotes=list(dict.fromkeys(q for q in quotes if isinstance(q,str) and q.strip()))
+            if quotes:
+                schema={**DECISION_SCHEMA,'properties':{**DECISION_SCHEMA['properties'],
+                    'evidence_quote':{'type':'string','enum':quotes}}}
+        properties[ref]=schema
     return {'type':'object','properties':{'jobs':{
-        'type':'object','properties':{ref:DECISION_SCHEMA for ref in references},
+        'type':'object','properties':properties,
         'required':list(references),'additionalProperties':False,
     }},'required':['jobs'],'additionalProperties':False}
 

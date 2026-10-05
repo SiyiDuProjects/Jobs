@@ -6,6 +6,18 @@ import pytest
 from jobs_radar.board import Board
 from jobs_radar.geography import non_us_only
 from jobs_radar.luna_screening import ScreeningError, classify, public_input
+from jobs_radar.luna_screening import response_schema
+
+
+def test_ambiguous_state_country_code_cannot_be_used_as_foreign_only_evidence():
+    # Actual failed-batch shape: the model read IN as India while the shared
+    # conservative country predicate could not rule out a US state abbreviation.
+    source={'company':'Bosch','title':'Public Cloud Migration/Build Specialist','locations':['Telengana, IN']}
+    row={'id':'canonical','kind':'newgrad','company':source['company'],'title':source['title'],'all_sources':[source]}
+    assert public_input(row,'job_0')['foreign_only_confirmed'] is False
+    schema=response_schema({'job_0':row})
+    quotes=schema['properties']['jobs']['properties']['job_0']['properties']['evidence_quote']['enum']
+    assert quotes==[source['title']]
 from jobs_radar.store import Store
 from test_store import observation
 

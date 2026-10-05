@@ -2,7 +2,7 @@
 import hashlib
 import json
 
-from .geography import screening_locations
+from .geography import screening_locations, non_us_only
 from .screening_policy import POLICY
 
 SOURCE_FIELDS = ('company', 'title', 'locations', 'repository', 'category', 'source_category', 'section', 'sponsorship')
@@ -17,6 +17,7 @@ def source_input(source):
 def public_input(row, reference):
     return {'id': reference, 'kind': row['kind'], 'company': row['company'], 'title': row['title'],
             'locations': screening_locations(row['all_sources']),
+            'foreign_only_confirmed': non_us_only(screening_locations(row['all_sources'])),
             'sources': [source_input(s) for s in row['all_sources']]}
 
 
