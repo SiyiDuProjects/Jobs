@@ -10,11 +10,13 @@ from urllib.parse import urlsplit
 from .scope import STREAM_IDS, discovery_scope
 from .geography import matches_region, non_us_only, screening_locations
 from .role_families import FAMILIES, classify
-from .intern_companies import matches_company_review, normalize_company
+from .intern_companies import normalize_company
+from .company_screening import input_fingerprint as company_token
+from .screening_policy import POLICY
 from .recruiting import STAGES, email_url, authorized_mailbox
 
 KINDS = {'newgrad', 'internship'}
-REASONS = {'phd', 'data_analyst', 'data_science', 'off_target_role', 'employer_blacklist', 'non_us_only', 'no_sponsorship', 'clearance', 'manual'}
+REASONS = {'phd', 'data_analyst', 'data_science', 'off_target_role', 'non_us_only', 'no_sponsorship', 'citizenship', 'clearance', 'manual'}
 from .screening_policy import RULES
 
 
@@ -56,6 +58,7 @@ class Board:
             mailbox=authorized_mailbox(c,required=False)
             for p in progress.values(): p['email_url']=email_url(p['message_id'],mailbox) if p['message_id'] else None
             reviews = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM job_screening WHERE kind=?',(kind,))}
+            company_tags = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM job_company_screening WHERE kind=?',(kind,))}
             from .job_titles import display_titles
             titles = display_titles(c)
             role_families = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM job_role_family WHERE kind=?',(kind,))}
@@ -91,6 +94,11 @@ class Board:
                 'active':jid in active_ids, 'review_version':review['version'] if review else 0,'review':review,
                 'screening': 'pending' if not review or (fp != token and review['state'] != 'trash' and not review['manual_keep']) else review['state'],
                 'all_sources':sources})
+            row = result[-1]
+            row['company_fingerprint'] = company_token(sources, kind, row['title'])
+            tag = company_tags.get(jid)
+            row['company_recommended'] = (bool(tag['keep']) if tag and tag['policy']==POLICY
+                and tag['fingerprint']==row['company_fingerprint'] else None)
         return result
 
     def list(self, *args, **filters):
@@ -98,12 +106,20 @@ class Board:
             raise ValueError('Unsupported list option')
         return self._listing(*args, **filters)
 
-    def _listing(self, kind='newgrad', view='jobs', text='', category='', location='', status='not_started', group='', screening='', page=1, page_size=50, added_since=None, added_before=None, region='', exclude_data_engineering='', exclude_titles='', roles='', intern_companies='', exclude_companies='', compact='', summary_only=False):
+    def _listing(self, kind='newgrad', view='jobs', text='', category='', location='', status='not_started', group='', screening='', page=1, page_size=50, added_since=None, added_before=None, region='', exclude_data_engineering='', exclude_titles='', roles='', intern_companies='', exclude_companies='', compact='', company_filter='', company_newgrad=None, company_internship=None, summary_only=False):
         selected_roles = set(roles.split(',')) if roles else FAMILIES
         if selected_roles - (FAMILIES | {'none'}): raise ValueError('Invalid role family')
         if region not in {'','ca','ca_remote','focus_remote'}: raise ValueError('Invalid region')
         if intern_companies not in {'','1'}: raise ValueError('Invalid internship company filter')
         if compact not in {'','1'}: raise ValueError('Invalid compact filter')
+        if company_filter not in {'','1'} or any(v not in {None,'','1'} for v in (company_newgrad,company_internship)):
+            raise ValueError('Invalid company filter')
+        selected_company = company_newgrad if kind=='newgrad' else company_internship
+        company_filter = selected_company if selected_company is not None else company_filter
+        # Older pages/bookmarks keep working until refreshed. New pages send
+        # independent region and company preferences for each employment kind.
+        if compact=='1' and not region: region='focus_remote'
+        if kind=='internship' and (intern_companies=='1' or compact=='1'): company_filter='1'
         if len(exclude_companies)>1000: raise ValueError('Excluded company names are too long')
         excluded_companies={normalize_company(v) for v in re.split('[,，;；\n]',exclude_companies) if v.strip()}
         if len(excluded_companies)>20: raise ValueError('Use at most 20 excluded companies')
@@ -134,21 +150,20 @@ class Board:
                     'first_seen':job['first_seen'],'status':job['status'],'application_version':job['version'],'application_detail':job['detail'],
                     'group':'other','fingerprint':review['fingerprint'],'review_version':review['version'],'review':review,'screening':'trash','all_sources':[]})
         def visible(r):
-            # The displayed FAANG+ tag exempts jobs only from compact presets.
+            # Country restrictions remain independent of model recommendations.
             foreign = non_us_only(screening_locations(r['all_sources']))
-            compact_exempt = (view=='jobs' and compact=='1' and r['group']=='faang'
-                              and not foreign)
             trash = r['review'] and r['review']['state']=='trash'
             if view=='trash':
                 if not trash or r['review']['expires_at'] <= time.time(): return False
             elif trash: return False
-            if (view=='jobs' and compact=='1' and foreign and r['status']=='not_started'
+            if (view=='jobs' and foreign and r['status']=='not_started'
                     and r['application_version']==0 and not (r['review'] and r['review']['manual_keep'])):
                 return False
             if view=='jobs' and any(normalize_company(s.get('company','')) in excluded_companies for s in r['all_sources']): return False
-            # The shared browser preference must never filter full-time or recycle rows.
-            if view=='jobs' and kind=='internship' and intern_companies=='1' and not compact_exempt:
-                if not any(matches_company_review(s.get('company','')) for s in r['all_sources']): return False
+            # Legacy clients may still send intern_companies; it now selects the
+            # same recommendation, never the retired static company lists.
+            if view=='jobs' and company_filter=='1':
+                if r.get('company_recommended') is not True: return False
             if view!='trash' and added_since is not None and r['added_at']<added_since: return False
             if view!='trash' and added_before is not None and r['added_at']>=added_before: return False
             if view!='trash' and status in STAGES:
@@ -158,7 +173,11 @@ class Board:
             elif view!='trash' and status not in {'','recent'} and r['status']!=status: return False
             if text.casefold() not in (r['company']+' '+r['title']).casefold(): return False
             if location.casefold() not in ' '.join(r['locations']).casefold(): return False
-            if not compact_exempt and not matches_region(r['locations'],region): return False
+            # The visible focus preset keeps its domestic employer exception;
+            # an explicitly narrower region such as California has no exception.
+            region_exempt = (region=='focus_remote' and not foreign
+                             and (r['group']=='faang' or r.get('company_recommended') is True))
+            if not region_exempt and not matches_region(r['locations'],region): return False
             if view!='trash' and r['role_family'] not in selected_roles: return False
             if category=='engineering':
                 if not engineering_title(r['title']): return False
@@ -203,21 +222,22 @@ class Board:
             from .screening_progress import ScreeningProgress
             return ScreeningProgress(self.store).queue(run_id,kind,limit,cursor)
         if not 1<=limit<=100: raise ValueError('limit must be 1..100')
-        rows = sorted((r for r in self._rows(kind) if r['status']=='not_started' and r['application_version']==0 and r['screening']=='pending'
+        rows = sorted((r for r in self._rows(kind) if r['status']=='not_started' and r['application_version']==0
+                       and (r['screening']=='pending' or r['screening']=='keep' and r['company_recommended'] is None)
                        and not (r['review'] and r['review']['manual_keep']) and (not cursor or r['id']>cursor)), key=lambda r:r['id'])
         selected = rows[:limit]
         return {'jobs':selected,'next_cursor':selected[-1]['id'] if len(rows)>limit else None,'rules':RULES}
 
-    def review(self, job_id, kind, decision, reason, detail, evidence, expected_fingerprint, expected_version, key, actor='gpt-work', role_family=None, role_evidence=None):
+    def review(self, job_id, kind, decision, reason, detail, evidence, expected_fingerprint, expected_version, key, actor='gpt-work', role_family=None, role_evidence=None, company_recommended=None, expected_company_fingerprint=None):
         if kind not in KINDS or decision not in {'keep','review','trash','restore'}:
             raise ValueError('Invalid screening decision')
         if not detail.strip() or len(detail)>2000 or len(evidence)>5:
             raise ValueError('A concise reason and at most five evidence items are required')
+        if company_recommended is not None and (type(company_recommended) is not bool or decision not in {'keep','trash'} or decision=='trash' and company_recommended):
+            raise ValueError('Invalid company_recommended decision')
         if decision=='trash':
             if reason not in REASONS or (reason=='manual' and actor!='web-owner'):
                 raise ValueError('Not an authorized removal reason')
-            if reason=='no_sponsorship' and kind!='newgrad':
-                raise ValueError('Never remove internships for sponsorship')
             if not evidence or any(not safe_url(e.get('url')) or not e.get('quote') or not e.get('observed_at') for e in evidence):
                 raise ValueError('Removal requires a source URL, exact supporting excerpt and observation timestamp')
         role_evidence = role_evidence or []
@@ -228,6 +248,7 @@ class Board:
         elif role_evidence: raise ValueError('Role evidence requires a role family')
         payload = [job_id,kind,decision,reason,detail,evidence,expected_fingerprint,expected_version,actor]
         if role_family is not None: payload += [role_family,role_evidence]
+        if company_recommended is not None: payload += [{'company_recommended':company_recommended,'input':expected_company_fingerprint,'policy':POLICY}]
         with self.store.connect(True) as c:
             checksum, old = self.store._idem(c,key,['screening',payload])
             if old is not None: return old
@@ -246,6 +267,14 @@ class Board:
                 current_fp = current_fp if sources else previous['fingerprint']
             elif not sources or current_fp!=expected_fingerprint:
                 raise ValueError('Source content changed; inspect the latest job')
+            if company_recommended is not None:
+                if app['status']!='not_started' or app['version']!=0 or previous and previous['manual_keep']:
+                    raise ValueError('Processed or manually kept jobs are protected')
+                from .job_titles import display_titles
+                primary = min(sources,key=lambda s:({'simplify':0,'speedyapply':1}.get(s['source'],9),s.get('source_id','')))
+                tag_fp = company_token(sources, kind, display_titles(c).get(job_id, primary['title']))
+                if tag_fp != expected_company_fingerprint:
+                    raise ValueError('Company input changed; inspect the latest job')
             if decision=='trash':
                 from .application_records import can_remove_unsubmitted
                 # An owner may abandon an unsubmitted draft without erasing its
@@ -254,10 +283,15 @@ class Board:
                     raise ValueError('Processed or claimed applications are protected')
                 if previous and previous['manual_keep'] and actor!='web-owner': raise ValueError('Manually kept role is protected')
                 titles=' '.join(s.get('title','') for s in sources)
-                if reason=='employer_blacklist':
-                    from .employer_blacklist import blocked_employer
-                    if not any(blocked_employer(s.get('company')) for s in sources):
-                        raise ValueError('Company is not on the owner blacklist')
+                if reason in {'no_sponsorship','citizenship'}:
+                    from .sponsorship import restriction, title_citizenship
+                    supported = restriction(sources)
+                    if not supported and reason=='citizenship':
+                        supported = next(((s,s['title'],'citizenship') for s in sources if title_citizenship(s.get('title',''))),None)
+                    if not supported or supported[2]!=reason or not any(
+                            e['quote']==supported[1] and e['url'] in {supported[0].get('source_url'),supported[0].get('apply_url')}
+                            for e in evidence):
+                        raise ValueError('Removal needs an explicit, uncontradicted source restriction')
                 if reason=='phd' and not re.search(r'\bph\.?\s*d\b',titles,re.I): raise ValueError('Title does not contain PhD / Ph.D.')
                 if reason=='data_analyst' and not re.search(r'\bdata\s+analyst\b',titles,re.I): raise ValueError('Title does not identify a Data Analyst role')
                 if reason=='data_science' and not re.search(r'\bdata\s+scien(?:ce|tist)\b',titles,re.I): raise ValueError('Title does not identify a Data Science role')
@@ -288,6 +322,9 @@ class Board:
                 reviewed_at=excluded.reviewed_at,expires_at=excluded.expires_at,version=excluded.version,manual_keep=excluded.manual_keep''',
                 (job_id,kind,state,reason,detail,json.dumps(evidence),current_fp,now,now+86400 if state=='trash' else None,version,manual_keep))
             c.execute("INSERT INTO audit(job_id,event,actor,created,payload) VALUES(?,'screening',?,?,?)",(job_id,actor,now,json.dumps(payload)))
+            if company_recommended is not None:
+                c.execute('INSERT OR REPLACE INTO job_company_screening VALUES(?,?,?,?,?,?)',
+                          (job_id,kind,int(company_recommended),tag_fp,POLICY,now))
             if role_family is not None:
                 c.execute('INSERT OR REPLACE INTO job_role_family VALUES(?,?,?,?,?,?)',(job_id,kind,role_family,current_fp,json.dumps(role_evidence),now))
             result={'job_id':job_id,'kind':kind,'state':state,'version':version,'expires_at':now+86400 if state=='trash' else None}

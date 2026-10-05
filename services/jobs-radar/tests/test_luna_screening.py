@@ -6,19 +6,10 @@ import jsonschema
 import pytest
 
 from jobs_radar.board import Board
-from jobs_radar.employer_blacklist import blocked_employer
 from jobs_radar.luna_screening import ScreeningError, classify, failure_summary, run
 from jobs_radar.screening_progress import ScreeningProgress
 from jobs_radar.store import Store
 from test_store import observation
-
-
-@pytest.mark.parametrize('name,blocked',[
-    ('General Dynamics',True),('General Dynamics Mission Systems',True),('GDIT',True),
-    ('SpaceX',True),('General Motors',False),('General DynamicsResearch',False),('SpaceX Tools Independent',False),
-])
-def test_named_company_family_boundary(name,blocked):
-    assert blocked_employer(name)==blocked
 
 
 def setup_store(tmp_path):
@@ -32,7 +23,7 @@ def setup_store(tmp_path):
 
 def reply(rows,partial=False,bad_quote=False):
     jobs={r['id']:{'decision':'trash' if r['title']=='Firmware Engineer' else 'keep',
-           'reason':'Title-based occupation decision','evidence_quote':'Invented title' if bad_quote else r['title']} for r in rows}
+           'company_recommended':r['title']!='Firmware Engineer','reason':'Title-based occupation decision','evidence_quote':'Invented title' if bad_quote else r['title']} for r in rows}
     if partial:jobs=dict(list(jobs.items())[:1])
     return {'status':'completed','model':'gpt-6-luna','usage':{'input_tokens':10,'output_tokens':10},
             'output':[{'content':[{'type':'output_text','text':json.dumps({'jobs':jobs})}]}]}
@@ -73,15 +64,15 @@ def test_manual_change_during_request_stays_protected(tmp_path):
     assert any(r['title']=='Firmware Engineer' and r['status']=='submitted' and r['screening']!='trash' for r in Board(s)._rows('newgrad'))
 
 
-def test_blacklisted_employer_is_suppressed_before_luna(tmp_path):
+def test_employers_have_no_automatic_blacklist(tmp_path):
     s=Store(tmp_path/'employers.sqlite')
     s.ingest('simplify:newgrad',[{**observation(company=company,url='https://example.org/'+str(i)),
              'source_id':str(i),'source_url':'https://example.org/'+str(i)}
              for i,company in enumerate(['General Dynamics Mission Systems','SpaceX','General Motors'])],'seed',scoped_only=True)
     s.screen_titles()
-    assert [r['company'] for r in Board(s).list()['jobs']]==['General Motors']
+    assert {r['company'] for r in Board(s).list()['jobs']}=={'General Dynamics Mission Systems','SpaceX','General Motors'}
     trash=Board(s).list(view='trash')['jobs']
-    assert len(trash)==2 and all(r['review']['reason']=='employer_blacklist' for r in trash)
+    assert not trash
 
 
 @pytest.mark.parametrize('status,provider_code',[

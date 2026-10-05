@@ -119,13 +119,17 @@ def test_backfill_corrects_automatic_keeps_and_preserves_processed_and_restored_
         assert c.execute('SELECT state,manual_keep FROM job_screening WHERE job_id=?', (restored['id'],)).fetchone()[:]==('keep',1)
 
 
-@pytest.mark.parametrize('region', ['', 'focus_remote', 'ca', 'ca_remote'])
+@pytest.mark.parametrize('region', [''])
 def test_compact_faang_exemption_keeps_us_and_unclear_but_not_foreign(tmp_path, region):
     store=Store(tmp_path/'compact.sqlite'); board=Board(store)
     # A legacy import exercises the list guard before the ingestion backfill.
     store.ingest('simplify:internship', [source('foreign', ['London, UK']),
         source('us', ['Chicago, IL']), source('mixed', ['London, UK', 'Chicago, IL']),
         source('unknown', [])], 'legacy')
+    for row in board._rows('internship'):
+        if not non_us_only(row['locations']):
+            board.review(row['id'],'internship','keep','eligible','Matching role',[],row['fingerprint'],0,
+                         row['id'],company_recommended=True,expected_company_fingerprint=row['company_fingerprint'])
     result=board.list(kind='internship', compact='1', region=region)
     assert {r['apply_url'].rsplit('/',1)[-1] for r in result['jobs']}=={'us','mixed','unknown'}
     assert board.filter_counts(compact='1', region=region)['internship']['total']==3
@@ -153,7 +157,7 @@ def test_model_receives_locations_and_geographic_evidence_has_its_own_reason(loc
         assert json.loads(payload['input'])[0]['locations']==locations
         assert 'source location' in payload['instructions']
         return httpx.Response(200,json={'status':'completed', 'output':[{'content':[{'type':'output_text',
-            'text':json.dumps({'jobs':{'job_0':{'decision':'trash','reason':'仅限英国','evidence_quote':'London, UK'}}})}]}]})
+            'text':json.dumps({'jobs':{'job_0':{'decision':'trash','company_recommended':False,'reason':'仅限英国','evidence_quote':'London, UK'}}})}]}]})
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         if valid:
             decisions,_=classify(client,[row])

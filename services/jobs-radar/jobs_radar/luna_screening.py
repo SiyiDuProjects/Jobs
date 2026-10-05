@@ -11,14 +11,17 @@ import httpx
 from .board import Board
 from .screening_progress import ScreeningProgress
 from .geography import non_us_only, screening_locations
+from .company_screening import public_input
+from .sponsorship import restriction, title_citizenship
 
 MODEL = 'gpt-6-luna'
 from .screening_policy import POLICY, PROMPT
 
 DECISION_SCHEMA = {
     'type':'object','properties':{'decision':{'type':'string','enum':['keep','trash']},
+                                'company_recommended':{'type':'boolean'},
                                 'reason':{'type':'string'},'evidence_quote':{'type':'string'}},
-    'required':['decision','reason','evidence_quote'],'additionalProperties':False,
+    'required':['decision','company_recommended','reason','evidence_quote'],'additionalProperties':False,
 }
 
 
@@ -76,13 +79,6 @@ def failure_summary(exc):
     return result
 
 
-def public_input(row, reference):
-    return {'id':reference,'kind':row['kind'],'company':row['company'],'title':row['title'],
-            'locations':screening_locations(row['all_sources']),
-            'sources':[{k:s.get(k,'') for k in ('company','title','locations','repository','category','source_category','section')}
-                       for s in row['all_sources']]}
-
-
 def classify(client, rows):
     # One short reference per (job, kind) row; copying long canonical IDs is
     # unnecessary, and one job can legitimately occur in both kind queues.
@@ -90,7 +86,7 @@ def classify(client, rows):
     try:
         response = client.post('https://api.openai.com/v1/responses', json={
             'model':MODEL,'store':False,
-            'instructions':PROMPT+'\nReturn jobs as an object keyed by every supplied id. Each id names one row, including its kind. Copy evidence_quote exactly from a source title for occupation decisions, or a source location for non-US-only exclusions. Never exclude mixed US/foreign or unresolved locations.',
+            'instructions':PROMPT,
             'input':json.dumps([public_input(row,ref) for ref,row in references.items()],ensure_ascii=False),
             'reasoning':{'effort':'low'},'max_output_tokens':8192,
             'text':{'format':{'type':'json_schema','name':'job_screening','strict':True,'schema':response_schema(references)}},
@@ -122,8 +118,8 @@ def classify(client, rows):
         if not isinstance(decoded,dict) or set(decoded)!={'jobs'}: raise ScreeningError('provider_shape')
         decisions = decoded['jobs']
         if not isinstance(decisions, dict) or not all(isinstance(item,dict) and
-                set(item)=={'decision','reason','evidence_quote'} and
-                all(isinstance(item[k],str) for k in item) for item in decisions.values()):
+                set(item)=={'decision','company_recommended','reason','evidence_quote'} and type(item['company_recommended']) is bool and
+                all(isinstance(item[k],str) for k in ('decision','reason','evidence_quote')) for item in decisions.values()):
             raise ScreeningError('provider_shape')
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         if isinstance(exc, ScreeningError): raise
@@ -135,16 +131,21 @@ def classify(client, rows):
         item=decisions[ref]
         if item['decision'] not in {'keep','trash'} or not item['reason'].strip() or len(item['reason'])>1200:
             raise ScreeningError('decision_invalid')
+        if item['company_recommended'] and (item['decision']=='trash' or non_us_only(screening_locations(row['all_sources']))):
+            raise ScreeningError('decision_invalid')
         quote=item['evidence_quote'].strip()
         title_quote = any(quote in source.get('title','') for source in row['all_sources'])
         location_quote = any(quote in loc for source in row['all_sources'] for loc in source.get('locations', []))
-        if not quote or not (title_quote or location_quote):
-            raise ScreeningError('evidence_mismatch')
         geographic = item['decision']=='trash' and not title_quote and location_quote
+        sponsored = restriction(row['all_sources'])
+        restriction_quote = bool(sponsored and quote==sponsored[1])
+        if not quote or not (title_quote or location_quote or restriction_quote):
+            raise ScreeningError('evidence_mismatch')
         if geographic and not non_us_only(screening_locations(row['all_sources'])):
             raise ScreeningError('evidence_mismatch')
         checked.append({**item,'id':row['id'],'kind':row['kind'],
-                        'reason_code':'non_us_only' if geographic else 'off_target_role'})
+                        'reason_code':sponsored[2] if restriction_quote else 'non_us_only' if geographic
+                        else 'citizenship' if title_quote and title_citizenship(quote) else 'off_target_role'})
     return checked, data.get('usage',{})
 
 
@@ -157,7 +158,7 @@ def api_key():
     return key
 
 
-def run(store, max_batches=20, batch_size=20, client=None):
+def run(store, max_batches=20, batch_size=20, client=None, backfill_company=False):
     if not 1<=max_batches<=100 or not 1<=batch_size<=30:
         exc = ScreeningError('batch_limit'); exc.stage = 'progress'; raise exc
     owner=secrets.token_hex(12)
@@ -176,9 +177,13 @@ def run(store, max_batches=20, batch_size=20, client=None):
         stage='progress'
         # Correct earlier automatic keeps as well as new imports, while the
         # same transaction preserves processed and manually restored jobs.
+        if backfill_company:
+            from .screening import reopen_automatic_reviews
+            with store.connect(True) as c:
+                reopen_automatic_reviews(c)
         store.screen_titles()
         progress=ScreeningProgress(store)
-        batch=progress.manage('begin')
+        batch=progress.manage('begin',backfill_company=backfill_company)
         board=Board(store)
         for _ in range(max_batches):
             stage='lock'
@@ -201,13 +206,15 @@ def run(store, max_batches=20, batch_size=20, client=None):
             for item in decisions:
                 row=lookup[(item['id'],item['kind'])]
                 source=next(s for s in row['all_sources'] if item['evidence_quote'].strip() in s.get('title','')
-                            or any(item['evidence_quote'].strip() in loc for loc in s.get('locations', [])))
+                            or any(item['evidence_quote'].strip() in loc for loc in s.get('locations', []))
+                            or item['evidence_quote'].strip()==s.get('sponsorship'))
                 evidence=[{'url':source.get('source_url') or source.get('apply_url'),
                            'quote':item['evidence_quote'].strip(),'observed_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}]
                 key=hashlib.sha256(json.dumps([POLICY,batch['id'],row['id'],row['kind'],row['fingerprint'],row['review_version'],item],sort_keys=True).encode()).hexdigest()
                 try:
                     board.review(row['id'],row['kind'],item['decision'],item['reason_code'] if item['decision']=='trash' else 'eligible',
-                                 item['reason'],evidence,row['fingerprint'],row['review_version'],key,actor=MODEL)
+                                 item['reason'],evidence,row['fingerprint'],row['review_version'],key,actor=MODEL,
+                                 company_recommended=item['company_recommended'],expected_company_fingerprint=row['company_fingerprint'])
                     counts[item['decision']]+=1
                 except ValueError:
                     # A concurrent change/manual keep/application stays protected and is retried from fresh queue state.

@@ -140,7 +140,7 @@ def test_targeted_recheck_preserves_completed_progress_and_resumes_by_version(tm
     rows={r['apply_url'].rsplit('/',1)[1]:r for r in b._rows('newgrad')}
     verified=rows['verified']
     b.review(verified['id'],'newgrad','keep','','Read official page',[],verified['fingerprint'],1,
-             'verified',role_family='software',role_evidence=[{'url':'https://example.org/verified','quote':'Build software','observed_at':'2026-09-17T00:00:00Z'}])
+             'verified',company_recommended=True,expected_company_fingerprint=verified['company_fingerprint'],role_family='software',role_evidence=[{'url':'https://example.org/verified','quote':'Build software','observed_at':'2026-09-17T00:00:00Z'}])
     with s.connect(True) as c:
         c.execute("UPDATE applications SET status='submitted',version=1 WHERE job_id=?",(rows['protected']['id'],))
         snapshot=[tuple(r) for r in c.execute('SELECT * FROM job_screening ORDER BY job_id')]
@@ -178,7 +178,7 @@ def test_recheck_source_change_remains_pending(tmp_path):
     assert p.manage('complete',batch['id'])['status']=='complete'
 
 
-def test_daily_title_triage_skips_tiktok_and_old_faang_without_hiding_jobs(tmp_path,monkeypatch):
+def test_daily_triage_includes_changed_tiktok_and_faang_without_company_exceptions(tmp_path,monkeypatch):
     now=[1000.0];monkeypatch.setattr(time,'time',lambda:now[0])
     s=Store(tmp_path/'daily.sqlite');b=Board(s);p=ScreeningProgress(s)
     old=job('old-google','Google');tik=job('tiktok','TikTok')
@@ -192,9 +192,9 @@ def test_daily_title_triage_skips_tiktok_and_old_faang_without_hiding_jobs(tmp_p
     assert len(b.list()['jobs'])==3
     assert 'upstream repository/README classifications' in queue['rules']['screening_mode']
     row=queue['jobs'][0]
-    b.review(row['id'],'newgrad','keep','','Title/source triage: software; no supported exclusion.',[],row['fingerprint'],0,'title-only-keep')
+    b.review(row['id'],'newgrad','keep','','Title/source triage: software; no supported exclusion.',[],row['fingerprint'],0,'title-only-keep',company_recommended=True,expected_company_fingerprint=row['company_fingerprint'])
     p.manage('complete',batch['id'])
     now[0]=3000
     s.ingest('simplify:newgrad',[{**old,'description':'Material update'}, {**tik,'description':'Material update'}, fresh],'changed')
     nxt=p.manage('begin')
-    assert [r['company'] for r in b.queue('newgrad',run_id=nxt['id'])['jobs']]==['Google']
+    assert {r['company'] for r in b.queue('newgrad',run_id=nxt['id'])['jobs']}=={'Google','TikTok'}

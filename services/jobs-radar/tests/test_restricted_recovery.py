@@ -305,7 +305,10 @@ def test_clear_marker_requires_latest_promoted_export_and_keeps_global_pause(rec
     assert export_resume(recovered['bundle'])==exported
     with pytest.raises(ValueError,match='exact latest'): clear_marker(database)
     assert marker.exists()
-    shutil.copyfile(recovered['bundle']/'resume-v2.sqlite',database)
+    # Promote through SQLite: copying only the main file over a WAL database
+    # can replay stale pages against a different schema layout.
+    with connection(recovered['bundle']/'resume-v2.sqlite',readonly=True) as src, connection(database) as dst:
+        src.backup(dst)
     assert clear_marker(database)['markerCleared'] is True
     assert active_recovery(database) is None
     assert (database.parent/'.release-maintenance').is_file()

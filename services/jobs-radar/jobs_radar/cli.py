@@ -16,6 +16,7 @@ def main():
     collect.add_argument("--stream", action="append")
     screening = commands.add_parser('screen')
     screening.add_argument('--max-batches',type=int,default=20)
+    screening.add_argument('--backfill-company', action='store_true', help='Reevaluate existing unprocessed jobs and fill employer preference labels')
     commands.add_parser("status")
     identities = commands.add_parser('refresh-workday-identities')
     identities.add_argument('--limit', type=int, default=200)
@@ -74,7 +75,7 @@ def main():
     elif args.command == 'screen':
         from .luna_screening import run, failure_summary
         try:
-            print(json.dumps(run(store,max_batches=args.max_batches)),flush=True)
+            print(json.dumps(run(store,max_batches=args.max_batches,backfill_company=args.backfill_company)),flush=True)
         except Exception as exc:
             print(json.dumps(failure_summary(exc)),flush=True)
             raise SystemExit(1)

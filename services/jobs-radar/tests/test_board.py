@@ -53,7 +53,7 @@ def board(tmp_path):
 def decision(board,kind='newgrad',reason='data_science',state='trash',key='screen-test-001'):
     row=board._rows(kind)[0]
     return board.review(row['id'],kind,state,reason,'Explicit authorized test rule',
-        [{'url':'https://example.org/same','quote':'Data Scientist','observed_at':'2026-09-15T10:00:00Z'}],row['fingerprint'],row['review_version'],key)
+        [{'url':'https://example.org/same','quote':'Data Scientist','observed_at':'2026-09-15T10:00:00Z'}],row['fingerprint'],row['review_version'],key,**({'company_recommended':False,'expected_company_fingerprint':row['company_fingerprint']} if state=='keep' else {}))
 
 def test_trash_mcp_sync_idempotence_and_no_resurrection(board):
     row=board._rows('newgrad')[0]
@@ -74,7 +74,7 @@ def test_trash_mcp_sync_idempotence_and_no_resurrection(board):
     with pytest.raises(ValueError,match='expired'):decision(board,state='restore',key='expired-restore')
 
 def test_sponsorship_internship_guard_and_manual_restore(board):
-    with pytest.raises(ValueError,match='internships'):decision(board,kind='internship',reason='no_sponsorship')
+    with pytest.raises(ValueError,match='explicit'):decision(board,kind='internship',reason='no_sponsorship')
     decision(board)
     decision(board,state='restore',key='restore-001')
     assert board.list()['jobs'][0]['review']['manual_keep']==1
