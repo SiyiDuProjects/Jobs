@@ -164,7 +164,7 @@ def project_display(c, rows):
 
 
 def matching_jobs(c, row, index=None):
-    key = posting_key(row.get('jobLink'))
+    key = posting_key(row.get('jobLink'), c)
     ids = (index if index is not None else job_index(c)).get(key, set()) if key else set()
     if not key:
         ids = {r[0] for r in c.execute('SELECT id FROM jobs') if records.manual_id(r[0])==row['id']}
@@ -303,7 +303,7 @@ class ApplicationProgress:
                 if not current or stage and current['stage']!=stage: continue
                 item={k:row[k] for k in ('id','jobTitle','jobLink','companyName','date','profileName')}
                 item['progress']=row['progress']
-                item['job_ids']=sorted(index.get(posting_key(row['jobLink']),set()))
+                item['job_ids']=sorted(index.get(posting_key(row['jobLink'], c),set()))
                 if application_id:
                     item['history']=[{**(event:=json.loads(r[0])), 'from_label':stage_label(event['from'],event.get('previous_round')),'to_label':stage_label(event['to'],event.get('round'),event.get('final'),event.get('assessment_type'))} for r in c.execute(
                         "SELECT payload FROM application_events WHERE application_id=? AND kind='progress' ORDER BY rowid",(row['id'],))]

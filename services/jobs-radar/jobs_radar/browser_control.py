@@ -458,7 +458,7 @@ class BrowserControl:
                 now - current['observedAt'] > FRESH_MS or now - browser['seen'] > ONLINE_MS or
                 row['dispatched'] is None or current['observedAt'] <= row['expires'] or
                 not current['fields'] or current['profileId'] != context['profileId'] or
-                not posting_key(context['url']) or posting_key(current['url']) != posting_key(context['url']) or
+                not posting_key(context['url'], c) or posting_key(current['url'], c) != posting_key(context['url'], c) or
                 self._page_shape(current) == context['shape']):
                 raise ControlConflict('A fresh different form of the same job and Profile is required')
             c.execute('INSERT OR REPLACE INTO browser_command_reconciliation VALUES(?,?,?)',

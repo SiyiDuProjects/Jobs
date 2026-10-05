@@ -47,11 +47,47 @@ _CANONICAL = {
 }
 
 
-def canonical_key(key):
-    return _CANONICAL.get(key, key)
+def _has_dynamic(c):
+    # Read-only migration/recovery audits also inspect databases predating this
+    # optional registry. Do not initialize or mutate those inputs while reading.
+    return c is not None and c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workday_postings'").fetchone() is not None
 
 
-def equivalent_keys(key):
+def canonical_key(key, c=None):
+    original = _CANONICAL.get(key, key)
+    if key and _has_dynamic(c):
+        row = c.execute('SELECT canonical_key FROM workday_postings WHERE raw_key IN (?,?) ORDER BY raw_key=? DESC LIMIT 1',
+                        (key, original, key)).fetchone()
+        if row:
+            return row[0]
+        # A reviewed legacy group may have been fetched via its other entry.
+        members = [old for old, new in _CANONICAL.items() if new == original]
+        if members:
+            marks = ','.join('?' for _ in members)
+            rows = {r[0] for r in c.execute(f'SELECT canonical_key FROM workday_postings WHERE raw_key IN ({marks})', members)}
+            if len(rows) == 1:
+                return next(iter(rows))
+    return original
+
+
+def canonical_map(c):
+    """One snapshot for a whole job index, avoiding a query for every row."""
+    dynamic = dict(c.execute('SELECT raw_key,canonical_key FROM workday_postings')) if _has_dynamic(c) else {}
+    result = {**_CANONICAL, **dynamic}
+    for old, root in _CANONICAL.items():
+        official = {dynamic[member] for member, canonical in _CANONICAL.items()
+                    if canonical == root and member in dynamic}
+        if len(official) == 1:
+            result[old] = next(iter(official))
+    return result
+
+
+def equivalent_keys(key, c=None):
     """Include pre-binding persisted keys without rewriting historical rows."""
-    canonical = canonical_key(key)
-    return tuple(sorted({canonical, *(old for old, new in _CANONICAL.items() if new == canonical)})) if canonical else ()
+    canonical = canonical_key(key, c)
+    if not canonical:
+        return ()
+    keys = {canonical, *(old for old in _CANONICAL if canonical_key(old, c) == canonical)}
+    if _has_dynamic(c):
+        keys.update(r[0] for r in c.execute('SELECT raw_key FROM workday_postings WHERE canonical_key=?', (canonical,)))
+    return tuple(sorted(keys))

@@ -194,6 +194,9 @@ async def collect(store, selected=None):
                 with store.connect(True) as c:
                     c.execute("UPDATE locks SET expires=? WHERE name='collector' AND owner=?", (time.time() + 3600, run_id))
                 print(__import__("json").dumps(results[-1]), flush=True)
+            from .workday_identity import refresh
+            identity_result = await refresh(store, client)
+            print(json.dumps({'workday_identity': identity_result}), flush=True)
         store.prune_snapshots()
     finally:
         with store.connect(True) as c:

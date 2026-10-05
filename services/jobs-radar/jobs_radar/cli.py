@@ -17,6 +17,8 @@ def main():
     screening = commands.add_parser('screen')
     screening.add_argument('--max-batches',type=int,default=20)
     commands.add_parser("status")
+    identities = commands.add_parser('refresh-workday-identities')
+    identities.add_argument('--limit', type=int, default=200)
     commands.add_parser("serve")
     backup = commands.add_parser("backup")
     backup.add_argument("destination")
@@ -27,7 +29,7 @@ def main():
     web.add_argument('request_id')
     args = parser.parse_args()
     from .maintenance import paused
-    if args.command in {'collect', 'screen'} and paused():
+    if args.command in {'collect', 'screen', 'refresh-workday-identities'} and paused():
         print(json.dumps({'status': 'release_maintenance'}))
         return
     from .restricted_recovery import active_recovery, RecoveryStore
@@ -50,7 +52,15 @@ def main():
     store = Store(args.db)
     if os.name != "nt":
         os.chmod(args.db, 0o600)
-    if args.command == "collect":
+    if args.command == 'refresh-workday-identities':
+        import httpx
+        from .workday_identity import refresh
+        async def refresh_identities():
+            async with httpx.AsyncClient(follow_redirects=False, trust_env=False,
+                                         headers={'User-Agent': 'JobsRadar/0.1'}) as client:
+                return await refresh(store, client, limit=args.limit)
+        print(json.dumps(asyncio.run(refresh_identities())))
+    elif args.command == "collect":
         from .sources import collect
         rows = asyncio.run(collect(store, args.stream))
         if os.environ.get('JOBS_SCREENING_ENABLED')=='1':

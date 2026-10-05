@@ -58,6 +58,9 @@ class Store:
                 coalesce(json_extract(payload,'$.active'),1),coalesce(json_extract(payload,'$.visible'),1),
                 json_extract(payload,'$.posted_at') FROM observations
                 WHERE present=1 OR stream NOT IN ('simplify:newgrad','simplify:internship')""")
+        from .workday_identity import initialize as initialize_workday
+        with self.connect() as c:
+            initialize_workday(c)
         from .application_schema import initialize
         initialize(self)
         from .job_titles import initialize as initialize_titles
@@ -117,7 +120,7 @@ class Store:
                 accepted += 1
                 key = identity(observation["apply_url"]) if observation.get("apply_url") else f"{observation['source']}:{observation['source_id']}"
                 jid = stable_id(key)
-                match_key = posting_key(observation.get("apply_url"))
+                match_key = posting_key(observation.get("apply_url"), c)
                 candidates = matches.get(match_key, set())
                 if candidates:
                     # Existing duplicates are consolidated only by the explicit

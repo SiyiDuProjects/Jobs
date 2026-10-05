@@ -59,15 +59,17 @@ def job_key(url):
     except (ValueError,TypeError):
         return None
 
-def posting_key(url):
+def posting_key(url, c=None):
     """Server posting identity, including explicitly reviewed official aliases."""
-    return canonical_key(job_key(url))
+    return canonical_key(job_key(url), c)
 
 
 def job_index(c):
+    from .verified_postings import canonical_map
+    mapping = canonical_map(c)
     index = {}
     for row in c.execute("SELECT id,job_key FROM jobs WHERE job_key IS NOT NULL AND id NOT IN (SELECT alias_id FROM job_aliases)"):
-        index.setdefault(canonical_key(row['job_key']),set()).add(row['id'])
+        index.setdefault(mapping.get(row['job_key'], row['job_key']),set()).add(row['id'])
     return index
 
 
@@ -79,7 +81,7 @@ def identity_job_keys(c, ids, url):
     """
     from .verified_postings import equivalent_keys
     marks = ','.join('?' for _ in ids)
-    groups = {canonical_key(r[0]) for r in c.execute(f'SELECT job_key FROM jobs WHERE id IN ({marks})', ids)}
+    groups = {canonical_key(r[0], c) for r in c.execute(f'SELECT job_key FROM jobs WHERE id IN ({marks})', ids)}
     if len(groups) != 1 or None in groups:
         raise ValueError('Ambiguous posting identity key group')
     group = next(iter(groups))
@@ -87,13 +89,13 @@ def identity_job_keys(c, ids, url):
     # A supported request-local hint can connect a careers hub and an ATS
     # without establishing a durable raw-key equivalence. Omit the optional
     # field for that hint rather than expand the reviewed group.
-    if canonical_key(current) != group:
+    if canonical_key(current, c) != group:
         return None
-    values = equivalent_keys(group)
+    values = equivalent_keys(group, c)
     if any(not isinstance(key, str) or not 1 <= len(key) <= 4096 for key in values):
         raise ValueError('Invalid posting identity key length')
     keys = sorted(set(values))
-    if not 1 <= len(keys) <= 64 or current not in keys or any(canonical_key(key) != canonical_key(current) for key in keys):
+    if not 1 <= len(keys) <= 64 or current not in keys or any(canonical_key(key, c) != canonical_key(current, c) for key in keys):
         raise ValueError('Invalid posting identity key group')
     return keys
 
@@ -177,7 +179,7 @@ def resolve(c, url, hint=None):
     Returns (job_ids, method): method is 'url', 'hint' or None.
     """
     index = job_index(c)
-    ids = index.get(posting_key(url), set()) if posting_key(url) else set()
+    ids = index.get(posting_key(url, c), set()) if posting_key(url, c) else set()
     if ids: return sorted(ids), 'url'
     if not hint or not re.fullmatch(r'[a-f0-9]{24}', hint): return [], None
     alias = c.execute('SELECT canonical_id FROM job_aliases WHERE alias_id=?', (hint,)).fetchone() \
@@ -189,5 +191,5 @@ def resolve(c, url, hint=None):
     except ValueError:
         return [], None
     group = set()
-    for u in urls: group |= index.get(posting_key(u), set())
+    for u in urls: group |= index.get(posting_key(u, c), set())
     return sorted(group or {target}), 'hint'

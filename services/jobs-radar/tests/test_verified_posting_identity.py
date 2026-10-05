@@ -357,7 +357,7 @@ def test_identity_key_contract_refuses_oversized_groups_instead_of_truncating(tm
     store = Store(tmp_path / 'oversized-contract.sqlite')
     ingest(store, SOURCED)
     sync, _ = paired(store)
-    monkeypatch.setattr(verified, 'equivalent_keys', lambda key: keys)
+    monkeypatch.setattr(verified, 'equivalent_keys', lambda key, c=None: keys)
     with pytest.raises(ValueError, match='identity key'):
         sync.resolve({'url': SOURCED})
 
@@ -368,7 +368,7 @@ def test_identity_keys_are_deduplicated_and_never_expand_from_a_hint(tmp_path, m
     ingest(store, SOURCED)
     sync, _ = paired(store)
     original = verified.equivalent_keys
-    monkeypatch.setattr(verified, 'equivalent_keys', lambda key: original(key) * 2)
+    monkeypatch.setattr(verified, 'equivalent_keys', lambda key, c=None: original(key, c) * 2)
     assert sync.resolve({'url': SNAP})['identity_job_keys'] == sorted([job_key(SOURCED), job_key(SNAP)])
     # Existing generic-page hint support is not official evidence for a new
     # persisted raw-key equivalence; retain the old contract without this field.
