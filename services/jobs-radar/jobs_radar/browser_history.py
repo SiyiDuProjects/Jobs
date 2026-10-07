@@ -163,6 +163,8 @@ def validate(value, now):
 def initialize(c):
     c.execute('''CREATE TABLE IF NOT EXISTS browser_diagnostic_history(
         id TEXT PRIMARY KEY, device TEXT, url TEXT, first_seen INTEGER, last_seen INTEGER, data TEXT)''')
+    # Stream full archives in index order; sorting their payloads can exhaust /tmp.
+    c.execute('CREATE INDEX IF NOT EXISTS browser_diagnostic_recent ON browser_diagnostic_history(last_seen DESC,id DESC)')
     c.execute('CREATE TABLE IF NOT EXISTS browser_diagnostic_pins(id TEXT PRIMARY KEY,case_ref TEXT NOT NULL)')
     c.execute('CREATE TABLE IF NOT EXISTS browser_diagnostic_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
     c.execute("INSERT OR IGNORE INTO browser_diagnostic_settings VALUES('redaction_salt',?)", (secrets.token_hex(32),))

@@ -303,3 +303,51 @@ def test_client_server_evidence_categories_match():
                              f'import {{diagnosticEnums}} from {json.dumps(module.as_uri())}; console.log(JSON.stringify(diagnosticEnums))'],
                             check=True, capture_output=True, text=True)
     assert json.loads(result.stdout) == ENUMS
+
+
+def test_history_index_migrates_existing_large_archives_without_temporary_payload_sort(tmp_path):
+    import json
+    from jobs_radar.browser_history import MAX_BYTES
+
+    store = Store(tmp_path / 'large-history.sqlite')
+    Diagnostics(store, lambda: NOW)
+    data = packet()
+    data['events'] = [{'at': NOW, 'document': 'doc-1', 'type': 'phase',
+                       'phase': f'synthetic-{i:04}-' + 'x' * 20} for i in range(1100)]
+    payload = json.dumps(data)
+    assert len(payload.encode()) < MAX_BYTES
+    rows = [(f'archive-{i:04}', 'device', data['url'], NOW, NOW + i // 2, payload) for i in range(384)]
+    assert len(payload.encode()) * len(rows) > 32 * 1024 * 1024
+    with store.connect(True) as c:
+        # Model a deployed schema created before the ordering index existed.
+        c.execute('DROP INDEX IF EXISTS browser_diagnostic_recent')
+        c.executemany('INSERT INTO browser_diagnostic_history VALUES(?,?,?,?,?,?)', rows)
+    diagnostics = Diagnostics(store, lambda: NOW + 100_000)
+    with store.connect() as c:
+        c.execute('PRAGMA cache_size=-64')
+        c.execute('PRAGMA temp_store=FILE')
+        plan = [r['detail'] for r in c.execute(
+            'EXPLAIN QUERY PLAN SELECT * FROM browser_diagnostic_history ORDER BY last_seen DESC,id DESC')]
+        assert not any('TEMP B-TREE' in step for step in plan), plan
+    index = diagnostics.history()
+    assert [row['id'] for row in index['applications']] == [row[0] for row in reversed(rows)]
+    assert index['platformStats']['QV']['runs'] == len(rows)
+    assert all(row['events'] == 1100 and row['snapshots'] == 1 for row in index['applications'])
+    assert 'data' not in index['applications'][0]
+    assert diagnostics.history(rows[0][0])['id'] == rows[0][0]
+
+
+def test_history_tool_reports_storage_failure_without_private_database_details(tmp_path, monkeypatch):
+    import sqlite3
+    from types import SimpleNamespace
+    from jobs_radar.auth import OWNER
+
+    monkeypatch.setattr('jobs_radar.server.get_access_token',
+                        lambda: SimpleNamespace(subject=OWNER, scopes=['jobs:read']))
+    server = create_server(Store(tmp_path / 'storage-error.sqlite'), 'https://radar.test')
+    def unavailable(*args):
+        raise sqlite3.OperationalError('private-database-path: database or disk is full')
+    monkeypatch.setattr(Diagnostics, 'history', unavailable)
+    with pytest.raises(ToolError, match='Diagnostic history storage is unavailable') as error:
+        asyncio.run(server.call_tool('get_browser_history', {}))
+    assert 'private-database-path' not in str(error.value)

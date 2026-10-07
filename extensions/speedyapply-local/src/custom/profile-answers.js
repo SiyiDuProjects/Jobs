@@ -4252,7 +4252,7 @@ export function initializeProfileAnswers() {
           );
         if (
           !location ||
-          /^(?:country (?:(?:where|in which) (?:the |this )?(?:job|position|role) (?:(?:is|will be) )?(?:located|based)|for which you are applying|you are applying to work in)|country of (?:employment|the (?:job|position))|this country|your country|(?:this|the) (?:job|position|role)|employment)$/.test(
+          /^(?:country (?:(?:where|in which) (?:the |this )?(?:job|position|role) (?:(?:is|will be) )?(?:located|based)|for which you are applying|you are applying(?: to work in| for (?:the )?(?:job|position|role))?)|country of (?:employment|the (?:job|position))|this country|your country|(?:this|the) (?:job|position|role)|employment)$/.test(
             location,
           )
         )

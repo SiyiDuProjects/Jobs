@@ -212,3 +212,42 @@ test("what sponsorship is for and parenthetical visa examples are not places", (
     "Yes",
   );
 });
+
+test("GTS job-country wording uses page scope without granting unrestricted work rights", () => {
+  const question =
+    "Are you eligible to work in the country you are applying for the job?*";
+  assert.equal(api.requestedCountry(question, { country: "US" }, "US"), "US");
+  assert.equal(
+    api.resolve(question, profile, { country: "US" })?.answer,
+    "Yes",
+  );
+  for (const country of ["CA", "UNKNOWN", "MIXED"]) {
+    assert.equal(api.requestedCountry(question, { country }, "US"), country);
+    assert.equal(
+      api.resolve(question, profile, { country })?.answer ?? null,
+      null,
+    );
+  }
+  assert.equal(
+    api.resolve(
+      question,
+      { addressData: profile.addressData },
+      { country: "US" },
+    )?.answer ?? null,
+    null,
+  );
+  const unrestricted =
+    "Do you have the unrestricted right to work in the United States? (For clarification: Persons in OPT, H-1, L-1 and TN status do not have unrestricted right to work.)*";
+  assert.equal(
+    api.resolve(unrestricted, profile, { country: "US" })?.answer ?? null,
+    null,
+  );
+  assert.equal(
+    api.requestedCountry(
+      "Are you eligible to work in Chile for the job?",
+      { country: "US" },
+      "US",
+    ),
+    "UNKNOWN",
+  );
+});

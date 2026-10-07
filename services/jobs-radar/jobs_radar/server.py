@@ -1,7 +1,9 @@
 import os
+import sqlite3
 from typing import Any, Literal
 
 from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from .mcp_transport import JobsMCPServer, ToolPermissionError
 from mcp_types import ToolAnnotations
@@ -132,7 +134,10 @@ def create_server(store, origin=None):
     def get_browser_history(application_id: str | None = None) -> dict[str, Any]:
         """Read redacted run diagnostics independently of remote observation. Omit application_id for a 30-day index; pass an applications[].id (archive ID) for structure, decisions, matches and events. Archive ID takes priority; a unique runId is also accepted, but ambiguous runIds require the index id. Values are synthetic. Pinned unresolved cases remain until resolved. Historical records never execute commands or prove a submission."""
         require('jobs:read')
-        return diagnostics.history(application_id)
+        try:
+            return diagnostics.history(application_id)
+        except sqlite3.OperationalError:
+            raise ToolError('Diagnostic history storage is unavailable; service storage needs attention.') from None
 
     @server.tool(annotations=write)
     def retain_browser_diagnostic(history_id: str, case_ref: str | None = None) -> dict[str, Any]:
