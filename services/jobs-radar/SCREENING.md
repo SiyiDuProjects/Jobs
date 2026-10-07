@@ -63,7 +63,9 @@ prerequisite: core products, engineering importance and known employer standing
 support the judgment. Internet products, fintech/payments, quant, software/cloud/
 data infrastructure, substantive AI and mainstream advanced computing are the
 target. NVIDIA, AMD, Cerebras, SpaceX, Whatnot, TensorWave, Niantic Spatial and
-Pure Storage are positive reference points. Hardware is not a blanket exclusion.
+Pure Storage are positive reference points. Kikoff and Gecko Robotics are also
+owner-confirmed positives: smaller fintech and substantive industrial AI/software
+platforms can qualify. Hardware is not a blanket exclusion.
 Ordinary contractors, niche industrial/medical manufacturers, research labs and
 traditional businesses do not qualify merely by hiring engineers, using AI or
 having funding. Sector labels alone do not establish pay, funding or quality.
