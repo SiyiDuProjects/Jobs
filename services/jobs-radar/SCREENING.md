@@ -57,6 +57,22 @@ reopen closed jobs. Blank company names remain unresolved rather than guessed.
 `get_company_preferences` reads the common list and its versions. No per-company
 reason, score or tier is shown or stored.
 
+Company selection prioritizes credible positioning in the high-paying technology
+talent market and software/AI/quant career value. Exact pay disclosure is not a
+prerequisite: core products, engineering importance and known employer standing
+support the judgment. Internet products, fintech/payments, quant, software/cloud/
+data infrastructure, substantive AI and mainstream advanced computing are the
+target. NVIDIA, AMD, Cerebras, SpaceX, Whatnot, TensorWave, Niantic Spatial and
+Pure Storage are positive reference points. Hardware is not a blanket exclusion.
+Ordinary contractors, niche industrial/medical manufacturers, research labs and
+traditional businesses do not qualify merely by hiring engineers, using AI or
+having funding. Sector labels alone do not establish pay, funding or quality.
+Dandy, Space Dynamics Laboratory and Mach Industries are owner-negative examples.
+Company membership ignores sponsorship, citizenship, clearance and job eligibility;
+SpaceX can be selected while a specific job is excluded on explicit source facts.
+Known company choices stay cached; changing this prompt does not reclassify them.
+The owner's requested review is a separate version-fenced preference update.
+
 Luna uses existing model knowledge with no browsing tools. Unknown employers
 are conservatively not selected; selection is a preference heuristic, not a
 verified employer rating. Source FAANG+ labels and received OAs are not selection

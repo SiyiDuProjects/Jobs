@@ -129,6 +129,27 @@ def test_initial_review_cannot_write_a_company_decision(tmp_path):
         board.review(row['id'],row['kind'],'keep','eligible','Matching role',[],row['fingerprint'],0,'legacy',company_recommended=True)
 
 
+def test_company_request_uses_market_policy_without_job_eligibility_context():
+    from jobs_radar.company_screening import classify_companies
+    from jobs_radar.screening_policy import RULES
+    rows=[{'key':'spacex','name':'SpaceX','sponsorship':'Does Not Offer Sponsorship'},
+          {'key':'nvidia','name':'NVIDIA','title':'Hardware Engineer'}]
+    def handler(request):
+        payload=json.loads(request.content)
+        assert RULES['company_preference'] in payload['instructions']
+        assert 'high-paying technology talent market' in payload['instructions']
+        assert 'Exact pay data is NOT required' in payload['instructions']
+        assert 'regardless of sponsorship' in payload['instructions']
+        assert 'Does Not Offer Sponsorship' not in payload['instructions']
+        assert json.loads(payload['input'])==[
+            {'id':'company_0','company':'SpaceX'}, {'id':'company_1','company':'NVIDIA'}]
+        return httpx.Response(200,json={'status':'completed','output':[{'content':[
+            {'type':'output_text','text':json.dumps({'companies':{'company_0':True,'company_1':True}})}]}]})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        decisions,_=classify_companies(client,rows)
+    assert all(row['keep'] for row in decisions)
+
+
 def test_batch_budget_resumes_without_repeating_known_companies(tmp_path):
     store,board=seed(tmp_path);seen=[]
     def handler(request):

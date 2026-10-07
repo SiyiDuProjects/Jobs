@@ -7,7 +7,7 @@ from .geography import screening_locations, non_us_only
 from .intern_companies import normalize_company
 from .screening_policy import RULES
 
-COMPANY_POLICY = '2026-10-05-company-set-v1'
+COMPANY_POLICY = '2026-10-06-company-market-v2'
 # Public job facts only. Keep eligibility and source evidence together; never
 # pass raw ingestion records or application/Profile data to the screening model.
 SOURCE_FIELDS = ('company', 'title', 'locations', 'repository', 'category', 'source_category',
