@@ -166,3 +166,70 @@ test("the module bundled into the extension has the current server rules", async
   );
   assert.deepEqual(JSON.parse(JSON.stringify(runtime.JobsMatchRules)), rules);
 });
+
+test("answer company scope derives tenants from historical posting keys without merging shared hosts", () => {
+  const matcher = context.JobsJobMatch;
+  const company = (url) => matcher.companyFromKey(matcher.key(url));
+  for (const [a, b, other] of [
+    [
+      "https://premera.wd5.myworkdayjobs.com/jobs/job/Engineer_R1",
+      "https://premera.wd5.myworkdayjobs.com/jobs/job/Analyst_R2",
+      "https://other.wd5.myworkdayjobs.com/jobs/job/Engineer_R1",
+    ],
+    [
+      "https://jobs.ashbyhq.com/acme/role1",
+      "https://jobs.ashbyhq.com/acme/role2/application",
+      "https://jobs.ashbyhq.com/other/role1",
+    ],
+    [
+      "https://boards.greenhouse.io/embed/job_app?for=acme&token=123",
+      "https://job-boards.greenhouse.io/acme/jobs/456",
+      "https://job-boards.greenhouse.io/other/jobs/123",
+    ],
+    [
+      "https://apply.workable.com/acme/j/123",
+      "https://apply.workable.com/acme/j/456",
+      "https://apply.workable.com/other/j/123",
+    ],
+    [
+      "https://jobs.lever.co/acme/123",
+      "https://jobs.lever.co/acme/456",
+      "https://jobs.lever.co/other/123",
+    ],
+    [
+      "https://workforcenow.adp.com/jobs?cid=acme&jobId=1",
+      "https://workforcenow.adp.com/jobs?cid=acme&jobId=2",
+      "https://workforcenow.adp.com/jobs?cid=other&jobId=1",
+    ],
+    [
+      "https://acme.icims.com/jobs/123/a",
+      "https://acme.icims.com/jobs/456/b",
+      "https://other.icims.com/jobs/123/a",
+    ],
+    [
+      "https://jobs.smartrecruiters.com/Acme/123456789-engineer",
+      "https://jobs.smartrecruiters.com/oneclick-ui/company/Acme/job/987654321",
+      "https://jobs.smartrecruiters.com/Other/123456789-engineer",
+    ],
+  ]) {
+    assert(company(a), a);
+    assert.equal(company(a), company(b), b);
+    assert.notEqual(company(a), company(other), other);
+    assert.notEqual(
+      matcher.key(a),
+      matcher.key(b),
+      "posting identity remains separate",
+    );
+  }
+  for (const url of [
+    "https://job-boards.greenhouse.io/embed/job_app?token=123",
+    "https://www.linkedin.com/jobs/view/42/",
+    "https://www.indeed.com/viewjob?jk=123",
+    "https://careers.example.com/job?id=1",
+    "https://jobs.ashbyhq.com/tenantless",
+    "https://app.careerpuck.com/apply?gh_jid=123",
+  ])
+    assert.equal(company(url), null, url);
+  for (const key of [null, "bad", "{}", "[]", '["host","path",{}]'])
+    assert.equal(matcher.companyFromKey(key), null);
+});

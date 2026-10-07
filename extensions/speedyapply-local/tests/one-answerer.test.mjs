@@ -41,6 +41,7 @@ function fixture(t, html, saved = []) {
   w.chrome = {
     runtime: {
       sendMessage: async (message) => {
+        if (message.type === "jobs:review-present") return { ok: true };
         if (message.type === "jobs:tab-profile")
           return { data: { id: "fixture", profile } };
         requests.push(message);
@@ -130,7 +131,7 @@ test("bindings precede one resolver visit, including newly revealed questions; o
     );
   assert.equal(f.w.JobsFormPipeline.answered(f.root).size, 3);
 });
-test("a second deciding binding is diagnosed and blocks the run before overwriting", async (t) => {
+test("a second deciding binding is refused without overwriting or blocking the run", async (t) => {
   const f = fixture(t, '<label>Name<input id="name" required></label>');
   assert.equal(
     await f.run(() =>
@@ -142,7 +143,7 @@ test("a second deciding binding is diagnosed and blocks the run before overwriti
         })),
       ),
     ),
-    false,
+    true,
   );
   assert.equal(f.root.querySelector("#name").value, "one");
   assert.equal(
@@ -179,7 +180,7 @@ test("two aliases of one radio question cannot claim separate decision ownership
         })),
       ),
     ),
-    false,
+    true,
   );
   assert.equal(f.root.querySelector(":checked").id, "a");
   assert.equal(

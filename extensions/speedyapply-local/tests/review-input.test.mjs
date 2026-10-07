@@ -1,3 +1,4 @@
+import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -71,6 +72,7 @@ function setup(html, url = "https://fixture.myworkdayjobs.com/apply") {
     },
   };
   codes.forEach((code) => w.eval(code));
+  mountReviewPanel(w);
   w.document.querySelector("#next").onclick = () => clicks++;
   return {
     w,
@@ -85,12 +87,13 @@ function setup(html, url = "https://fixture.myworkdayjobs.com/apply") {
           "session",
         );
     },
-    run: () =>
+    run: (options = {}) =>
       w.JobsAutomatic.advance({
         root: w.document.querySelector("form"),
         profile,
         action: "next",
         selector: "#next",
+        ...options,
       }),
     shadow: () => w.document.querySelector("#jobs-ai-review").shadowRoot,
     close: () => w.close(),
@@ -346,6 +349,71 @@ test("Enter in a single-line card answer writes it to the page", async () => {
   }
 });
 
+test("review puts missing and uncertain answers together above collapsed confirmed answers", async () => {
+  const h = setup(
+    "<label>County*<input required></label><label>Project*<input required></label><label>Code*<input required></label>",
+  );
+  const send = h.w.chrome.runtime.sendMessage;
+  h.w.chrome.runtime.sendMessage = (message) =>
+    message.fields
+      ? Promise.resolve({
+          data: {
+            answers: message.fields.map((field, index) => ({
+              fieldId: field.fieldId,
+              state: index === 2 ? "needs_input" : "answer",
+              value: index === 2 ? null : "Example answer",
+              source: index === 0 ? "profile" : "suggestion",
+              needsConfirmation: index !== 0,
+            })),
+          },
+        })
+      : send(message);
+  try {
+    await h.run({ autoConfirm: false });
+    const shadow = h.shadow(),
+      pending = shadow.querySelector('[data-group="pending"]'),
+      ready = shadow.querySelector('[data-group="ready"]');
+    assert.equal(pending.querySelector("h3").textContent, "需要你处理 · 2 项");
+    assert.equal(ready.querySelector("summary").textContent, "已确定 · 1 项");
+    assert.equal(ready.open, false);
+    assert.deepEqual(
+      [...shadow.querySelectorAll(".review-row")].map((row) => row.title),
+      ["Project*", "Code*", "County*"],
+    );
+    assert.equal(
+      h.w.JobsAIReview.canAutoConfirm(h.w.document.querySelector("form")),
+      false,
+    );
+    assert.equal(h.clicks(), 0);
+
+    // Opening completed answers stays open across updates; drafts never move
+    // into the collapsed section when a different page value arrives.
+    ready.open = true;
+    const code = [...pending.querySelectorAll(".review-row")].find(
+        (row) => row.title === "Code*",
+      ),
+      input = code.querySelector("input");
+    input.value = "Unsaved draft";
+    input.oninput();
+    const pageInputs = h.w.document.querySelectorAll("form input");
+    pageInputs[2].value = "Changed on page";
+    pageInputs[2].dispatchEvent(new h.w.Event("input", { bubbles: true }));
+    await delay(0);
+    assert.equal(code.closest("[data-group]"), pending);
+    assert.equal(input.value, "Unsaved draft");
+    assert.equal(ready.open, true);
+
+    // A previously certain answer that fails validation must become actionable.
+    pageInputs[0].setAttribute("aria-invalid", "true");
+    pageInputs[0].dispatchEvent(new h.w.Event("input", { bubbles: true }));
+    await until(() => pending.querySelectorAll(".review-row").length === 3);
+    assert.equal(ready.hidden, true);
+    assert.equal(h.clicks(), 0);
+  } finally {
+    h.close();
+  }
+});
+
 test("manual changes to another radio member and removal of a reviewed control refresh the card", async () => {
   const h = setup(
     '<fieldset><legend>Decision*</legend><label>Yes<input type="radio" name="decision" value="yes" required></label><label>No<input type="radio" name="decision" value="no"></label></fieldset><label>Details*<textarea required></textarea>',
@@ -377,6 +445,263 @@ test("review refuses replaced controls and changed Profiles without modifying a 
       button.onclick({ isTrusted: true });
       await until(() => h.shadow().querySelector(".error").textContent);
       assert.equal(h.w.document.querySelector("select").value, "");
+      assert.equal(h.clicks(), 0);
+    } finally {
+      h.close();
+    }
+  }
+});
+test("a populated replacement keeps its review and ledger, rejects the old revision and confirms once", async () => {
+  const h = setup("<label>County*<input required></label>");
+  try {
+    await h.run();
+    const root = h.w.document.querySelector("form"),
+      before = h.w.JobsAIReview.remoteState(root),
+      item = before.items[0];
+    assert(
+      (
+        await h.w.JobsAIReview.remoteAnswer(
+          root,
+          before.id,
+          item.itemId,
+          { version: item.version, value: "Example County" },
+          () => true,
+        )
+      ).ok,
+    );
+    const old = root.querySelector("input"),
+      book = h.w.JobsFormPipeline.ledgerFor(root),
+      record = book.peek(old),
+      revision = h.w.JobsAIReview.remoteState(root).items[0].version,
+      fresh = old.cloneNode(true);
+    old.replaceWith(fresh);
+    await delay(0);
+    const state = h.w.JobsAIReview.remoteState(root);
+    assert(
+      state.items[0].fieldId,
+      "review must refer to the populated successor",
+    );
+    assert.notEqual(state.items[0].fieldId, item.fieldId);
+    assert(
+      state.items[0].version > revision,
+      "replacement invalidates old drafts even with the same value",
+    );
+    assert.equal(
+      h.shadow().querySelector(".answer").textContent,
+      "Example County",
+    );
+    assert.equal(h.shadow().querySelector("input").value, "Example County");
+    assert.equal(book.peek(fresh), record, "one field keeps one ledger record");
+    assert.equal(book.carded().length, 1);
+    assert.equal(record.decider, "user");
+    assert(
+      (
+        await h.w.JobsAIReview.remoteAnswer(
+          root,
+          state.id,
+          item.itemId,
+          { version: revision, value: "Stale County" },
+          () => true,
+        )
+      ).error,
+    );
+    assert.equal(fresh.value, "Example County");
+    assert.equal(h.clicks(), 0);
+    assert.equal(await h.w.JobsAIReview.confirm(), true);
+    assert.equal(h.clicks(), 1);
+    assert.equal(await h.w.JobsAIReview.confirm(), false);
+    assert.equal(h.clicks(), 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("replacement preserves review order and a Profile answer remains eligible for automatic acknowledgment", async () => {
+  const h = setup(
+    "<label>County*<input required></label><label>Code*<input required></label>",
+  );
+  const send = h.w.chrome.runtime.sendMessage;
+  h.w.chrome.runtime.sendMessage = (message) =>
+    message.fields
+      ? Promise.resolve({
+          data: {
+            answers: message.fields.map((field) => ({
+              fieldId: field.fieldId,
+              state: "answer",
+              value: "Example answer",
+              source: "profile",
+              needsConfirmation: false,
+            })),
+          },
+        })
+      : send(message);
+  try {
+    await h.run({ autoConfirm: false });
+    const root = h.w.document.querySelector("form"),
+      before = h.w.JobsAIReview.remoteState(root),
+      old = root.querySelector("input"),
+      fresh = old.cloneNode(true);
+    old.replaceWith(fresh);
+    await delay(0);
+    const state = h.w.JobsAIReview.remoteState(root);
+    assert.deepEqual(
+      Array.from(state.items, (item) => item.itemId),
+      Array.from(before.items, (item) => item.itemId),
+    );
+    assert.equal(h.shadow().querySelector(".review-row").title, "County*");
+    assert.equal(h.shadow().querySelector(".source").textContent, "依据档案");
+    assert.equal(h.w.JobsAIReview.canAutoConfirm(root), true);
+    assert.equal(h.clicks(), 0);
+    const changed = fresh.cloneNode(true);
+    changed.value = "Changed by the page";
+    fresh.replaceWith(changed);
+    await delay(0);
+    assert.equal(
+      h.w.JobsAIReview.canAutoConfirm(root),
+      false,
+      "a changed replacement value must be reviewed again",
+    );
+    assert.equal(h.clicks(), 0);
+    await h.w.JobsAIReview.confirm();
+    assert.equal(h.clicks(), 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("an empty replacement is editable with a fresh revision and remains blocked until answered", async () => {
+  const h = setup("<label>County*<input required></label>");
+  try {
+    await h.run();
+    const root = h.w.document.querySelector("form"),
+      old = root.querySelector("input"),
+      fresh = old.cloneNode(true);
+    old.replaceWith(fresh);
+    await delay(0);
+    const state = h.w.JobsAIReview.remoteState(root),
+      item = state.items[0];
+    assert(item.fieldId);
+    assert.equal(h.w.JobsAIReview.canAutoConfirm(root), false);
+    assert.equal(h.clicks(), 0);
+    assert(
+      (
+        await h.w.JobsAIReview.remoteAnswer(
+          root,
+          state.id,
+          item.itemId,
+          { version: item.version, value: "Example County" },
+          () => true,
+        )
+      ).ok,
+    );
+    assert.equal(fresh.value, "Example County");
+    await h.w.JobsAIReview.confirm();
+    assert.equal(h.clicks(), 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("a draft predating replacement cannot overwrite its current answer; a new edit can", async () => {
+  const h = setup("<label>County*<input required></label>");
+  try {
+    await h.run();
+    const card = h.shadow().querySelector(".review-row"),
+      editor = card.querySelector("input"),
+      old = h.w.document.querySelector("form input"),
+      fresh = old.cloneNode(true);
+    editor.value = "Old draft";
+    editor.oninput();
+    fresh.value = "Current County";
+    old.replaceWith(fresh);
+    await delay(0);
+    assert.equal(
+      editor.value,
+      "Old draft",
+      "retain the person's unsaved draft",
+    );
+    await card.flush();
+    assert(card.querySelector(".error").textContent);
+    assert.equal(fresh.value, "Current County");
+    assert.equal(h.clicks(), 0);
+    editor.value = "New answer";
+    editor.oninput();
+    assert((await card.flush()).ok);
+    assert.equal(fresh.value, "New answer");
+    await h.w.JobsAIReview.confirm();
+    assert.equal(h.clicks(), 1);
+  } finally {
+    h.close();
+  }
+});
+
+for (const change of ["ambiguous", "question", "type", "entry", "options"])
+  test(`review does not follow a replacement with changed ${change}`, async () => {
+    const choice = change === "options",
+      h = setup(
+        choice
+          ? '<label>County*<select required><option value="">Choose</option><option value="A">A</option></select></label>'
+          : "<label>County*<input required></label>",
+      );
+    try {
+      await h.run();
+      const root = h.w.document.querySelector("form"),
+        old = root.querySelector("input,select"),
+        fresh = old.cloneNode(true);
+      if (change === "entry")
+        h.w.JobsControlFields.beginEntry(old.parentElement);
+      if (change === "question")
+        old.parentElement.firstChild.textContent = "Region*";
+      if (change === "type") fresh.type = "number";
+      if (choice) fresh.options[1].textContent = "Different option";
+      old.replaceWith(fresh);
+      if (change === "ambiguous")
+        root.append(
+          old.parentElement || root.firstElementChild.cloneNode(true),
+        );
+      await delay(0);
+      const state = h.w.JobsAIReview.remoteState(root);
+      assert.equal(state.items[0].fieldId, "");
+      assert(h.shadow().textContent.includes("控件已变化"));
+      assert.equal(h.w.JobsAIReview.canAutoConfirm(root), false);
+      await h.w.JobsAIReview.confirm();
+      assert.equal(h.clicks(), 0);
+    } finally {
+      h.close();
+    }
+  });
+
+test("a populated but invalid replacement never continues, and a changed Profile cannot edit it", async () => {
+  for (const change of ["invalid", "profile"]) {
+    const h = setup("<label>County*<input required></label>");
+    try {
+      await h.run();
+      const root = h.w.document.querySelector("form"),
+        old = root.querySelector("input"),
+        fresh = old.cloneNode(true);
+      fresh.value = "Example County";
+      if (change === "invalid") fresh.setAttribute("aria-invalid", "true");
+      old.replaceWith(fresh);
+      await delay(0);
+      const state = h.w.JobsAIReview.remoteState(root),
+        item = state.items[0];
+      assert(item.fieldId);
+      if (change === "profile") {
+        h.changeProfile();
+        assert(
+          (
+            await h.w.JobsAIReview.remoteAnswer(
+              root,
+              state.id,
+              item.itemId,
+              { version: item.version, value: "Other County" },
+              () => true,
+            )
+          ).error,
+        );
+        assert.equal(fresh.value, "Example County");
+      }
+      await h.w.JobsAIReview.confirm();
       assert.equal(h.clicks(), 0);
     } finally {
       h.close();

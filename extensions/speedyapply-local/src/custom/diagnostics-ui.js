@@ -66,7 +66,7 @@ function render(row) {
   $("events").replaceChildren(
     ...report.events.map((event) => {
       const li = document.createElement("li");
-      li.textContent = `${new Date(event.at).toLocaleTimeString()} · ${event.type}${event.fieldId ? " · " + event.fieldId : ""}${event.detail ? " · " + event.detail : ""}`;
+      li.textContent = `${new Date(event.at).toLocaleTimeString()} · ${event.sequence ? "#" + event.sequence + " · " : ""}${event.type}${event.fieldId ? " · " + event.fieldId : ""}${event.detail ? " · " + event.detail : ""}${event.evidence ? " · " + JSON.stringify(event.evidence) : ""}`;
       return li;
     }),
   );
@@ -86,12 +86,24 @@ async function load() {
   );
   if ([...select("pages").options].some((option) => option.value === selected))
     select("pages").value = selected;
+  const sync = state.sync;
+  const labels = {
+    local: "仅本地记录",
+    disconnected: "诊断同步未连接",
+    uploading: "诊断上传中",
+    synced: "最近一批诊断已确认接收",
+    error: "诊断上传失败，本地记录保留",
+    rejected: "部分诊断被拒收，本地记录保留",
+    upgrade_required: "服务需升级才能接收完整证据，本地记录保留",
+  };
   $("sync").textContent =
-    state.sync.state === "synced"
-      ? "服务器最近已连接；下方展示本地诊断记录。"
-      : state.sync.state === "error"
-        ? `本地记录已保留；${state.sync.message}`
-        : "等待诊断同步。";
+    `${labels[sync.state] || "诊断状态未知"} · 待上传 ${sync.pending ?? "未知"} 条运行` +
+    (sync.lastAckAt
+      ? ` · 最近确认 ${new Date(sync.lastAckAt).toLocaleString()}`
+      : " · 尚无上传确认") +
+    (sync.newestLocalAt
+      ? ` · 本地最新 ${new Date(sync.newestLocalAt).toLocaleString()}`
+      : "");
   if (select("pages").value)
     render(
       await request("jobs:diagnostics-get", { id: select("pages").value }),
@@ -175,19 +187,16 @@ $("inspect").onclick = action(async () => {
   );
   $("message").textContent = "已读取，未填写或点击申请页面。";
 });
-$("export").onclick = () => {
+$("export").onclick = action(async () => {
   if (!current) return;
-  const url = URL.createObjectURL(
-    new Blob([JSON.stringify(current, null, 2)], { type: "application/json" }),
-  );
-  const link = document.createElement("a");
-  link.href = url;
-  link.download =
+  const data = await request("jobs:diagnostics-export", { id: current.id });
+  download(
+    data,
     "jobs-diagnostics-" +
-    new Date().toISOString().replace(/[:.]/g, "-") +
-    ".json";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
+      new Date().toISOString().replace(/[:.]/g, "-") +
+      ".json",
+  );
+  $("message").textContent = "已导出持久证据；答案和选项已替换为虚构标记。";
+});
 await action(load)();
 await action(loadCases)();

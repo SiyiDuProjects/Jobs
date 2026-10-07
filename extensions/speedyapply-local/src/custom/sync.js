@@ -693,6 +693,7 @@ export function initializeSync() {
           await JobsPrivateSession.clear(
             undefined,
             JobsManagementSync?.pendingSnapshot,
+            "profile_unauthorized",
           );
         throw Error("个人资料连接已过期，请打开 jobs 网站恢复连接");
       }

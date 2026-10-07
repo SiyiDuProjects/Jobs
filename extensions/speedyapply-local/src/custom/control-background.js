@@ -29,6 +29,14 @@ export function initializeControlBackground() {
     let queue = Promise.resolve(),
       running,
       timer;
+    // The alarm wakes a suspended worker. While pages are registered, exchange
+    // promptly; command execution must never own the transport lock.
+    const executions = new Map();
+    const activeCommands = new Set();
+    function schedule(delay = 2000) {
+      clearTimeout(timer);
+      timer = setTimeout(() => void tick(), delay);
+    }
     /** @template T @param {() => T|PromiseLike<T>} fn @returns {Promise<T>} */
     const serial = (fn) => {
       const task = queue.then(fn);
@@ -110,6 +118,15 @@ export function initializeControlBackground() {
         };
         await write(state);
       });
+      // Content-free top-level identity lets embedded ATS documents be found
+      // after extension reload, even when their parent uses a custom domain.
+      if (sender.tab.url) {
+        const key = "jobsReconnectTab:" + sender.tab.id;
+        await chrome.storage.local.set({
+          [key]: new URL(sender.tab.url).origin,
+        });
+      }
+      schedule(0);
       return { ok: true };
     }
     function retireCommands(state, page) {
@@ -447,7 +464,7 @@ export function initializeControlBackground() {
       });
       return result;
     }
-    async function run() {
+    async function run(inventoryOnly = false) {
       const epoch = JobsPrivateSession.epoch;
       await JobsSync.ready;
       const connection =
@@ -461,6 +478,7 @@ export function initializeControlBackground() {
         for (const entry of Object.values(state.journal))
           if (
             !entry.reported &&
+            !activeCommands.has(entry.result.id) &&
             !state.results.some((result) => result.id === entry.result.id)
           )
             state.results.push(entry.result);
@@ -468,7 +486,7 @@ export function initializeControlBackground() {
       });
       const requested = await serial(async () => {
         const state = await read();
-        return state.snapshotRequests || [];
+        return inventoryOnly ? [] : state.snapshotRequests || [];
       });
       const pages = await collect(requested);
       const state = await serial(async () => {
@@ -508,18 +526,56 @@ export function initializeControlBackground() {
       }
       const sent = payload.results;
       JobsPrivateSession.assertCurrent(epoch);
-      const response = await fetch(ORIGIN + "/api/extension/control", {
-        method: "POST",
-        credentials: "omit",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Jobs-Protocol": "2",
-          Authorization: "Bearer " + connection.profileToken,
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(10000),
-      });
+      let response;
+      try {
+        response = await fetch(ORIGIN + "/api/extension/control", {
+          method: "POST",
+          credentials: "omit",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Jobs-Protocol": "2",
+            Authorization: "Bearer " + connection.profileToken,
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch (error) {
+        // An accepted upload can lose its response. Never resend that snapshot
+        // without a new request; retain the at-most-once execution journal and receipts.
+        await serial(async () => {
+          const value = await read();
+          JobsPrivateSession.assertCurrent(epoch);
+          value.snapshotRequests = [];
+          await write(value);
+        });
+        throw error;
+      }
       await checkRecoveryPause(response, epoch);
+      if (
+        !response.ok &&
+        !inventoryOnly &&
+        pages.length &&
+        [400, 409, 413, 422].includes(response.status)
+      ) {
+        await serial(async () => {
+          const value = await read();
+          JobsPrivateSession.assertCurrent(epoch);
+          value.snapshotRequests = [];
+          value.error =
+            "Snapshot rejected (" +
+            response.status +
+            "); resynchronizing inventory";
+          value.lastErrorAt = Date.now();
+          value.lastError = value.error;
+          for (const page of pages) {
+            const frame = value.frames[frameKey(page.tabId, page.frameId)];
+            if (frame?.documentId === page.documentId)
+              frame.snapshotRetryAt = Date.now() + 30000;
+          }
+          await write(value);
+        });
+        return run(true);
+      }
       if (!response.ok)
         throw Error("Control endpoint unavailable (" + response.status + ")");
       const data = await response.json();
@@ -545,7 +601,11 @@ export function initializeControlBackground() {
           .filter(
             (request) =>
               value.frames[frameKey(request.tabId, request.frameId)]
-                ?.documentId === request.documentId,
+                ?.documentId === request.documentId &&
+              !(
+                value.frames[frameKey(request.tabId, request.frameId)]
+                  .snapshotRetryAt > Date.now()
+              ),
           )
           .slice(0, 64);
         value.results = value.results.filter((result) => !ids.has(result.id));
@@ -554,9 +614,12 @@ export function initializeControlBackground() {
         await write(value);
       });
       if (JobsControlConfig?.enabled !== true) return;
+      return { commands: data.commands, epoch };
+    }
+    async function executeBatch({ commands, epoch }) {
       // Different tabs may progress together; never mutate one tab concurrently.
       const groups = new Map();
-      for (const command of data.commands) {
+      for (const command of commands) {
         const id = command.target?.tabId;
         if (!groups.has(id)) groups.set(id, []);
         groups.get(id).push(command);
@@ -565,10 +628,20 @@ export function initializeControlBackground() {
       const worker = async () => {
         for (let batch; (batch = batches.shift());)
           for (const command of batch) {
+            const id = command.target.tabId;
             let result;
             try {
               JobsPrivateSession.assertCurrent(epoch);
-              result = await dispatch(command);
+              const previous = executions.get(id);
+              if (previous) await previous;
+              activeCommands.add(command.id);
+              const execution = dispatch(command);
+              executions.set(id, execution);
+              try {
+                result = await execution;
+              } finally {
+                if (executions.get(id) === execution) executions.delete(id);
+              }
             } catch (error) {
               result = {
                 id: command.id,
@@ -576,15 +649,20 @@ export function initializeControlBackground() {
                 error: error.message,
               };
             }
-            await serial(async () => {
-              const value = await read();
-              value.results = value.results.filter(
-                (item) => item.id !== result.id,
-              );
-              JobsPrivateSession.assertCurrent(epoch);
-              value.results.push(result);
-              await write(value);
-            });
+            try {
+              await serial(async () => {
+                const value = await read();
+                JobsPrivateSession.assertCurrent(epoch);
+                value.results = value.results.filter(
+                  (item) => item.id !== result.id,
+                );
+                value.results.push(result);
+                await write(value);
+              });
+            } finally {
+              activeCommands.delete(command.id);
+              schedule(0);
+            }
           }
       };
       await Promise.all(
@@ -593,25 +671,37 @@ export function initializeControlBackground() {
     }
     function tick() {
       if (running) return running;
-      running = run()
-        .then(() =>
-          serial(async () => {
+      clearTimeout(timer);
+      const exchange = run()
+        .then(async (batch) => {
+          await serial(async () => {
             const state = await read();
             delete state.error;
             await write(state);
-          }),
-        )
+            if (Object.keys(state.frames).length)
+              schedule(state.snapshotRequests?.length ? 0 : 2000);
+          });
+          return batch;
+        })
         .catch((error) =>
           serial(async () => {
             const state = await read();
             state.error = String(error.message || error).slice(0, 500);
+            state.lastError = state.error;
+            state.lastErrorAt = Date.now();
             await write(state);
+            if (Object.keys(state.frames).length) schedule(5000);
           }).catch(() => {}),
         )
         .finally(() => {
           running = null;
         });
-      return running;
+      running = exchange;
+      // The persisted journal keeps an uncertain receipt if storage or identity
+      // changes during completion. Do not replay it or leak a rejected timer.
+      return exchange
+        .then((batch) => batch && executeBatch(batch))
+        .catch(() => {});
     }
     chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (
@@ -627,6 +717,7 @@ export function initializeControlBackground() {
       return true;
     });
     chrome.tabs.onRemoved.addListener((tabId) => {
+      void chrome.storage.local.remove("jobsReconnectTab:" + tabId);
       void serial(async () => {
         const state = await read();
         for (const [key, frame] of Object.entries(state.frames))

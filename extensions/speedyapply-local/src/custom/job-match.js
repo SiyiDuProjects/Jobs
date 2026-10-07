@@ -86,9 +86,98 @@ export function initializeJobMatch() {
       const k = key(a);
       return !!k && k === key(b);
     };
+    // Saved answers reuse the employer tenant, while application identity stays
+    // posting-specific. Derive from old keys too, without rewriting private data.
+    function companyFromKey(value) {
+      try {
+        const parts = JSON.parse(value);
+        if (
+          !Array.isArray(parts) ||
+          parts.length < 3 ||
+          parts.some((part) => typeof part !== "string" || !part)
+        )
+          return null;
+        const [host, kind, identity] = parts;
+        const company = (tenant) => JSON.stringify([host, "company", tenant]);
+        if (
+          kind === "greenhouse" &&
+          parts.length === 4 &&
+          /(^|\.)greenhouse\.io$/.test(host)
+        )
+          return company(identity);
+        if (
+          kind === "smartrecruiters" &&
+          parts.length === 4 &&
+          host === "jobs.smartrecruiters.com"
+        )
+          return company(identity);
+        if (
+          kind === "adp" &&
+          parts.length === 4 &&
+          /(^|\.)adp\.com$/.test(host)
+        )
+          return company(identity);
+        if (
+          kind === "path" &&
+          /^(?:jobs\.(?:eu\.)?lever\.co|jobs\.ashbyhq\.com|apply\.workable\.com|ats\.rippling\.com)$/.test(
+            host,
+          )
+        ) {
+          const tenant = identity.match(/^\/([^/]+)\/[^/]+/)?.[1];
+          return tenant ? company(tenant) : null;
+        }
+        // Only known company-owned hosts qualify. Shared ATS roots, job boards,
+        // tenantless embeds and unknown URL shapes never imply one employer.
+        if (
+          kind === "workday" &&
+          /^[^.]+\.wd\d+\.(?:myworkdayjobs|myworkdaysite)\.com$/.test(host)
+        )
+          return company(host);
+        if (
+          [
+            "icims",
+            "eightfold",
+            "taleo",
+            "oracle",
+            "avature",
+            "pinpoint",
+            "path",
+          ].includes(kind) &&
+          /^[^.]+\.(?:icims\.com|eightfold\.ai|taleo\.net|avature\.net|pinpointhq\.com|bamboohr\.com|breezy\.hr|applytojob\.com|theresumator\.com|freshteam\.com)$/.test(
+            host,
+          ) &&
+          !/^(?:www|jobs|careers|apply|app|ats)\./.test(host)
+        )
+          return company(host);
+        if (
+          kind === "oracle" &&
+          /^[^.]+\.fa\.[^.]+\.oraclecloud\.com$/.test(host)
+        )
+          return company(host);
+        if (
+          [
+            "microsoft",
+            "amd",
+            "tesla",
+            "tiktok",
+            "amazon",
+            "google",
+            "bytedance",
+            "apple",
+            "meta",
+            "greenhouse_custom",
+          ].includes(kind)
+        )
+          return company(host);
+        return null;
+      } catch {
+        return null;
+      }
+    }
     JobsJobMatch = Object.freeze({
       key,
       same,
+      companyFromKey,
       tracking: (name) => tracking.test(name),
     });
   })();

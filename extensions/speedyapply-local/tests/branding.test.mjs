@@ -21,6 +21,9 @@ test("shared branding reaches the native popup, manifest and worker without rewr
     );
   assert.equal(manifest.name, brand.name);
   assert.equal(manifest.key, source.key);
+  assert.equal(manifest.action.default_popup, undefined);
+  assert.equal(manifest.side_panel.default_path, "popup.html");
+  assert(manifest.permissions.includes("sidePanel"));
   assert(
     manifest.content_scripts.some((row) =>
       row.matches.includes(new URL(brand.website).origin + "/*"),

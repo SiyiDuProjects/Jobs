@@ -1,3 +1,4 @@
+import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -81,6 +82,7 @@ function setup() {
     },
   };
   Object.values(codes).forEach((code) => w.eval(code));
+  mountReviewPanel(w);
   function close(button) {
     w.document.getElementById(button.getAttribute("aria-controls"))?.remove();
     button.removeAttribute("aria-controls");

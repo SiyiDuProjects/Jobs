@@ -1,6 +1,7 @@
 // Only the worker owns Profile selection. This controller holds popup view state.
 export function createPopupProfiles(api, changed) {
-  let tabId,
+  let windowId,
+    tabId,
     state,
     busy = false,
     revision = 0,
@@ -15,8 +16,8 @@ export function createPopupProfiles(api, changed) {
           ? state.bound === false
             ? "默认选择"
             : ["automatic", "resolved", "website"].includes(state.source)
-            ? "自动切换"
-            : "当前选择"
+              ? "自动切换"
+              : "当前选择"
           : "",
         message:
           message ||
@@ -83,6 +84,8 @@ export function createPopupProfiles(api, changed) {
       void refresh();
   }
   function activated(info) {
+    if (windowId != null && info.windowId != null && info.windowId !== windowId)
+      return;
     tabId = info.tabId;
     state = null;
     busy = false;
@@ -99,7 +102,10 @@ export function createPopupProfiles(api, changed) {
     const seq = revision;
     try {
       const tabs = await api.tabs.query({ active: true, currentWindow: true });
-      if (!disposed && seq === revision) activated({ tabId: tabs[0]?.id });
+      if (!disposed && seq === revision) {
+        windowId = tabs[0]?.windowId;
+        activated({ tabId: tabs[0]?.id });
+      }
     } catch (error) {
       render(error.message, true);
     }

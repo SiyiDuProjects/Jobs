@@ -178,9 +178,10 @@ export function initializeControlContent() {
           actions.push("fill_answers");
         // Unknown controls are not proof of completeness. A supervised caller
         // can inspect them; this first version refuses automatic advancement.
-        if (!JobsAIReview?.pending() && state.ready) {
-          if (button("next")) actions.push("next");
-          if (button("submit")) actions.push("submit");
+        if (!JobsAIReview?.pending()) {
+          if (button("next") && fields.state({ next: true }).ready)
+            actions.push("next");
+          if (button("submit") && state.ready) actions.push("submit");
         }
       }
       return {
@@ -435,7 +436,10 @@ export function initializeControlContent() {
           data = outcome("fill_answers", { appliedFieldIds, failedFieldIds });
         } else if (command.action !== "inspect") {
           const target = button(command.action);
-          if (!target || !fields.state().ready)
+          if (
+            !target ||
+            !fields.state({ next: command.action === "next" }).ready
+          )
             throw Error("Button is missing or page changed");
           // Remote and automatic navigation share the same finish barrier and
           // durable submission guard. A remote command is never a second writer.
@@ -530,6 +534,8 @@ export function initializeControlContent() {
         }
         stopHeartbeat();
         if (adapter === owner) {
+          for (const node of document.querySelectorAll("[data-jobs-ai-review]"))
+            node.setAttribute("data-jobs-review-pending", "");
           JobsAutomatic?.release?.(root());
           JobsAIReview?.release?.(root());
           results.clear();
@@ -548,6 +554,8 @@ export function initializeControlContent() {
       const onPageHide = () => stop();
       releaseSession = () => {
         if (adapter !== owner) return;
+        for (const node of document.querySelectorAll("[data-jobs-ai-review]"))
+          node.setAttribute("data-jobs-review-pending", "");
         JobsAutomatic?.release?.(root());
         JobsAIReview?.release?.(root());
         JobsAnswerMemory?.stop({ discard: true });
@@ -642,6 +650,15 @@ export function initializeControlContent() {
             signature(current) !== signature(after.data.profile)
           )
             throw Error("本页 Profile 已改变");
+          const scope = root();
+          const previousId = scope?.getAttribute("data-jobs-profile-id");
+          if (
+            options.jobsRecovery &&
+            previousId &&
+            previousId !== after.data.id
+          )
+            throw Error("恢复页面的 Profile 不一致，请核对已有填写内容");
+          scope?.setAttribute("data-jobs-profile-id", after.data.id);
           profile = current;
           profileId = after.data.id;
           profileVersion = after.data.lastSync || after.data.revision || null;
@@ -664,6 +681,30 @@ export function initializeControlContent() {
       pipelineOptions = JobsAutomatic
         ? JobsAutomatic.observe(wrapped)
         : wrapped;
+      if (options.jobsRecovery) {
+        return (async () => {
+          const current = await getProfile();
+          const scope = root();
+          if (!scope || stopped) return;
+          const next = options.autofillSettings?.autoClickNextPage
+              ? button("next")
+              : null,
+            submit = options.autofillSettings?.autoSubmit
+              ? button("submit")
+              : null;
+          return JobsAutomatic.advance({
+            root: scope,
+            profile: current,
+            recover: true,
+            retry: true,
+            autoConfirm: false,
+            action: next ? "next" : submit ? "submit" : "fill",
+            target: next || submit,
+            canProceed: live,
+            setMessage,
+          });
+        })();
+      }
       return script(pipelineOptions);
     }
     chrome.runtime.onMessage.addListener((message, sender, reply) => {

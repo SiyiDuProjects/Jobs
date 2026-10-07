@@ -13,6 +13,10 @@ export function initializeProfileAnswers() {
         .replace(/[’‘]/g, "'")
         .replace(/\s+/g, " ")
         .trim();
+    const questionText = (question) =>
+      normalize(question)
+        .replace(/[\s*✱]+$/g, "")
+        .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
     const months = [
       "January",
       "February",
@@ -261,7 +265,7 @@ export function initializeProfileAnswers() {
     // veteran): the Profile value's own wording, then the site wordings the
     // adapters had collected. Only known presentation/country suffixes are
     // equivalent; "Asian" must not become "South Asian", nor "Male" transgender.
-    // Empty legacy Profile choices mean decline; absent facts remain unknown.
+    // Empty or absent facts remain unknown; only explicit choices mean decline.
     const declineWords = [
       "Decline to self-identify",
       "Decline To Self Identify",
@@ -322,9 +326,7 @@ export function initializeProfileAnswers() {
       ],
     };
     const undisclosed = (value) =>
-      value === "" ||
-      value === "I choose not to disclose" ||
-      value === "undisclosed";
+      value === "I choose not to disclose" || value === "undisclosed";
     const eeoKey = (value) =>
       normalize(value)
         .replace(/[.!]+$/, "")
@@ -340,6 +342,9 @@ export function initializeProfileAnswers() {
       const spec = (tiers, extra = {}) => ({
         topic: "eeo:" + topic,
         tiers,
+        replaceDefault: (labels) =>
+          labels.length === 1 &&
+          !!JobsOptionMatch.pick(labels, { tiers: [declineWords] }),
         equals: (label, alias) =>
           (!/\bnot hispanic or latino\b/i.test(label) ||
             topic === "hispanic" ||
@@ -558,7 +563,12 @@ export function initializeProfileAnswers() {
           value,
         )
       )
-        spec.tiers.push([value + " Programming", value + " Scripting"]);
+        spec.tiers.push([
+          value + " Programming",
+          value + " Scripting",
+          value + " (Programming Language)",
+          value + " Programming Language",
+        ]);
       return { ...spec, append: true };
     }
     function locationSpec(address = {}) {
@@ -657,15 +667,21 @@ export function initializeProfileAnswers() {
         ? { topic: "date:" + part, tiers: [aliases], answer: aliases[0] }
         : null;
     }
-    // Phone country pickers label each country with its dialing code
-    // ("United States +1"); the code is not part of the country's name.
+    // Phone pickers can decorate a complete country name with a flag and a
+    // leading or trailing dial code. A shared code alone never names a country.
     const dialingCode = /\s*\(?\+\d{1,4}\)?\s*$/;
+    const countryLabel = (label) =>
+      String(label)
+        .trim()
+        .replace(/^\p{Regional_Indicator}{2}\s*/u, "")
+        .replace(/^\(?\+\d{1,4}\)?\s+/, "")
+        .replace(dialingCode, "");
     function countrySpec(value) {
       const result = literalSpec("country", value);
       if (!result) return null;
       const loose = JobsOptionMatch?.loose || normalize;
       result.equals = (label, alias) =>
-        loose(String(label).replace(dialingCode, "")) === loose(alias);
+        loose(countryLabel(label)) === loose(alias);
       const known = countryCatalog.find(
         ([code]) => code === country(value, { exact: true }),
       );
@@ -726,6 +742,7 @@ export function initializeProfileAnswers() {
     }
     /** @param {string} value @param {{fluent?:boolean}} [options] */
     function languageSpec(value, { fluent } = {}) {
+      value = value || (fluent === true ? "Fluent" : "");
       const result = literalSpec("language_proficiency", value);
       if (!result) return null;
       const groups = [
@@ -749,6 +766,13 @@ export function initializeProfileAnswers() {
         group.some((alias) => normalize(alias) === normalize(value)),
       );
       result.tiers = [level >= 0 ? groups[level] : [value.trim()]];
+      // Catalog ranks decorate the level; they do not change its meaning.
+      // Keep this equivalence local to language proficiency, not all options.
+      const labelKey = (label) =>
+        normalize(label)
+          .replace(/^\d+\s*[.)\-:–—]\s*/, "")
+          .replace(/\s*\(\d+\)$/, "");
+      result.equals = (label, alias) => labelKey(label) === labelKey(alias);
       // A broad fluent/high category is supported by explicit fluency or full
       // professional/native proficiency. It never implies native identity.
       if (level >= 3 || fluent === true || normalize(value) === "fluent")
@@ -866,6 +890,9 @@ export function initializeProfileAnswers() {
         query: "",
         queries,
         origin: list ? "profile_preference" : "default",
+        // Source preferences guide empty fields, not validation of a choice
+        // already kept by the site. Explicit application facts stay strict.
+        preferenceOnly: true,
         equals: sourceEquals,
         ...(allowFirst
           ? { fallback: "first-authorized", acceptFallback: ordinary }
@@ -1083,7 +1110,11 @@ export function initializeProfileAnswers() {
             additional: false,
             match(question, context) {
               const q = normalize(question).replace(/[\s*✱]+$/g, "");
-              if (/\bgraduat(?:e|ed|ing|ion)\b|degree completion/.test(q)) {
+              if (
+                /\bgraduat(?:e|ed|ing|ion)\b|degree completion|^when do you expect to complete your degree program[?.:]?$/.test(
+                  q,
+                )
+              ) {
                 if (
                   /\b(?:high school|secondary|master|ph\.?d|doctor|spring|summer|fall|autumn|winter|term|timeline|push|delay|extend|before|after|between|within|range|eligible|attending|university of|georgia tech)\b/.test(
                     q,
@@ -1132,11 +1163,11 @@ export function initializeProfileAnswers() {
               const education = /** @type {Array<[string,RegExp]>} */ ([
                 [
                   "school",
-                  /^(?:please select your school from the list|name of (?:your )?(?:school|college|university)|(?:school|college|university)(?: name)?|(?:what|which) (?:school|college|university) (?:(?:do|did) you (?:currently )?attend|are you (?:currently )?attending)|what is the name of the school or institution you currently attend or most recently attended)[?:.]?$/,
+                  /^(?:please select your school from the list|name of (?:your )?(?:school|college|university)|(?:school|college|university|school \/ university)(?: name)?|(?:what|which) (?:school|college|university) (?:(?:do|did) you (?:currently )?attend|are you (?:currently )?attending)|what is the name of the school or institution you currently attend or most recently attended)[?:.]?$/,
                 ],
                 [
                   "fieldOfStudy",
-                  /^(?:undergrad(?:uate)? disciplines?(?:\(s\))?|please select your major from the list|(?:school |college |university )?major|(?:primary )?field of study|what is(?:\/was)? your (?:major(?: or field of study)?|field of study)|please indicate your program major|what major \/ area of study are you pursuing)[?:.]?$/,
+                  /^(?:undergrad(?:uate)? disciplines?(?:\(s\))?|please select your major from the list|(?:school |college |university )?major|(?:primary )?field of study|major \/ field of study|what is(?:\/was)? your (?:major(?: or field of study)?|field of study)|please indicate your program major|what major \/ area of study are you pursuing)[?:.]?$/,
                 ],
                 [
                   "degree",
@@ -1161,9 +1192,7 @@ export function initializeProfileAnswers() {
             priority: 16,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:what|which) (?:degree|degree program) are you (?:currently )?enrolled in[?.:]?$/.test(
                   q,
@@ -1183,9 +1212,7 @@ export function initializeProfileAnswers() {
             priority: 18,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:are you in school|are you currently enrolled in a degree[- ]seeking program)[?.:]?$/.test(
                   q,
@@ -1204,9 +1231,7 @@ export function initializeProfileAnswers() {
             priority: 19,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (/^start date at (?:your )?current school[?.:]?$/.test(q))
                 return {
                   topic: "education_start",
@@ -1220,9 +1245,7 @@ export function initializeProfileAnswers() {
             priority: 20,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^please re[- ]confirm the university you currently attend[?.:]?$/.test(
                   q,
@@ -1241,9 +1264,7 @@ export function initializeProfileAnswers() {
             priority: 21,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:what is the highest level of education you are pursuing or have completed|what degree level are you currently pursuing, or have you most recently completed|please confirm your highest level of study\. \(this should be either your current study level or the most recently completed one, if you recently completed\.\))[?.:]?$/.test(
                   q,
@@ -1262,9 +1283,7 @@ export function initializeProfileAnswers() {
             priority: 22,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^for your current \/ most recent education please provide result scale[?.:]?$/.test(
                   q,
@@ -1282,9 +1301,7 @@ export function initializeProfileAnswers() {
             priority: 23,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^what is your current overall gpa \(please convert to 4\.0 scale\)\s*[?.:]?$/.test(
                   q,
@@ -1304,9 +1321,7 @@ export function initializeProfileAnswers() {
             priority: 24,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^if you are currently enrolled in a degree program \(bs, ms or phd\) or have just completed one, please indicate your gpa[?.:]?$/.test(
                   q,
@@ -1325,9 +1340,7 @@ export function initializeProfileAnswers() {
             priority: 31,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:please confirm the highest level of education that you have completed|please indicate the highest level of education you have completed|what is your highest level of education achieved)[?.:]?$/.test(
                   q,
@@ -1346,9 +1359,7 @@ export function initializeProfileAnswers() {
             priority: 36,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:what(?: is|'s) (?:your |the )?|please (?:provide|select|indicate) your )?(?:highest (?:level of )?(?:completed|attained) (?:education|degree)|highest (?:degree|level of education|education level) (?:(?:you have )?(?:completed|attained|earned))|highest educational qualification)[?.:]?$/.test(
                   q,
@@ -1367,11 +1378,9 @@ export function initializeProfileAnswers() {
             priority: 50,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
-                /^(?:are you (?:currently )?(?:enrolled|attending|studying)(?: (?:in|at) (?:a |an )?(?:college|university|school|degree program))?|are you (?:currently )?a student|current(?:ly)? student|still student)[?.:]?$/.test(
+                /^(?:are you (?:currently )?(?:enrolled|attending|studying)(?: (?:in|at) (?:a |an )?(?:college|university|school|degree program)| and actively pursuing a degree)?|are you (?:currently )?a student|current(?:ly)? student|still student)[?.:]?$/.test(
                   q,
                 )
               )
@@ -1388,9 +1397,7 @@ export function initializeProfileAnswers() {
             priority: 58,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (/^education end (?:month|year)[?.:]?$/.test(q))
                 return {
                   topic: "graduation",
@@ -1420,17 +1427,15 @@ export function initializeProfileAnswers() {
             priority: 59,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               const education = /** @type {Array<[string,RegExp]>} */ ([
                 [
                   "school",
-                  /^(?:please select your school from the list|name of (?:your )?(?:school|college|university)|(?:current )?(?:school|college|university)(?: name)?|(?:what|which) (?:school|college|university) (?:(?:do|did) you (?:currently )?attend|are you (?:currently )?attending)|what is the name of the school or institution you currently attend or most recently attended)[?:.]?$/,
+                  /^(?:please select your school from the list|name of (?:your )?(?:school|college|university)|(?:current )?(?:school|college|university|school \/ university)(?: name)?|(?:what|which) (?:school|college|university) (?:(?:do|did) you (?:currently )?attend|are you (?:currently )?attending)|what is the name of the school or institution you currently attend or most recently attended)[?:.]?$/,
                 ],
                 [
                   "fieldOfStudy",
-                  /^(?:undergrad(?:uate)? disciplines?(?:\(s\))?|please select your major from the list|(?:school |college |university )?major(?:\(s\))?|(?:primary )?field of study|what is(?:\/was)? your (?:major(?: or field of study)?|field of study)|please indicate your program major|what major \/ area of study are you pursuing)[?:.]?$/,
+                  /^(?:undergrad(?:uate)? disciplines?(?:\(s\))?|please select your major from the list|(?:school |college |university )?major(?:\(s\))?|(?:primary )?field of study|major \/ field of study|what is(?:\/was)? your (?:major(?: or field of study)?|field of study)|please indicate your program major|what major \/ area of study are you pursuing)[?:.]?$/,
                 ],
                 [
                   "degree",
@@ -1468,7 +1473,7 @@ export function initializeProfileAnswers() {
             match(question, context) {
               const q = normalize(question).replace(/[\s*✱]+$/g, "");
               if (
-                /^(?:how did you (?:hear|learn) about (?:us|this (?:job|role|position|opportunity)|our company)|where did you (?:hear about|find|see) (?:us|this (?:job|role|position|opportunity))|(?:application|applicant|candidate|recruiting|referral) source|source)[?:.]?$/.test(
+                /^(?:how did you (?:first )?(?:hear|learn) about (?:us|this (?:job|role|position|opportunity|internship)|our company|[a-z][a-z0-9 &'’.-]{1,70}(?: as an employer)?)|(?:tell us )?how you heard about [a-z][a-z0-9 &'’.-]{1,70}(?: and this job)?|where did you (?:hear about|find|see) (?:us|this (?:job|role|position|opportunity|internship))|(?:application|applicant|candidate|recruiting|referral) source|source)[?!:.]*$/.test(
                   q,
                 )
               )
@@ -1598,9 +1603,7 @@ export function initializeProfileAnswers() {
             priority: 17,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:what is your current location|where are you based)[?.:]?$/.test(
                   q,
@@ -1619,9 +1622,7 @@ export function initializeProfileAnswers() {
             priority: 30,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:please confirm your visa type|please indicate your current us employment visa status)[?.:]?$/.test(
                   q,
@@ -1640,11 +1641,9 @@ export function initializeProfileAnswers() {
             priority: 34,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
-                /^(?:(?:what (?:is|are)|please (?:provide|specify|share|select|indicate)) (?:your )?)?(?:preferred )?(?:gender )?pronouns(?: do you use)?[?.:]?$/.test(
+                /^(?:(?:what (?:is|are)|please (?:provide|specify|share|select|indicate)) (?:your )?)?(?:preferred |personal )?(?:gender )?pronouns(?: do you use)?[?.:]?$/.test(
                   q,
                 )
               )
@@ -1661,9 +1660,7 @@ export function initializeProfileAnswers() {
             priority: 37,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:what is your |please (?:specify|provide|select) your )?(?:current )?(?:visa(?: \/ immigration)? (?:type|status)|immigration status|immigration \/ visa status)[?.:]?$/.test(
                   q,
@@ -1682,14 +1679,12 @@ export function initializeProfileAnswers() {
             priority: 45,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               const personal = /** @type {Array<[string,string,RegExp]>} */ ([
                 [
                   "name",
                   "nameData.fullName",
-                  /^(?:legal name|full (?:legal )?name|your full name|what is your (?:full |legal )?name|please (?:enter|provide) your full (?:legal )?name(?:,? as (?:it )?appears (?:on|in) [^?]{1,80})?)[?:.]?$/,
+                  /^(?:legal name|full (?:legal )?name|your full name|what is your (?:full |legal )?name|please (?:enter|provide|state) your full (?:legal )?name(?:,? as (?:it )?appears (?:on|in) [^?]{1,80})?)[?:.]?$/,
                 ],
                 [
                   "name",
@@ -1764,7 +1759,7 @@ export function initializeProfileAnswers() {
                 [
                   "address",
                   "addressData.state",
-                  /^(?:state|province|state\s*\/\s*province|state or province|state of residence)[?:.]?$/,
+                  /^(?:state|province|state\s*\/\s*province|state or province|state of residence|which u\.s\. state or canadian province do you reside in)[?:.]?$/,
                 ],
                 [
                   "address",
@@ -1894,9 +1889,7 @@ export function initializeProfileAnswers() {
             priority: 41,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:are you (?:currently )?(?:(?:legally|lawfully) )?(?:authori[sz]ed|eligible|permitted) to work(?: (?:in|within) .+)?|do you (?:currently )?have (?:the )?(?:legal )?(?:right|authorization) to work(?: in .+)?)[?.]?$/.test(
                   q,
@@ -1996,9 +1989,7 @@ export function initializeProfileAnswers() {
             priority: 14,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:how many (?:working )?hours (?:per|a|each) week (?:are you (?:available|able) to work|can you (?:work|commit(?: to working)?)|would you be available to work)|how many hours (?:are you (?:available|able) to work|can you work) (?:per|a|each) week|(?:available )?(?:working )?hours per week|weekly (?:work )?availability \(hours\)|每周(?:可以|可|能)?工作(?:多少小时|时长))[?.:？：]?$/.test(
                   q,
@@ -2016,9 +2007,7 @@ export function initializeProfileAnswers() {
             priority: 15,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               const hours = q.match(
                 /^(?:are you (?:available|able) to work|can you (?:work|commit to(?: working)?)) (?:at least )?(\d+(?:\.\d+)?) hours (?:per|a|each) week[?.:]?$/,
               );
@@ -2036,11 +2025,9 @@ export function initializeProfileAnswers() {
             priority: 32,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
-                /^(?:when can you start a new job|what's your earliest start date|(?:when|what date) are you available to begin employment(?: \(month and year\))?|if offered (?:a position, when would you be available to start|employment, how soon could you start work)|when would you be available to start work)[?.:]?$/.test(
+                /^(?:when can you start a new job|what's your earliest start date|(?:when|what date) are you available to begin employment(?: \(month and year\))?|if offered (?:a position, when would you be available to start|employment, how soon could you start work)|when would you be available (?:to start(?: work)?|if an offer was accepted)|please indicate the specific date you anticipate you'd be available to start a fulltime internship)[?.:]?$/.test(
                   q,
                 )
               )
@@ -2057,9 +2044,7 @@ export function initializeProfileAnswers() {
             priority: 38,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:when (?:can|could|would) you (?:start(?: working)?|begin(?: work)?)|(?:what is |please (?:provide|indicate) )?your (?:earliest |anticipated |available |availability )?(?:available )?(?:start|starting) date|(?:earliest |available |availability )?(?:start|starting) date|when (?:are|will) you (?:be )?available to (?:start|begin)(?: (?:work|working|employment|an internship))?)(?:\s*\([^)]*\))?[?.:]?$/.test(
                   q,
@@ -2078,9 +2063,7 @@ export function initializeProfileAnswers() {
             priority: 39,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^availability(?:\s*\(month \/ day \/ year\))?[?.:]?$/.test(q)
               )
@@ -2109,11 +2092,9 @@ export function initializeProfileAnswers() {
             priority: 25,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
-                /^(?:what is your race\s*\/\s*ethnicity|please select race\s*\/\s*ethnicity|which ethnicity\(ies\) do you identify with\? please select all that apply)[?.:]?$/.test(
+                /^(?:what is your race\s*\/\s*ethnicity|please select race\s*\/\s*ethnicity|which ethnicity\(ies\) do you identify with\? please select all that apply|race \(\*?please select one option that best describes how you identify\*?\))[?.:]?$/.test(
                   q,
                 )
               )
@@ -2130,9 +2111,7 @@ export function initializeProfileAnswers() {
             priority: 26,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^what is your gender\? please note, you will be able to select your gender identity in the next question[?.:]?$/.test(
                   q,
@@ -2151,9 +2130,7 @@ export function initializeProfileAnswers() {
             priority: 42,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^are you (?:(?:at least|over the age of) (\d{1,2})(?: years old| years of age)?|(?:(\d{1,2})(?: years old| years of age)? (?:or (?:older|above)|and over)))[?.]?$/.test(
                   q,
@@ -2172,9 +2149,7 @@ export function initializeProfileAnswers() {
             priority: 43,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^are you (?:under (?:the age of )?|younger than )(\d{1,2})(?: years old| years of age)?[?.]?$/.test(
                   q,
@@ -2193,9 +2168,7 @@ export function initializeProfileAnswers() {
             priority: 44,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (/^(?:age|what is your age|how old are you)[?.:]?$/.test(q))
                 return {
                   topic: "age",
@@ -2209,11 +2182,9 @@ export function initializeProfileAnswers() {
             priority: 46,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
-                /^(?:are you hispanic or latino|hispanic or latino|hispanic \/ latino)[?.:]?$/.test(
+                /^(?:are you hispanic or latin[ox]|hispanic or latin[ox]|hispanic \/ latin[ox])[?.:]?$/.test(
                   q,
                 )
               )
@@ -2229,11 +2200,9 @@ export function initializeProfileAnswers() {
             priority: 47,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
-                /^(?:are you a veteran|veteran status|veteran|please (?:select|indicate) (?:the |your )?veteran status (?:which|that) most accurately describes your status)[?.:]?$/.test(
+                /^(?:are you a veteran|veterans?\s*(?:\/\s*military\s*)?status|veteran|please select from the veteran statuses below|please (?:select|indicate) (?:the |your )?veteran status(?:(?: which| that) most accurately describes your status|\. to see if you classify as a protected veteran, please click on the link provided above)?)[?.:]?$/.test(
                   q,
                 )
               )
@@ -2249,11 +2218,9 @@ export function initializeProfileAnswers() {
             priority: 48,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
-                /^(?:protected veteran status|are you (?:a |an? )?protected veteran|do you identify as (?:a )?protected veteran)[?.:]?$/.test(
+                /^(?:protected veteran status|are you (?:a |an? )?protected veteran(?:\? \(veteran status definitions can be found in the instructions above\))?|do you identify as (?:a )?protected veteran|do you identify as one of the following protected veterans \(disabled veteran, recently separated veteran, active duty wartime or campaign badge veteran, armed forces service medal veteran\))[?.:]?$/.test(
                   q,
                 )
               )
@@ -2270,9 +2237,7 @@ export function initializeProfileAnswers() {
             priority: 49,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:do you have a disability|disability status|disability)[?.:]?$/.test(
                   q,
@@ -2319,9 +2284,7 @@ export function initializeProfileAnswers() {
             priority: 27,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^indicate your proficiency of the english language[?.:]?$/.test(
                   q,
@@ -2339,9 +2302,7 @@ export function initializeProfileAnswers() {
             priority: 33,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^preferred programming language\(s\)[?.:]?$/.test(q) ||
                 /^if you were to join us for a technical interview, what is your preferred coding language when answering general coding questions\? you may interview in (?:any coding language of your preference\.|any of the 7 coding language options listed below:)$/.test(
@@ -2361,9 +2322,7 @@ export function initializeProfileAnswers() {
             priority: 35,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:what is your |please (?:select|specify|provide) your )?(?:preferred|primary|first.choice) (?:interview |coding interview )?(?:programming|coding) language(?: for (?:the |your )?(?:technical |coding )?interview)?[?.:]?$/.test(
                   q,
@@ -2385,9 +2344,7 @@ export function initializeProfileAnswers() {
             priority: 56,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:english proficiency|english language proficiency|what is your level of english(?: proficiency)?)[?.:]?$/.test(
                   q,
@@ -2405,9 +2362,7 @@ export function initializeProfileAnswers() {
             priority: 57,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:are you fluent in english|do you speak english fluently)[?.:]?$/.test(
                   q,
@@ -2436,9 +2391,7 @@ export function initializeProfileAnswers() {
             priority: 28,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:have you previously completed at least (?:1|one) internship or have relevant full-time experience|did you previously work or are you currently working as an intern or a co-op)[?.:]?$/.test(
                   q,
@@ -2456,9 +2409,7 @@ export function initializeProfileAnswers() {
             priority: 51,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:current or (?:most )?recent employer|(?:most )?recent employer|name of (?:your )?(?:current or (?:most )?recent|(?:most )?recent) employer)[?.:]?$/.test(
                   q,
@@ -2477,9 +2428,7 @@ export function initializeProfileAnswers() {
             priority: 52,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:current employer|current company|name of (?:your )?current employer)[?.:]?$/.test(
                   q,
@@ -2499,9 +2448,7 @@ export function initializeProfileAnswers() {
             priority: 53,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:current job title|current position title)[?.:]?$/.test(q)
               )
@@ -2519,9 +2466,7 @@ export function initializeProfileAnswers() {
             priority: 54,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:have you (?:previously )?(?:completed|had|done) (?:at least )?(?:one |an |a )?(?:prior |previous )?internship|do you have (?:any )?(?:prior |previous )?internship experience)[?.:]?$/.test(
                   q,
@@ -2550,9 +2495,7 @@ export function initializeProfileAnswers() {
             priority: 29,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^which scripting\s*\/\s*programming languages do you have experience with[?.:]?$/.test(
                   q,
@@ -2571,9 +2514,7 @@ export function initializeProfileAnswers() {
             priority: 55,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /^(?:skills|technical skills|list (?:your )?(?:technical )?skills)[?.:]?$/.test(
                   q,
@@ -2604,9 +2545,7 @@ export function initializeProfileAnswers() {
             priority: 40,
             additional: true,
             match(question, context) {
-              const q = normalize(question)
-                .replace(/[\s*✱]+$/g, "")
-                .replace(/\s*\((?:optional|required)\)([?:.]?)$/, "$1");
+              const q = questionText(question);
               if (
                 /\b(?:salary|compensation|pay|remuneration|hourly rate|wage)\b/.test(
                   q,
@@ -2731,6 +2670,7 @@ export function initializeProfileAnswers() {
         );
       const willingness =
         acknowledgement ||
+        /^can you work (?:from|at|in)\b/.test(q) ||
         /\b(?:are you|would you be|will you be|do you|can you|are or will you be)\s+(?:(?:also|still|currently)\s+)?(?:willing(?:\s*(?:and|or|\/)\s*able)?|able|available|open|interested|prepared|intend)|\bare you able to comply\b|\bis this acceptable to you\b/.test(
           q,
         );
@@ -2755,7 +2695,7 @@ export function initializeProfileAnswers() {
         /\bon[ -]?site\b|\bin[ -]?office\b|\bhybrid\b|\b(?:office|headquarters|hq)\b/.test(
           q,
         ) &&
-        /\b(?:work|working|come|coming|commute|adhere|comply|require\w*|schedule|onsite|on-site)\b/.test(
+        /\b(?:work|working|being|come|coming|commute|adhere|comply|require\w*|schedule|onsite|on-site)\b/.test(
           q,
         )
       )
@@ -4282,15 +4222,18 @@ export function initializeProfileAnswers() {
           "",
         )
         .replace(/\bin order to\b/g, "to")
+        // An employer is not a country: retain the actual location after it.
+        .replace(/\bwork for [^?.:;]+? (in|within) /g, "work $1 ")
         // Examples in parentheses and what the sponsorship is for (a visa, work authorization) are not places.
         .replace(/\s*\([^)]*\)/g, "")
         .replace(
-          /\b(sponsorship|sponsored|sponsoring) for (?:an? |the )?(?:(?:work|employment|employment-based|immigration|h-?1b|tn|o-1|e-3|l-1)[ -]?)*(?:authori[sz]ation|visas?|visa status|status|permit)\b/g,
+          /\b(sponsorship|sponsored|sponsoring) for (?:an? |the )?(?:(?:united states|united kingdom|canadian|work|employment|employment-based|immigration|h-?1b|tn|o-1|e-3|l-1)[ -]?)*(?:authori[sz]ation|visas?|visa status|status|permit)\b/g,
           "$1",
-        );
+        )
+        .replace(/\bsponsorship for employment\b/g, "sponsorship");
       const locations = [
         ...text.matchAll(
-          /\b(?:work|employment|employed|sponsorship|sponsored|sponsoring|authorization|authorisation|authorized|authorised|eligible|permitted) (?:in|within|for) (?:the )?([^?.:;]+)(?:[?.:;]|$)/g,
+          /\b(?:(?:work|employment|employed|authorization|authorisation|authorized|authorised|eligible|permitted) (?:in|within)|(?:sponsorship|sponsored|sponsoring) (?:in|within|for)) (?:the )?([^?.:;]+)(?:[?.:;]|$)/g,
         ),
       ];
       const named = [];
@@ -4304,7 +4247,7 @@ export function initializeProfileAnswers() {
           .replace(/\s+for any (?:employer|company)$/, "");
         if (
           !location ||
-          /^(?:country (?:where|in which) (?:the |this )?job (?:is )?(?:located|based)|country of (?:employment|the (?:job|position))|this country|your country|(?:this|the) (?:job|position|role)|employment)$/.test(
+          /^(?:country (?:(?:where|in which) (?:the |this )?(?:job|position|role) (?:(?:is|will be) )?(?:located|based)|for which you are applying|you are applying to work in)|country of (?:employment|the (?:job|position))|this country|your country|(?:this|the) (?:job|position|role)|employment)$/.test(
             location,
           )
         )
@@ -4616,7 +4559,50 @@ export function initializeProfileAnswers() {
             )
           : item,
       );
+    // Follow-up eligibility comes only from explicit labels on the parent
+    // question. It never infers personal facts from a selected category.
+    function followup(question, { options = [], selected = [] } = {}) {
+      const wording = String(question || "")
+        .replace(/^\s*(?:\(optional\)\s*)?/i, "")
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'");
+      if (
+        !/^if\s+(?:(?:you\s+)?(?:selected|select|chose|choose|answered|answer)\b|yes\b|no\b|other\b|["'])/i.test(
+          wording,
+        )
+      )
+        return null;
+      const unresolved = { active: null };
+      const branch = wording.match(
+        /^if\s+(?:(?:you\s+)?(?:selected|select|chose|choose|answered|answer)\s+)?((?:"[^"]+"|'[^']+'|yes\b|no\b|other\b)(?:\s+(?:or|and\/or)\s+(?:"[^"]+"|'[^']+'|yes\b|no\b|other\b))*)/i,
+      );
+      if (!branch || !selected.length) return unresolved;
+      const label = (value) =>
+        String(value)
+          .normalize("NFKC")
+          .trim()
+          .replace(/[.,:;!?]+$/, "")
+          .toLowerCase();
+      const expected = [
+        ...branch[1].matchAll(/"([^"]+)"|'([^']+)'|\b(yes|no|other)\b/gi),
+      ].map((match) => label(match[1] || match[2] || match[3]));
+      const available = options.map(label);
+      if (
+        !expected.every((value) => available.includes(value)) ||
+        !selected.every((value) => available.includes(label(value)))
+      )
+        return unresolved;
+      const tail = wording.slice(branch[0].length);
+      // An explicit invitation to expand also permits other selected options.
+      if (/^\s+or\s+(?:would like|want)\b/i.test(tail)) return { active: true };
+      // Do not guess the meaning of a partially parsed compound condition.
+      if (/^\s+(?:and|or|but|not)\b/i.test(tail)) return unresolved;
+      return {
+        active: selected.some((value) => expected.includes(label(value))),
+      };
+    }
     JobsProfileAnswers = Object.freeze({
+      followup,
       topicRegistry,
       savedAnswerPolicy,
       classify,

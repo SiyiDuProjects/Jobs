@@ -130,10 +130,19 @@ test("Comeet bindings answer gender, ethnicity and disability from the Profile; 
         "Disability:No, I do not have a disability",
       ],
     ],
-    // Explicit empty gender/race choices carry the nondisclosure preference; missing facts stay unanswered.
+    // Explicit nondisclosure remains supported; empty facts stay unanswered.
+    [
+      {
+        gender: "I choose not to disclose",
+        ethnicity: "I choose not to disclose",
+        veteran: undefined,
+        disability: undefined,
+      },
+      ["Gender:Prefer not to say", "Ethnicity:Prefer not to say"],
+    ],
     [
       { gender: "", ethnicity: "", veteran: undefined, disability: undefined },
-      ["Gender:Prefer not to say", "Ethnicity:Prefer not to say"],
+      [],
     ],
     [
       { gender: "Male", ethnicity: "White", veteran: true, disability: true },

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { measure } from "./source-metrics.mjs";
 import { format } from "prettier";
 const root = new URL("../", import.meta.url),
-  baselineCommit = "257a15f";
+  baselineCommit = process.argv[2] || "HEAD";
 const config = [
   ["src/custom/automatic-fill.js", ["advance", "run"]],
   ["src/custom/control-fields.js", ["scan"]],

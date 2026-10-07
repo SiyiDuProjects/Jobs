@@ -6,12 +6,12 @@ const entry=new URL('../src/main.tsx',import.meta.url).pathname.replace(/^\/(\w:
 const bundle=(await build({entryPoints:[entry],bundle:true,write:false,format:'iife',platform:'browser',loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
 const tick=()=>new Promise(r=>setTimeout(r,20));
 async function until(check){for(let i=0;i<100;i++){if(check())return;await tick();}assert(check(),'Board did not reach expected state');}
-async function page(statsFail=false,jobState={}){
+async function page(statsFail=false,jobState={},saved={}){
  const errors=[],vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));vc.on('error',e=>errors.push(String(e)));
  const dom=new JSDOM('<body><div id="root"></div></body>',{url:'https://fixture.test/',runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc}),w=dom.window,requests=[];
  w.matchMedia=()=>({matches:false,addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}});
  w.ResizeObserver=class{observe(){}unobserve(){}disconnect(){}};w.IntersectionObserver=class{observe(){}unobserve(){}disconnect(){}};
- w.HTMLElement.prototype.scrollIntoView=()=>{};
+ w.HTMLElement.prototype.scrollIntoView=()=>{};w.HTMLElement.prototype.getAnimations=()=>[];
  w.CSS={escape:value=>String(value).replace(/[^\w-]/g,c=>'\\'+c),supports:()=>false};
  w.fetch=async(path)=>{
   const u=new URL(path,w.location.href);requests.push(u.pathname+u.search);let value;
@@ -26,6 +26,7 @@ async function page(statsFail=false,jobState={}){
   else throw Error('Unexpected URL '+path);
   return {ok:true,json:async()=>structuredClone(value)};
  };
+ for(const [key,value] of Object.entries(saved))w.localStorage.setItem(key,JSON.stringify(value));
  w.eval(bundle);
  try{await until(()=>w.document.body.textContent.includes('Fixture Engineer Page 1'));}
  catch(error){const details=JSON.stringify({errors,requests,text:w.document.body.textContent});w.close();throw Error(error.message+' '+details);}
@@ -59,4 +60,37 @@ test('all unsubmitted jobs retain the single Apply action and unsubmitted label'
    assert.deepEqual(h.errors,[]);
   }finally{h.dom.window.close();}
  }
+});
+
+const lastJobs=h=>new URL(h.requests.filter(p=>p.startsWith('/api/jobs?')).at(-1),'https://fixture.test').searchParams;
+const toggle=h=>[...h.w.document.querySelectorAll('input')].filter(n=>n.type==='checkbox');
+test('region and employer switches have independent defaults and remember both kinds',async()=>{
+ const h=await page();try{
+  assert.equal(lastJobs(h).get('region'),'focus_remote');
+  assert.equal(lastJobs(h).get('company_newgrad'),'');
+  assert.equal(lastJobs(h).get('company_internship'),'1');
+  assert.equal(toggle(h).length,2);
+  toggle(h)[1].click();await until(()=>lastJobs(h).get('company_newgrad')==='1');
+  assert.equal(lastJobs(h).get('region'),'focus_remote');
+  toggle(h)[0].click();await until(()=>lastJobs(h).get('region')==='');
+  assert.equal(lastJobs(h).get('company_newgrad'),'1');
+  const intern=[...h.w.document.querySelectorAll('[role="tab"],button')].find(n=>n.textContent==='实习');
+  assert(intern);intern.click();await until(()=>lastJobs(h).get('kind')==='internship');
+  assert.equal(lastJobs(h).get('company_internship'),'1');
+  await until(()=>toggle(h).length===2);
+  toggle(h)[1].click();await until(()=>lastJobs(h).get('company_internship')==='');
+  assert.equal(lastJobs(h).get('company_newgrad'),'1');
+  assert(!h.w.document.body.textContent.includes('精简筛选'));
+  assert.deepEqual(h.errors,[]);
+ }finally{h.dom.window.close();}
+});
+test('legacy preferences preserve explicit exclusions and strict regions during migration',async()=>{
+ const h=await page(false,{}, {'radar-filters-shared-v5':{region:'ca',compact:false,intern_companies:'1',exclude_companies:'Custom Employer',status:'submitted'}});
+ try{
+  const p=lastJobs(h);assert.equal(p.get('region'),'ca');assert.equal(p.get('exclude_companies'),'Custom Employer');
+  assert.equal(p.get('status'),'submitted');assert.equal(p.get('company_newgrad'),'');assert.equal(p.get('company_internship'),'1');
+  assert(!p.has('compact'));assert(!p.has('intern_companies'));
+  assert(h.w.document.body.textContent.includes('仅加州，不使用公司豁免'));
+  assert(h.requests.filter(p=>p.startsWith('/api/filter-counts')).every(p=>p.includes('company_newgrad=')&&p.includes('company_internship=1')));
+ }finally{h.dom.window.close();}
 });

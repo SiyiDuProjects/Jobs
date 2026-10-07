@@ -74,7 +74,7 @@ def test_trash_mcp_sync_idempotence_and_no_resurrection(board):
     with pytest.raises(ValueError,match='expired'):decision(board,state='restore',key='expired-restore')
 
 def test_sponsorship_internship_guard_and_manual_restore(board):
-    with pytest.raises(ValueError,match='internships'):decision(board,kind='internship',reason='no_sponsorship')
+    with pytest.raises(ValueError,match='explicit'):decision(board,kind='internship',reason='no_sponsorship')
     decision(board)
     decision(board,state='restore',key='restore-001')
     assert board.list()['jobs'][0]['review']['manual_keep']==1

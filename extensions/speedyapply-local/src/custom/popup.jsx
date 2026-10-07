@@ -10,9 +10,12 @@ import {
 } from "@heroui/react";
 import { EmptyState, Segment } from "@heroui-pro/react";
 import { JobsBrand } from "./brand.js";
+import { JobsBuildInfo } from "./build-info.js";
 import { createPopupProfiles } from "./popup-profiles.js";
 import { createPopupJob } from "./popup-job.js";
+import { PanelProgress } from "./panel-progress.jsx";
 import { PopupAccount } from "./popup-account.jsx";
+import { PopupAutofill } from "./popup-autofill.jsx";
 
 function useController(create, initial) {
   const [state, setState] = useState(initial);
@@ -27,6 +30,20 @@ function useController(create, initial) {
 }
 
 export function Popup() {
+  const [versionNotice, setVersionNotice] = useState("");
+  useEffect(() => {
+    chrome.runtime
+      .sendMessage({ type: "jobs:runtime-version", build: JobsBuildInfo.id })
+      .then((version) => {
+        if (!version?.running || version.reloadRequired)
+          setVersionNotice(
+            "插件已更新。请先保存正在填写的内容，再到扩展管理页重新加载插件；无需刷新申请网页。",
+          );
+      })
+      .catch(() =>
+        setVersionNotice("暂时无法核对插件版本，请检查扩展是否已重新加载。"),
+      );
+  }, []);
   const [profile, profiles] = useController(createPopupProfiles, {
     message: "正在读取当前档案…",
   });
@@ -48,6 +65,12 @@ export function Popup() {
           <Link.Icon />
         </Link>
       </header>
+      {versionNotice && (
+        <p className="popup-hint" role="status">
+          {versionNotice}
+        </p>
+      )}
+      <PanelProgress />
       <section
         id="jobs-profile-switch"
         className="popup-section"
@@ -95,6 +118,8 @@ export function Popup() {
       </section>
       <Separator />
       <PopupAccount />
+      <Separator />
+      <PopupAutofill />
       <Separator />
       <section
         id="jobs-current-job"

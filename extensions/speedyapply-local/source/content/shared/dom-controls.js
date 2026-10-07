@@ -242,12 +242,16 @@ function jobsUploadResumeValue(
     ? jobsFindXPath(selector, jobsIsDocumentNode(root) ? root : void 0)
     : root.querySelector(selector);
   if (input) {
-    let t = jobsPdfFileFromBase64(resume.resumeBase64, resume.fileName),
-      n = new DataTransfer();
-    (n.items.add(t),
-      (input.files = n.files),
-      JobsPageActions.dispatch(input, new Event(`input`, { bubbles: !0 })),
-      JobsPageActions.dispatch(input, new Event(`change`, { bubbles: !0 })));
+    const run = () => {
+      let t = jobsPdfFileFromBase64(resume.resumeBase64, resume.fileName),
+        n = new DataTransfer();
+      (n.items.add(t),
+        (input.files = n.files),
+        JobsPageActions.dispatch(input, new Event(`input`, { bubbles: !0 })),
+        JobsPageActions.dispatch(input, new Event(`change`, { bubbles: !0 })));
+    };
+    const upload = JobsPlatformConfig.detect(input.ownerDocument).upload;
+    return upload ? upload(input, run) : run();
   }
 }
 function jobsDelay(milliseconds) {

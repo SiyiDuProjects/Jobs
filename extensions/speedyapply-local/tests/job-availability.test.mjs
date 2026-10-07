@@ -372,19 +372,29 @@ test("foreign senders, subframes, stale page URLs and arbitrary errors cannot en
   assert.equal(h.requests.length, 0);
 });
 
-test("native status presents removal text literally with accessible restore and dismiss controls", async () => {
+test("status sends literal removal text to the side panel and keeps restore/dismiss in its source document", async () => {
   const shell = await readModule(
     new URL("../source/content/shell.js", import.meta.url),
     "utf8",
   );
   const w = new JSDOM("<body/>", { url, runScripts: "outside-only" }).window;
-  let shadow,
+  let listener,
     restored = 0,
     dismissed = 0;
-  const attach = w.Element.prototype.attachShadow;
-  w.Element.prototype.attachShadow = function (options) {
-    shadow = attach.call(this, options);
-    return shadow;
+  const sent = [];
+  w.chrome = {
+    runtime: {
+      id: "fixture",
+      sendMessage: async (message) => {
+        sent.push(message);
+      },
+      onMessage: {
+        addListener: (fn) => {
+          listener = fn;
+        },
+        removeListener() {},
+      },
+    },
   };
   w.eval(shell);
   const presenter = w.statusPresenter({ onInvalidated() {} });
@@ -398,18 +408,20 @@ test("native status presents removal text literally with accessible restore and 
       dismissed++;
     },
   });
-  assert(shadow.textContent.includes("<script>private</script>"));
-  assert(!shadow.querySelector("script"));
-  const buttons = [...shadow.querySelectorAll("button")];
-  assert.deepEqual(
-    buttons.map((button) => button.textContent),
-    ["恢复", "关闭"],
-  );
-  buttons[0].click();
-  buttons[1].click();
+  await tick();
+  assert.equal(sent[0].text, "岗位已失效 <script>private</script>");
+  assert.equal(sent[0].canRestore, true);
+  assert(!w.document.querySelector("[data-jobs-ui]"));
+  const act = (action, source = { id: "fixture" }, id = sent[0].id) =>
+    new Promise((resolve) =>
+      listener({ type: "jobs:status-command", id, action }, source, resolve),
+    );
+  assert((await act("restore", { id: "other" })).error);
+  assert((await act("restore", { id: "fixture" }, "stale")).error);
+  await act("restore");
+  await act("dismiss");
   assert.equal(restored, 1);
   assert.equal(dismissed, 1);
-  assert(!w.document.querySelector("[data-jobs-ui]"));
   w.close();
 });
 

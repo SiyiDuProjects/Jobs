@@ -37,6 +37,31 @@ function setup(html) {
     ),
   };
 }
+test("a grouped Ashby field owns its required title without inheriting a parent question", async () => {
+  const h = setup(
+    group("Required interests", ["A", "B"]).replace(
+      'class="ashby-application-form-question-title"',
+      'class="ashby-application-form-question-title _required_fixture_91"',
+    ) +
+      '<div class="ashby-application-form-field-entry"><label class="ashby-application-form-question-title _required_fixture_91">Parent heading</label>' +
+      group("Optional interests", ["C", "D"]) +
+      "</div>",
+  );
+  try {
+    const [required, optional] = h.reader.scan();
+    assert.equal(required.public.required, true);
+    assert.equal(optional.public.required, false);
+    assert.equal(h.w.JobsControlFields.needsAnswer(required.public), true);
+    assert.equal(h.w.JobsControlFields.needsAnswer(optional.public), false);
+    await h.reader.apply(required, [required.public.options[0].value]);
+    assert.equal(
+      h.w.JobsControlFields.needsAnswer(h.reader.scan()[0].public),
+      false,
+    );
+  } finally {
+    h.w.close();
+  }
+});
 test("two Ashby checkbox questions stay two multiple-choice fields, not fifteen boolean questions", () => {
   const h = setup(
     group(

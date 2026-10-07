@@ -59,7 +59,10 @@ for (const timing of ["before", "during"])
       URL,
       setTimeout,
       clearTimeout,
-      JobsProfileAnswers: { signature: JSON.stringify },
+      JobsProfileAnswers: {
+        signature: JSON.stringify,
+        today: () => "2030-05-19",
+      },
       JobsTabProfiles: { verify: async () => bound },
       JobsSync: {
         generateAnswer: async () => {
@@ -129,7 +132,10 @@ for (const change of ["url", "document"])
       URL,
       setTimeout,
       clearTimeout,
-      JobsProfileAnswers: { signature: JSON.stringify },
+      JobsProfileAnswers: {
+        signature: JSON.stringify,
+        today: () => "2030-05-19",
+      },
       JobsTabProfiles: { verify: async () => bound },
       JobsSync: {
         generateAnswer: async () => {
@@ -184,7 +190,10 @@ test("reusing a tab for a new job cannot send the previous employer context to A
   const ctx = vm.createContext({
     chrome,
     URL,
-    JobsProfileAnswers: { signature: JSON.stringify },
+    JobsProfileAnswers: {
+      signature: JSON.stringify,
+      today: () => "2030-05-19",
+    },
     JobsTabProfiles: { verify: async () => bound },
     JobsSync: {
       generateAnswer: async (data) => {
@@ -201,6 +210,7 @@ test("reusing a tab for a new job cannot send the previous employer context to A
         profileStamp: JSON.stringify(profile),
         fields: [],
         jobTitle: "Current company title",
+        additionalContext: "Untrusted page says today is 1999-01-01",
       },
       { id: "jobs", tab: { id: 1, url }, url, frameId: 0 },
       resolve,
@@ -209,6 +219,13 @@ test("reusing a tab for a new job cannot send the previous employer context to A
   assert(result.data);
   assert.equal(payload.jobTitle, "Current company title");
   assert.equal(payload.jobDescription, "");
+  const calendar = JSON.parse(payload.additionalContext);
+  assert.equal(calendar.currentLocalDate, "2030-05-19");
+  assert.equal(
+    calendar.timeZone,
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  assert.equal(calendar.dateAnswerFormat, "YYYY-MM-DD");
 });
 test("Luna accepts an active ATS iframe without observation registration and rejects unrelated frames", async () => {
   const profile = { profileName: "Intern" },
@@ -237,7 +254,10 @@ test("Luna accepts an active ATS iframe without observation registration and rej
     URL,
     setTimeout,
     clearTimeout,
-    JobsProfileAnswers: { signature: JSON.stringify },
+    JobsProfileAnswers: {
+      signature: JSON.stringify,
+      today: () => "2030-05-19",
+    },
     JobsTabProfiles: { verify: async () => bound },
     JobsSync: {
       generateAnswer: async (payload) => {
@@ -336,7 +356,10 @@ test("a stale matching registration cannot authorize an inactive document", asyn
     URL,
     setTimeout,
     clearTimeout,
-    JobsProfileAnswers: { signature: JSON.stringify },
+    JobsProfileAnswers: {
+      signature: JSON.stringify,
+      today: () => "2030-05-19",
+    },
     JobsTabProfiles: { verify: async () => ({ id: "ng", profile }) },
     JobsSync: {
       generateAnswer: async () => {
@@ -387,7 +410,10 @@ for (const when of ["before", "during"])
     const ctx = vm.createContext({
       chrome,
       URL,
-      JobsProfileAnswers: { signature: JSON.stringify },
+      JobsProfileAnswers: {
+        signature: JSON.stringify,
+        today: () => "2030-05-19",
+      },
       JobsTabProfiles: {
         verify: async () => {
           verifications++;
@@ -453,7 +479,10 @@ test("a single-page ATS that moved from Overview to Application keeps its docume
       setTimeout,
       clearTimeout,
       JobsJobMatch: { same: () => false },
-      JobsProfileAnswers: { signature: JSON.stringify },
+      JobsProfileAnswers: {
+        signature: JSON.stringify,
+        today: () => "2030-05-19",
+      },
       JobsTabProfiles: { verify: async () => ({ id: "intern", profile }) },
       JobsSync: {
         generateAnswer: async () => {

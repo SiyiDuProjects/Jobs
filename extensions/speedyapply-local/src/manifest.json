@@ -13,9 +13,8 @@
     "unlimitedStorage",
     "tabs",
     "alarms",
-    "scripting"
+    "scripting",
+    "sidePanel"
   ],
-  "host_permissions": [
-    "https://*/*"
-  ]
+  "host_permissions": ["https://*/*"]
 }

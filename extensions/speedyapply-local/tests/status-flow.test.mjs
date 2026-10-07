@@ -1,3 +1,4 @@
+import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -63,6 +64,7 @@ function setup(html = "<label>Answer<input required></label>", resolveAnswers) {
     },
   };
   code.forEach((source) => w.eval(source));
+  mountReviewPanel(w);
   w.JobsPageSession = { root: () => w.document.querySelector("main") };
   w.JobsAnswerMemory.start(w.document, true, (rows) => {
     learned.push(...rows);

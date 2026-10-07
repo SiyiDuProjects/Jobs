@@ -1,3 +1,4 @@
+import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -41,6 +42,7 @@ function setup() {
     },
   });
   codes.forEach((code) => w.eval(code));
+  mountReviewPanel(w);
   const root = w.document.querySelector("form"),
     reader = w.JobsControlFields.create(w.document, () => root, {
       write: true,
@@ -124,31 +126,21 @@ test("review normalizes complete dates from relayed rows and rejects incomplete 
       ["0000-01-01", ""],
       [null, ""],
     ]) {
-      for (const listener of h.listeners)
-        listener(
+      h.w.JobsReviewPresenter.show({
+        id: "date",
+        items: [
           {
-            type: "jobs:review-view",
-            id: "date",
-            sourceDocumentId: "frame",
-            data: {
-              id: "date",
-              items: [
-                {
-                  id: "0",
-                  question: "Available date",
-                  editor: {
-                    kind: "text",
-                    inputType: "date",
-                    value,
-                    version: 1,
-                  },
-                },
-              ],
+            id: "0",
+            question: "Available date",
+            editor: {
+              kind: "text",
+              inputType: "date",
+              value,
+              version: 1,
             },
           },
-          { id: "fixture" },
-          () => {},
-        );
+        ],
+      });
       assert.equal(h.editor().value, expected);
     }
     assert.deepEqual(h.writes, ["2027-12-23", "2028-02-29", "", "", "", ""]);

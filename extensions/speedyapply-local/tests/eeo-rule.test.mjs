@@ -23,6 +23,30 @@ const pick = (topic, employment, labels) =>
   match.pick(labels, rules.eeoSpec(topic, employment) ?? { tiers: [] })
     ?.label ?? null;
 
+test("singular and plural veteran-status labels resolve the same confirmed Profile fact", () => {
+  for (const question of ["Veteran Status:*", "Veterans Status:*"]) {
+    assert.equal(rules.classify(question)?.topic, "veteran");
+    const answer = rules.resolve(question, {
+      employmentData: { veteran: false },
+    });
+    assert.equal(answer?.field, "employmentData.veteran");
+    assert.equal(
+      rules.select(answer, ["I am not a veteran", "I am a veteran"]),
+      "I am not a veteran",
+    );
+  }
+  for (const question of [
+    "Family members' Veterans Status",
+    "Veterans Status verification consent",
+    "Veterans Status of your spouse",
+  ])
+    assert.notEqual(rules.classify(question)?.topic, "veteran", question);
+  assert.equal(
+    rules.resolve("Veterans Status:*", { employmentData: {} })?.answer ?? null,
+    null,
+  );
+});
+
 const decline = {
   greenhouse: "Decline To Self Identify",
   lever: "Decline to self-identify",
@@ -82,7 +106,6 @@ test("race: every ethnicity lands on the same site option the old tables chose",
       ["Native Hawaiian or Other Pacific Islander", 4],
       ["White", 5],
       ["I choose not to disclose", 7],
-      ["", 7],
     ];
     for (const [ethnicity, index] of expect)
       assert.equal(
@@ -171,14 +194,22 @@ test("gender, Hispanic/Latino, disability and veteran follow the Profile on ever
 });
 
 test("unknown or ambiguous EEO facts are never guessed", () => {
-  // Explicit legacy empty choices mean decline; a missing fact is not consent.
+  // An empty fact does not establish a nondisclosure preference.
+  for (const [topic, field] of [
+    ["gender", "gender"],
+    ["race", "ethnicity"],
+    ["hispanic", "hispanicOrLatino"],
+    ["disability", "disability"],
+    ["veteran", "veteran"],
+  ])
+    assert.equal(pick(topic, { [field]: "" }, ["Decline"]), null, topic);
   assert.equal(
     pick("disability", { disability: "" }, [
       "Yes",
       "No",
       "I do not want to answer",
     ]),
-    "I do not want to answer",
+    null,
   );
   assert.equal(
     pick("disability", {}, ["Yes", "No", "I do not want to answer"]),

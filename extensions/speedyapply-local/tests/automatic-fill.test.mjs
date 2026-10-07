@@ -1,3 +1,4 @@
+import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -75,6 +76,7 @@ function setup(html, answer) {
     },
   };
   codes.forEach((code) => w.eval(code));
+  mountReviewPanel(w);
   w.document.querySelector("#submit").onclick = () => clicks++;
   const run = (options = {}) =>
     w.JobsAutomatic.advance({
@@ -111,6 +113,84 @@ const reply = (field, value) => ({
   reason: "",
   source: "suggestion",
 });
+
+for (const scenario of [
+  { prior: "binding", continues: true },
+  { prior: "rule", continues: true },
+  { prior: "binding", confirmation: true },
+  { prior: "binding", source: "suggestion" },
+  { prior: "binding", outcome: "lost" },
+  { prior: "binding", outcome: "invalid" },
+  { prior: "missing-fact" },
+])
+  test(`AI recovery after ${scenario.prior}: ${scenario.outcome || scenario.source || (scenario.confirmation ? "explicit review" : scenario.continues ? "continue" : "fact review")}`, async () => {
+    const h = setup(
+      '<label>Overall*<select required><option value="">Select</option><option value="high">High</option></select></label>',
+      async (message) =>
+        message.fields.map((field) => ({
+          ...reply(field, "high"),
+          source: scenario.source || "profile",
+          needsConfirmation: scenario.confirmation === true,
+        })),
+    );
+    try {
+      const select = h.w.document.querySelector("select");
+      select.addEventListener("change", () => {
+        if (scenario.outcome === "lost") select.value = "";
+        if (scenario.outcome === "invalid")
+          select.setCustomValidity("Fixture validation failure");
+      });
+      const result = await h.run({
+        action: "next",
+        autoConfirm: true,
+        fill: async () => {
+          if (scenario.prior === "binding")
+            await h.w.JobsFormPipeline.bind([
+              {
+                name: "language-level",
+                find: () => select,
+                answer: h.w.JobsProfileAnswers.literalSpec(
+                  "language_proficiency",
+                  "Unmapped fixture level",
+                ),
+              },
+            ]);
+        },
+        resolveAnswers: async () =>
+          scenario.prior === "rule"
+            ? [
+                {
+                  index: 0,
+                  status: "answered",
+                  source: "profile",
+                  answer: "Unmapped fixture level",
+                },
+              ]
+            : scenario.prior === "missing-fact"
+              ? [
+                  {
+                    index: 0,
+                    status: "needs-input",
+                    reason: "Missing explicit fact",
+                    profileAnswer: { profileOnly: true },
+                  },
+                ]
+              : [],
+      });
+      assert.equal(h.calls(), 1, "AI receives the unresolved field once");
+      assert.equal(result, !!scenario.continues);
+      assert.equal(h.clicks(), scenario.continues ? 1 : 0);
+      assert.equal(select.value, scenario.outcome === "lost" ? "" : "high");
+      assert.equal(
+        h.events.some(([type]) => type === "auto_review_automatic"),
+        !!scenario.continues,
+      );
+      if (scenario.prior !== "missing-fact")
+        assert(h.events.some(([type]) => type === "auto_decider_abstained"));
+    } finally {
+      h.close();
+    }
+  });
 
 test("fill state machine rejects premature navigation and cannot replay a recorded attempt", () => {
   const h = setup("", async () => []);
@@ -836,7 +916,7 @@ test("TRC education replay: exact major and school fill while conditional extra 
   }
 });
 
-test("review expands inside the existing status surface and removes an older duplicate surface", async () => {
+test("review stays in its mounted panel container and removes an older view", async () => {
   const h = setup(
     "<label>Extra preference<input required></label>",
     async (message) => message.fields.map((f) => reply(f, "Preference")),
@@ -854,7 +934,7 @@ test("review expands inside the existing status surface and removes an older dup
       null,
       "No separate popup by Submit",
     );
-    assert.equal(container.querySelector("#jobs-ai-review").style.top, "96px");
+    assert.equal(container.querySelector("#jobs-ai-review").style.top, "");
     assert.equal(original.style.display, "none");
     const second = h.w.document.createElement("speedyapply-autofill");
     h.w.document.body.append(second);
@@ -949,6 +1029,214 @@ test("an AI option that does not exist or a write that fails leaves that field o
           type === "auto_needs_input" && /unknown option/.test(detail),
       ),
     );
+  } finally {
+    h.close();
+  }
+});
+
+test("optional binding failure does not create a blocking review card", async () => {
+  const h = setup(
+    '<label>Nickname<select id="nickname"><option value="">Choose</option><option>Other</option></select></label><label>Name<input required value="Kept"></label>',
+    async () => {
+      throw Error("No AI needed");
+    },
+  );
+  try {
+    const result = await h.run({
+      action: "fill",
+      fill: async () => {
+        const input = h.w.document.querySelector("#nickname");
+        await h.w.JobsFormPipeline.bind([
+          { name: "nickname", find: () => input, answer: "Synthetic" },
+        ]);
+      },
+    });
+    assert.equal(result, true);
+    assert.equal(h.w.JobsAIReview.pending(), false);
+    assert.equal(h.calls(), 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("recovery restores pending review without filling, requesting AI, or navigating", async () => {
+  const h = setup(
+    '<label>Answer<input required value="User kept this" data-jobs-review-pending></label><label>Missing<input required></label>',
+    async () => {
+      throw Error("Recovery cannot request answers");
+    },
+  );
+  try {
+    await h.run({
+      recover: true,
+      fill: () => {
+        throw Error("Recovery cannot call adapter");
+      },
+    });
+    assert.equal(h.w.document.querySelector("input").value, "User kept this");
+    assert.equal(h.w.document.querySelectorAll("input")[1].value, "");
+    assert.equal(h.w.JobsAIReview.pending(), true, JSON.stringify(h.events));
+    assert.equal(h.clicks(), 0);
+    assert.equal(h.calls(), 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("recovery does not report a populated server-rejected form as page-complete", async () => {
+  const h = setup(
+    '<div role="alert"><h2>Your form needs corrections</h2><ul><li>Missing entry for required field: <button type="button">Email</button></li></ul></div><label>Email<input type="email" required value="fixture@example.test"></label>',
+    async () => {
+      throw Error("Recovery cannot request answers");
+    },
+  );
+  try {
+    const phases = [];
+    await h.run({ recover: true, setMessage: (phase) => phases.push(phase) });
+    assert.equal(phases.at(-1), "complete-required");
+    assert.equal(phases.includes("page-complete"), false);
+    assert.equal(h.clicks(), 0);
+    assert.equal(h.calls(), 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("Helion: registered saved text, textarea and Yes-No controls all reach supplementation beside a consent card", async () => {
+  const entry = (id, label, control) =>
+    `<div class="ashby-application-form-field-entry" data-field-path="${id}"><label class="ashby-application-form-question-title" for="${id}">${label}*</label>${control}</div>`;
+  let fields = [];
+  const h = setup(
+    entry(
+      "start",
+      "When can you start?",
+      '<input id="start" type="text" required>',
+    ) +
+      entry("gpa", "Current GPA", '<input id="gpa" type="text" required>') +
+      entry(
+        "projects",
+        "Project teams",
+        '<textarea id="projects" required></textarea>',
+      ) +
+      entry(
+        "eligible",
+        "Eligible?",
+        '<div class="ashby-application-form-input-yesno"><button type="button" data-option="yes" aria-pressed="false">Yes</button><button type="button" data-option="no" aria-pressed="false">No</button></div>',
+      ) +
+      entry("consent", "Signature", '<input id="consent" required>'),
+    async (message) => {
+      fields = message.fields;
+      return fields.map((field) => ({
+        fieldId: field.fieldId,
+        state: "needs_input",
+        reason: "Synthetic unknown fact",
+      }));
+    },
+  );
+  try {
+    h.w.eval(
+      await readWithDependencies(
+        new URL("../src/custom/ashby-saved-controls.js", import.meta.url),
+        "utf8",
+      ),
+    );
+    await h.run({
+      action: "fill",
+      resolveAnswers: async (rows) =>
+        rows.map((row, index) => ({
+          index,
+          status: row.question.startsWith("Signature")
+            ? "needs-input"
+            : "unmatched",
+          reason: "Synthetic unknown fact",
+          ...(row.question.startsWith("Signature")
+            ? { profileAnswer: { profileOnly: true } }
+            : {}),
+        })),
+    });
+    assert.equal(
+      h.calls(),
+      1,
+      JSON.stringify(h.events.filter((e) => /blocked|options/.test(e[0]))),
+    );
+    assert.equal(fields.length, 4);
+    assert.deepEqual(
+      [...fields.find((f) => f.type === "yesno").options].map((o) => o.label),
+      ["Yes", "No"],
+    );
+    const questions = [
+      ...h.w.document
+        .querySelector("#jobs-ai-review")
+        .shadowRoot.querySelectorAll(".question"),
+    ].map((n) => n.textContent);
+    for (const label of [
+      "When can you start?",
+      "Current GPA",
+      "Project teams",
+      "Eligible?",
+      "Signature",
+    ])
+      assert.ok(
+        questions.some((q) => q.includes(label)),
+        label + " must be visible in review",
+      );
+    assert.equal(h.clicks(), 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("three Ashby open-ended questions receive AI drafts through the saved-control writer and all require review", async () => {
+  const h = setup(
+    [1, 2, 3]
+      .map(
+        (i) =>
+          `<div class="ashby-application-form-field-entry" data-field-path="essay-${i}"><label class="ashby-application-form-question-title" for="essay-${i}">Project example ${i}*</label><textarea id="essay-${i}" required></textarea></div>`,
+      )
+      .join(""),
+    async (message) =>
+      message.fields.map((field, i) =>
+        reply(field, `Synthetic project draft ${i + 1}`),
+      ),
+  );
+  try {
+    h.w.eval(
+      await readWithDependencies(
+        new URL("../src/custom/ashby-saved-controls.js", import.meta.url),
+        "utf8",
+      ),
+    );
+    const send = h.w.chrome.runtime.sendMessage;
+    h.w.chrome.runtime.sendMessage = (message) =>
+      message.type === "jobs:ashby-commit"
+        ? Promise.resolve({ data: { state: "confirmed" } })
+        : send(message);
+    await h.run({
+      action: "fill",
+      resolveAnswers: async (rows) =>
+        rows.map((_, index) => ({
+          index,
+          status: "unmatched",
+          reason: "no_matching_rule",
+        })),
+    });
+    assert.equal(h.calls(), 1);
+    assert.deepEqual(
+      [...h.w.document.querySelectorAll("form textarea")].map((n) => n.value),
+      [
+        "Synthetic project draft 1",
+        "Synthetic project draft 2",
+        "Synthetic project draft 3",
+      ],
+    );
+    assert.equal(
+      h.w.document
+        .querySelector("#jobs-ai-review")
+        .shadowRoot.querySelectorAll(".item").length,
+      3,
+    );
+    assert.equal(h.w.JobsAIReview.pending(), true);
+    assert.equal(h.clicks(), 0);
   } finally {
     h.close();
   }

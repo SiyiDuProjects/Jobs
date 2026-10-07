@@ -189,13 +189,27 @@ test("strict matching excludes hidden or inert stale candidates and opens a clos
   try {
     h.input.readOnly = true;
     h.list.parentElement.hidden = true;
-    h.trigger.addEventListener("click", () => {
+    h.trigger.addEventListener("mousedown", () => {
       h.list.parentElement.hidden = false;
     });
     assert.equal(await chooseAnswer(h.trigger, "California"), h.trigger);
     assert.equal(h.api.value(h.trigger), "California");
     assert(!h.trace.some((event) => event.startsWith("input:")));
-    assert(h.trace.includes("trigger:click"));
+    assert(h.trace.includes("trigger:mousedown"));
+  } finally {
+    h.close();
+  }
+});
+
+test("a closed iCIMS search opens before asynchronous results can be selected", async () => {
+  const h = icimsFixture({ labels: [], searchedLabels: ["Exampleland"] });
+  try {
+    h.trigger.click();
+    assert.equal(h.trigger.getAttribute("aria-expanded"), "false");
+    assert.equal(await chooseAnswer(h.trigger, "Exampleland"), h.trigger);
+    assert.equal(h.api.value(h.trigger), "Exampleland");
+    assert(h.trace.includes("trigger:mousedown"));
+    assert(h.trace.includes("option:click:Exampleland"));
   } finally {
     h.close();
   }

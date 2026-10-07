@@ -136,17 +136,19 @@ test("Workable same-entry control replacement keeps its one decider", async (t) 
   const title = h.section.querySelector("#title");
   assert.equal(h.book.peek(title)?.state, "decided");
   assert.notEqual(title, h.titles[0]);
-  await assert.rejects(
-    h.w.JobsFormPipeline.write(
-      title,
-      { value: "Wrong replacement" },
-      {
-        ledger: h.book,
-        root: h.root,
-        decider: "rule",
-        replace: true,
-      },
-    ),
+  assert.match(
+    (
+      await h.w.JobsFormPipeline.write(
+        title,
+        { value: "Wrong replacement" },
+        {
+          ledger: h.book,
+          root: h.root,
+          decider: "rule",
+          replace: true,
+        },
+      )
+    ).reason,
     /already has a decider/,
   );
   assert.equal(title.value, "First role");

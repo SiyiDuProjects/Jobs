@@ -1,4 +1,5 @@
 import { JobsControlFields } from "./control-fields.js";
+import { JobsAshbySavedControls } from "./ashby-saved-controls.js";
 export var JobsPlatformConfig;
 let initialized = false;
 export function initializePlatformConfig() {
@@ -12,7 +13,47 @@ export function initializePlatformConfig() {
     const workdayListbox =
       'button[aria-haspopup="listbox"],button[data-jobs-component="workday-listbox"]';
     const greenhouseGroup = '[id^="question_"][id$="[]"]';
+    const dayforceRecord = (node) =>
+      node?.closest(
+        'form[test-id="workhistory-record"],form[test-id="educationhistory-record"]',
+      );
+    function dayforceQuestion(node, label) {
+      const record = dayforceRecord(node);
+      if (!record || !label) return undefined;
+      const section =
+        record.getAttribute("test-id") === "workhistory-record"
+          ? "Employment History"
+          : "Education History";
+      const index = record.id.match(/-(\d+)$/)?.[1];
+      const prefix =
+        section +
+        (index === undefined ? "" : " " + (Number(index) + 1)) +
+        " — ";
+      return label.startsWith(prefix) ? label : prefix + label;
+    }
+    const dayforce = {
+      // Saving one record removes its inputs before the next editor appears.
+      // Its fields must not follow same-named inputs into another record.
+      fieldScope: dayforceRecord,
+      question: (node, grouped, ctx) =>
+        dayforceQuestion(node, ctx.labelled(node)),
+      questionContext(row, item) {
+        // Component-owned labels need the same section context as native fields.
+        const question = dayforceQuestion(
+          row?.node,
+          row?.public.question || item.question,
+        );
+        return question ? { question } : {};
+      },
+    };
     const workday = {
+      automaticPreferences: [
+        {
+          setting: "workdaySkills",
+          selector:
+            '[data-automation-id="formField-skillsPrompt"],[data-automation-id="formField-skills"]',
+        },
+      ],
       vpsFailure: true,
       readOnlySummary: (node) =>
         !!node?.closest(
@@ -100,6 +141,80 @@ export function initializePlatformConfig() {
       },
     };
     const icims = {
+      // IForms are table/paragraph templates: captions precede a wrapper,
+      // while aria-label often contains only an internal key (e.g. FirstName).
+      // Read only the local prefix, never another control's label or value.
+      question(node, grouped, ctx) {
+        if (!/^\/forms\/?$/.test(ctx.doc.location.pathname)) return;
+        let target = node;
+        if (grouped && node.matches('input[type="radio"]') && node.name)
+          target =
+            [
+              ...(node.form || ctx.doc).querySelectorAll('input[type="radio"]'),
+            ].find((other) => other.name === node.name) || node;
+        const wrapper = target.closest(
+          ".customFieldContainer,.iCIMS_Forms_DateOnlyField",
+        );
+        if (!wrapper) return;
+        let caption = "";
+        for (
+          let owner = wrapper.parentElement, depth = 0;
+          owner && !owner.matches("form,body") && depth < 4;
+          owner = owner.parentElement, depth++
+        ) {
+          const range = ctx.doc.createRange();
+          range.setStart(owner, 0);
+          range.setEndBefore(wrapper);
+          const prefix = range.cloneContents();
+          if (prefix.querySelector("input,select,textarea,[role='combobox']"))
+            break;
+          caption = text(ctx.textOnly(prefix));
+          if (caption) break;
+        }
+        if (!caption || caption.length > 700) return;
+        // Generic City/Name inside education, employer and reference tables
+        // must not become the applicant's home city or personal name.
+        const identity = [
+          node.id,
+          node.getAttribute("name"),
+          node.getAttribute("aria-label"),
+        ].join(" ");
+        let section = /(?:^|[_\s])Ref\d/.test(identity)
+          ? "PROFESSIONAL REFERENCES"
+          : /(?:^|[_\s])(?:Emp|Sup)[A-Z]/.test(identity)
+            ? "EMPLOYMENT RECORD"
+            : /(?:^|[_\s])Education[A-Z]/.test(identity)
+              ? "EDUCATION"
+              : "";
+        for (
+          let owner = wrapper.parentElement;
+          !section && owner && !owner.matches("form,body");
+          owner = owner.parentElement
+        ) {
+          const headings = [
+            ...owner.querySelectorAll("h1,h2,h3,h4,strong,b"),
+          ].filter((item) =>
+            /^(?:EDUCATION|EMPLOYMENT RECORD|PROFESSIONAL REFERENCES|CURRENT ADDRESS INFORMATION|PERSONAL|PHONE NUMBERS|POSITION INFORMATION)$/.test(
+              text(item.textContent),
+            ),
+          );
+          if (headings.length) {
+            section =
+              headings.length === 1 ? text(headings[0].textContent) : "IForm";
+            break;
+          }
+        }
+        if (
+          /^(?:City|Country|State\/Province|Zip|Address|First Name|Last Name|Email|Phone|Company|Start Date|End Date)$/i.test(
+            caption,
+          ) &&
+          !/^(?:CURRENT ADDRESS INFORMATION|PERSONAL|PHONE NUMBERS|POSITION INFORMATION)$/.test(
+            section,
+          )
+        )
+          return `${section || "IForm"} — ${caption}`;
+        return caption;
+      },
       // IForms puts each caption after the control wrapper, outside a label.
       // Stop at the row break/next control rather than collecting all choices.
       label(node, ctx) {
@@ -173,6 +288,12 @@ export function initializePlatformConfig() {
       },
     };
     const jazzhr = {
+      // These native EEO lists can initially select their first option. The
+      // shared rule decides whether its wording is an unanswered default.
+      defaultChoice: (node) =>
+        node.matches(
+          "select#resumator-eeo_gender-value,select#resumator-eeo_race-value",
+        ),
       // JazzHR uses a nonempty value for its unanswered placeholder. Share the
       // same interpretation with supplementation, review and readiness.
       placeholder: (option) => option.value === "resumator_no_selection",
@@ -299,7 +420,13 @@ export function initializePlatformConfig() {
         "label.ashby-application-form-question-title",
       );
       if (wrapped) return wrapped;
-      for (let owner = node.parentElement; owner; owner = owner.parentElement) {
+      for (
+        let owner = node.matches("fieldset,.ashby-application-form-input-yesno")
+          ? node
+          : node.parentElement;
+        owner;
+        owner = owner.parentElement
+      ) {
         if (owner.matches(ashbyEducation)) return null;
         const title = owner.querySelector(
           ":scope > .ashby-application-form-question-title",
@@ -311,6 +438,7 @@ export function initializePlatformConfig() {
       return null;
     };
     const ashby = {
+      upload: (node, run) => JobsAshbySavedControls?.upload(node, run),
       questionBox: ".ashby-application-form-field-entry",
       questionTitle: ".ashby-application-form-question-title",
       cleanLabel: (label) =>
@@ -404,6 +532,15 @@ export function initializePlatformConfig() {
       errorSelector: ".error-container .error",
     };
     const lever = {
+      // Follow-ups live in adjacent question items within one card's list.
+      // Never cross a card heading to borrow another question's answer.
+      answerParent(node) {
+        const item = node.closest("li.application-question");
+        const previous = item?.previousElementSibling;
+        return previous?.matches("li.application-question")
+          ? previous.querySelector(".application-field")
+          : null;
+      },
       // Lever places the question beside the field, while each radio's label
       // names only its option. The same structure is used by voluntary surveys.
       question(node, grouped, ctx) {
@@ -460,7 +597,8 @@ export function initializePlatformConfig() {
       },
       dayforce: {
         confirmation: "//div[@test-id='success-dayforce-jobs']",
-        root: "form",
+        // Candidate Info has sibling forms; its footer is also outside #jobPostingApplication.
+        root: '[test-id="manual-application-dayforce-jobs"]',
         next: "button[test-id='application-next-step']:not([disabled])",
         submit: "button[test-id='application-submit']:not([disabled])",
         reviewXPath: "//button[@test-id='application-submit']",
@@ -503,6 +641,8 @@ export function initializePlatformConfig() {
         confirmation:
           "//div[contains(@class, 'iCIMS_SuccessMessage') and (contains(., 'application has been submitted') or contains(., 'application was submitted') or contains(., 'Thank you') or contains(., 'thank you'))]",
         root: "form",
+        iformXPath:
+          "//form[.//*[contains(@class,'iCIMS_Forms_') or contains(concat(' ',normalize-space(@class),' '),' customFieldContainer ')]]",
         nextXPath: "//input[@type='submit' and contains(@class,'Primary')]",
         questionsNext: "#quesp_form_submit_i",
       },
@@ -624,7 +764,7 @@ export function initializePlatformConfig() {
             'button,[role="button"],[role="alert"],[role="status"],p,span,div,li,[data-automation-id]',
           exclude:
             '[data-jobs-ui],[data-jobs-owner],script,style,textarea,[contenteditable],nav,[data-automation-id="jobPostingDescription"],[data-automation-id*="similarJob"],[data-automation-id*="SimilarJob"],[data-automation-id*="jobResult"],[data-automation-id="candidateHomePage"]',
-          text: /^you(?: have|'ve)? already applied (?:to|for) (?:this|the) (?:job|position)[.!]?$/i,
+          text: /^(?:you(?: have|'ve)? already applied (?:to|for) (?:this|the) (?:job|position)|you applied for this job on (?:January|February|March|April|May|June|July|August|September|October|November|December) (?:[1-9]|[12]\d|3[01]), \d{4})[.!]?$/i,
           badge: /^applied[.!]?$/i,
           badgeControl:
             'button,[role="button"],[data-automation-id="alreadyApplied"],[data-automation-id="appliedLabel"]',
@@ -660,6 +800,7 @@ export function initializePlatformConfig() {
     for (const entry of Object.values(structure)) Object.freeze(entry);
     Object.freeze(structure);
     const entries = /** @type {Array<[string,RegExp,object]>} */ ([
+      ["dayforce", /(^|\.)dayforcehcm\.com$/, dayforce],
       ["workday", /\.(myworkdayjobs|myworkdaysite)\.com$/, workday],
       ["icims", /(^|\.)icims\.com$/, icims],
       ["jazzhr", /(^|\.)(applytojob|theresumator)\.com$/, jazzhr],

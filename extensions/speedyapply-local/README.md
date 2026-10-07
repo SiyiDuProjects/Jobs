@@ -1,23 +1,43 @@
 # Jobs 浏览器插件
 
-自有 Manifest V3 源码。30 个 ATS 适配器与共享控件、规则、页面流程通过标准 ES 模块组合，npm 负责依赖；运行时不依赖旧发行包、代码补丁或网站管理界面。
+自有 Manifest V3 扩展：30 个 ATS 适配器共用控件、答案规则和页面流程，通过 ES 模块构建。插件辅助填写、上传与审核，当前由本人检查并点击最终提交；全职和实习分别绑定服务器 Profile。
 
-浏览器加载目录为当前主 checkout 下的 `extensions/speedyapply-local/dist`，不要套用其他机器的绝对路径。`dist/` 和 `.private/` 均不进入 Git；新机器需要先准备本地连接配置、npm 依赖及服务的 Python 虚拟环境，再在此目录运行 `npm run update`。检查成功后，在 Chromium 浏览器的扩展管理页开启开发者模式，选择“加载已解压的扩展程序”并选中 `dist`；已有安装则点击重新加载。macOS 的目录选择框可用 `⌘⇧G` 输入当前机器上的完整路径。
+## 安装与交付
 
-弹窗入口为 `src/custom/popup.jsx`，使用 HeroUI 的按钮、输入框和链接，以及 HeroUI Pro 的 Segment / EmptyState。Pro 包复用网站已有的 `services/jobs-radar/web/vendor/heroui-pro-react-1.0.0-beta.8.tgz`；两端直接使用 HeroUI 默认蓝色主题，不再覆盖为紫色。`scripts/build-popup.mjs` 将 React 和 CSS 全部打包到插件本地。档案与岗位操作仍由现有后台接口处理。主列表不再注入“加入队列”，弹窗不再提供队列入口；已有队列记录和独立队列页面保留。
+在当前主 checkout 的本目录准备 npm 依赖、服务的 Python 虚拟环境及本地私人连接配置后运行：
 
-`scripts/verify-popup-browser.mjs <playwright-core path> <Chromium executable>` 在独立浏览器中验证打包后的弹窗、键盘选择、删除与撤销，以及网站蓝色主题和岗位操作文案；使用合成数据，不访问个人 Profile 或真实申请页。截图与结果写入工作区 `work/ui-blue-popup/`。
+```sh
+npm ci
+npm run update
+```
 
-修复后的交付统一运行 **`npm run update`**：生成共享契约 → 全量行为测试、类型检查、结构检查 → 构建私人包 → 核对源码、包内容及安装目录未发生并发变化 → 更新固定 `dist` 并验证读回。失败保留原安装；成功保留 `artifacts/previous-dist` 供回退。随后提示用户重载 Jobs 扩展，已有申请页不要自动刷新。私人连接文件只在本地构建时读取，不进入源码。
+浏览器加载本目录的 `dist`：首次在扩展管理页选择“加载已解压的扩展程序”，已有安装则重新加载。macOS 目录选择框可用 `⌘⇧G` 输入当前机器的完整路径。`dist/` 和 `.private/` 不进入 Git；私人配置只在本地构建时读取。
 
-多个 agent 可以并行修复，但应在改动汇总并稳定后由一个 agent 运行更新。旧候选包、未经检查的包、被改过的包和安装目录已被另一发布更新的包均拒绝替换；worktree 必须先整合回主 checkout。更新锁覆盖检查到安装的整个过程，不要删除其他进程的锁。源码发生变化则保留旧安装，重新运行同一个更新命令。此机制不自动合并源码冲突，参与修复的 agent 仍须确认改动都已整合。
+插件面板的「填写设置 → Workday 自动填写技能」默认关闭，包括升级后的已有安装。关闭时跳过技能逐项搜索、Profile/已保存答案补填和 AI 补填，保留已选技能；必填技能仍需手动处理。开关仅保存在当前浏览器，从下一次填写运行开始生效，不会重启正在进行的填写。
 
-`npm ci` 安装锁定依赖。`npm test`、`npm run typecheck`、`npm run format:check` 可单独检查。`npm run build` 仅用于明确需要候选包的调试，不能作为修复交付；旧 `npm run build -- --publish --personal` 入口转到完整更新流程。更新失败的自有候选包和测试自建候选包会清理，不清扫其他 agent 的目录或历史证据。
+`update` 依次生成契约、运行全量行为测试及类型/结构检查、构建私人包、验证源码与安装未被并发改动，再替换并读回固定 `dist`。失败保留原安装，成功保留 `artifacts/previous-dist`。多个修复汇总稳定后由一次更新交付；不要删除更新锁、复制旧候选包或直接改 `dist`。worktree 改动须先整合回主 checkout。`npm run build` 只生成调试候选包。
 
-网站的 Profile、答案与投递记录是唯一数据源。浏览器按活动页面取固定版本的临时资料，最后一个相关页面结束后释放；后台不预取完整 Profile。已获服务器确认的个人答案随活动页面释放，未确认的编辑临时保留到同步成功，过期连接恢复时先核对原 Profile 身份。连接设置与尚未回传的结果独立保留。Profile 读取使用共享 schema；AI 请求只发送 Profile ID、版本和当前题目。所有写请求使用协议版本 2，旧客户端须升级。
+磁盘交付、浏览器重载和真实页面验收分别记录。重载前保留正在填写的页面，不自动刷新表单。接回只读取网站保留的值并恢复审核，不能把旧版缺失的审核标记当作已确认答案。
 
-已有安装可能仍保存旧版个人资料。普通启动检查已知缓存名称与大小，并有界检查旧设置补充内容；发现旧数据时暂停填写。弹窗中的独立迁移入口先备份并核验恢复、显示需要确认的资料差异，再按服务器许可逐项清理。源码、合成服务联调和隔离浏览器升级已实现验证，用户真实安装尚未迁移，不能视为 D6 现场验收完成。具体范围、恢复与停用安排见 [旧存储升级方案](source/STORAGE-UPGRADE.md)。
+## 日常入口与数据
 
-维护入口见 [填表结构](source/content/README.md)；故障证据保存、脱敏与重放见 [复现流程](source/REPRODUCTION.md)。职责大小检查为 `npm run check:structure`。扫描性能可用 `npm run measure:scanner` 在固定合成页面对照历史版本，原始次数与耗时保存到 `.qa/scanner-performance.json`。
+点击工具栏图标打开 Chrome 原生侧边栏，集中查看当前窗口活动标签页的进度、审核、档案、账号和岗位操作；待确认答案显示 `!` 徽标。入口源码为 `src/custom/popup.jsx`，包内沿用 `popup.html` 路径。界面使用本地打包的 HeroUI，Pro 包与网站共用，不从远程加载界面代码。页面不再注入进度/审核浮窗；已有队列记录和独立队列页面保留。
 
-本地测试、候选包构建、Chrome 重新加载、真实网站填入保持和最终提交是独立的验证层；本地检查通过不代表真实投递通过。原版迁移的来源与文件散列记录保留在 `upstream.json`，不参与当前构建。
+服务器 Profile、已保存答案和投递记录是唯一数据源。活动页面读取固定版本的临时资料；相关页面结束后释放已确认资料，未同步的编辑与回执保留到同步完成。AI 只接收 Profile ID、版本和当前题目。后台不预取完整 Profile，审核答案从原申请文档按需读取。变更请求要求协议版本 2。
+
+发现旧版个人缓存时暂停填写，通过独立迁移入口先备份和核验，再处理差异。机制与恢复边界见[存储升级](source/STORAGE-UPGRADE.md)，历史验收不代表每一台新安装均已迁移。
+
+## 开发与验证
+
+`npm run develop` 生成无生产 key、无私人连接的 `artifacts/development`。只在独立 Chrome profile 加载并配置测试连接，不复制日常连接。设置页提示运行版与磁盘版不一致，不自动重载浏览器。
+
+| 检查 | 命令或脚本 |
+| --- | --- |
+| 行为、类型、格式、职责边界 | `npm test`、`npm run typecheck`、`npm run format:check`、`npm run check:structure` |
+| 扫描与页面流程性能 | `npm run measure:scanner`、`npm run measure:page`；可传已保存源码作对比基线，结果在 `.qa/` |
+| 隔离浏览器侧边栏布局、草稿和切页 | `node scripts/verify-panel-browser.mjs <playwright-core路径> <Chrome可执行文件>` |
+| 隔离浏览器接回、保值、审核与推进边界 | `node scripts/verify-recovery-browser.mjs <playwright-core路径> <Chrome可执行文件>` |
+
+浏览器脚本使用合成资料和独立实例，不访问日常扩展或真实申请。合成速度和本地检查不能替代雇主页面验收。旧 `verify-popup-browser.mjs` 保留包内设置界面验证，原生侧边栏以 panel 脚本为入口。
+
+填表职责见[页面结构](source/content/README.md)，故障捕获与脱敏重放见[复现流程](source/REPRODUCTION.md)。未解决问题集中在[平台索引](../../notes/ats-platform-status.md)。原版来源散列保存在 `upstream.json`，不参与当前构建。

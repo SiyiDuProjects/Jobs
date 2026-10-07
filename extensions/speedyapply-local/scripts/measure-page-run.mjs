@@ -1,8 +1,7 @@
 import fs from "node:fs/promises";
-import { spawnSync } from "node:child_process";
 import { JSDOM } from "jsdom";
 import { readWithDependencies } from "../tests/helpers/runtime-source.mjs";
-const baselineCommit = "257a15f",
+const baselineFile = process.argv[2] || null,
   root = new URL("../", import.meta.url);
 const names = [
   "page-actions",
@@ -17,29 +16,16 @@ const names = [
   "ai-review",
   "automatic-fill",
 ];
-const load = async (version) =>
-  Promise.all(
-    names.map(async (name) => {
-      if (version === "current")
-        return readWithDependencies(
-          new URL("../src/custom/" + name + ".js", import.meta.url),
-          "utf8",
-        );
-      const result = spawnSync(
-        "git",
-        [
-          "show",
-          `${baselineCommit}:extensions/speedyapply-local/src/custom/${name}.js`,
-        ],
-        { cwd: root, encoding: "utf8" },
-      );
-      if (result.status) throw Error(result.stderr);
-      return result.stdout;
-    }),
-  );
 const versions = {
-  baseline: await load("baseline"),
-  current: await load("current"),
+  current: await Promise.all(
+    names.map((name) =>
+      readWithDependencies(
+        new URL("../src/custom/" + name + ".js", import.meta.url),
+        "utf8",
+      ),
+    ),
+  ),
+  baseline: baselineFile ? [await fs.readFile(baselineFile, "utf8")] : [],
 };
 const fixture =
   "<form>" +
@@ -101,7 +87,7 @@ async function sample(version) {
   }
 }
 const evidence = {
-  baselineCommit,
+  baselineFile,
   fixture:
     "60 completed required fields; actual automatic advance to fill-only completion; zero answer/provider/network work",
   metric: "actual auto_run_timing",
@@ -109,9 +95,14 @@ const evidence = {
 };
 for (let i = 0; i < 3; i++)
   evidence.runs.push({
-    baseline: await sample("baseline"),
+    ...(baselineFile ? { baseline: await sample("baseline") } : {}),
     current: await sample("current"),
   });
+await fs.mkdir(new URL("../.qa", import.meta.url), { recursive: true });
+await fs.writeFile(
+  new URL("../.qa/page-source.js", import.meta.url),
+  versions.current.join("\n"),
+);
 await fs.writeFile(
   new URL("../.qa/page-run-performance.json", import.meta.url),
   JSON.stringify(evidence, null, 2) + "\n",

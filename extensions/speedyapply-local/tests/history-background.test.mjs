@@ -802,3 +802,138 @@ test("a confirmed old connection acknowledgement stays valid if connection chang
     0,
   );
 });
+
+test("durable journal keeps each same-field choice with sequence and redacts values before storage", async () => {
+  const h = setup(),
+    r = report();
+  r.journalOnly = true;
+  r.fields = [];
+  r.events = [
+    {
+      at: r.observedAt,
+      sequence: 1,
+      type: "causal_evidence",
+      fieldId: "f1",
+      evidence: {
+        stage: "item",
+        operation: 1,
+        item: 0,
+        total: 2,
+        result: "started",
+        detail: "PRIVATE_ANSWER",
+      },
+    },
+    {
+      at: r.observedAt,
+      sequence: 2,
+      type: "fill_trace",
+      fieldId: "f1",
+      trace: {
+        answer: "PRIVATE_FIRST",
+        result: "no-options",
+        options: ["PRIVATE_FIRST"],
+      },
+    },
+    {
+      at: r.observedAt,
+      sequence: 3,
+      type: "fill_trace",
+      fieldId: "f1",
+      trace: {
+        answer: "PRIVATE_SECOND",
+        chosen: "PRIVATE_SECOND",
+        result: "committed",
+      },
+    },
+    {
+      at: r.observedAt,
+      sequence: 4,
+      type: "causal_evidence",
+      evidence: {
+        stage: "guard",
+        reason: "user_input",
+        result: "blocked",
+        hidden: true,
+      },
+    },
+  ];
+  await h.api.capture(r);
+  await h.api.capture(r);
+  const restarted = setup(h.local, h.session),
+    saved = (await restarted.api.pending(300000)).items[0];
+  assert.equal(saved.events.length, 4);
+  assert.equal(saved.snapshots.length, 0);
+  assert.deepEqual(
+    saved.events.map((e) => e.sequence),
+    [1, 2, 3, 4],
+  );
+  assert.equal(saved.events[1].trace.result, "no-options");
+  assert.equal(saved.events[1].trace.answer, saved.events[1].trace.options[0]);
+  assert.equal(saved.events[2].trace.answer, saved.events[2].trace.chosen);
+  assert(!JSON.stringify(h.local).includes("PRIVATE_"));
+  assert.equal(
+    (await restarted.api.exportRun(r.pageUrl, r.runId)).valuePolicy,
+    "synthetic_values_only",
+  );
+});
+
+test("transport batches respect the service count limit, independent of small packet sizes", async () => {
+  const h = setup();
+  for (let i = 0; i < 25; i++)
+    await h.api.capture({ ...report(i), runId: `run-${i}` });
+  const batch = await h.api.pending(495000);
+  assert.equal(batch.items.length, 10);
+  await h.api.acknowledge(batch.ack);
+  assert.equal((await h.api.pending(495000)).items.length, 10);
+});
+
+test("old server cannot acknowledge a lossy downgrade of causal evidence", async () => {
+  const h = connectedHistory(),
+    r = report();
+  r.events = [
+    {
+      at: r.observedAt,
+      type: "causal_evidence",
+      sequence: 1,
+      evidence: { stage: "guard", reason: "expired", result: "blocked" },
+    },
+  ];
+  await h.api.capture(r);
+  await h.api.sync();
+  assert.equal((await h.api.health()).state, "upgrade_required");
+  assert.equal((await h.api.pending(300000)).items.length, 1);
+});
+
+test("a rejected run does not block valid siblings and is never acknowledged", async () => {
+  const h = connectedHistory();
+  await h.api.capture(report(1));
+  await h.api.capture({ ...report(2), runId: "good" });
+  h.context.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    return body.history.some((r) => r.runId === "run-1")
+      ? { ok: false, status: 400 }
+      : { ok: true, json: async () => ({ historyAccepted: true }) };
+  };
+  await h.api.sync();
+  const pending = await h.api.pending(300000);
+  assert.equal(pending.items.length, 1);
+  assert.equal(pending.items[0].runId, "run-1");
+  assert.equal((await h.api.health()).state, "rejected");
+  assert((await h.api.health()).lastAckAt > 0);
+});
+
+test("rejected batches and network errors retain only a real previous acknowledgement time", async () => {
+  const h = connectedHistory();
+  await h.api.capture(report(1));
+  await h.api.capture(report(2));
+  h.context.fetch = async () => ({ ok: false, status: 400 });
+  await h.api.sync();
+  assert.equal((await h.api.health()).lastAckAt, undefined);
+  assert.equal((await h.api.health()).pending, 2);
+  h.local.jobsDiagnosticTransportV1.lastAckAt = 123;
+  await h.api.capture(report(3));
+  h.context.fetch = async () => { throw Error("synthetic network failure"); };
+  await assert.rejects(h.api.sync(), /synthetic network failure/);
+  assert.equal((await h.api.health()).lastAckAt, 123);
+  assert.equal((await h.api.health()).state, "error");
+});

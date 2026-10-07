@@ -1,3 +1,5 @@
+import { diagnosticEvidence } from "./diagnostic-evidence.js";
+import { createDiagnosticJournal } from "./diagnostic-journal.js";
 import { publicJobUrl } from "./public-job-url.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsBuildInfo } from "./build-info.js";
@@ -206,7 +208,7 @@ export function initializeDiagnostics() {
         }, delay);
       }
     }
-    function add(type, node, detail = "") {
+    function add(type, node, detail = "", extra = {}) {
       if (!session || stopped) return;
       node = canonical(node);
       if (node && sensitive(node)) return;
@@ -214,7 +216,7 @@ export function initializeDiagnostics() {
         state(node).writeDecisionEvent = state(node).decisionEvent;
         state(node).writeDecision = state(node).decision;
       }
-      events.push({
+      const event = {
         at: Date.now(),
         type,
         ...(node ? { fieldId: fieldId(node) } : {}),
@@ -225,12 +227,52 @@ export function initializeDiagnostics() {
                 : clean(detail),
             }
           : {}),
-      });
+        ...extra,
+      };
+      events.push(journal?.append(event) || event);
       if (events.length > MAX_EVENTS) {
         events.shift();
         truncatedEvents++;
       }
       schedule();
+    }
+    let journal;
+    function makeJournal() {
+      if (journal) return;
+      journal = createDiagnosticJournal({
+        context: () =>
+          session && !stopped
+            ? {
+                schemaVersion: 2,
+                sessionId: session.sessionId,
+                runId: session.runId,
+                startedAt: session.startedAt,
+                build: session.build,
+                ats: session.ats,
+                pageUrl: safeUrl(),
+                phase: session.phase,
+                step: "",
+                valuePolicy: "fill_trace_values_only",
+                verdict: "observation_only",
+              }
+            : null,
+        send: (report) =>
+          chrome.runtime.sendMessage({
+            type: "jobs:diagnostics-journal",
+            report,
+          }),
+        defer: (fn, ms) => view.setTimeout(fn, ms),
+        cancel: (id) => view.clearTimeout(id),
+      });
+    }
+    function evidence(node, value) {
+      add("causal_evidence", node, "", {
+        evidence: diagnosticEvidence({
+          ...value,
+          focused: doc.hasFocus(),
+          hidden: doc.visibilityState === "hidden",
+        }),
+      });
     }
     // Fill decisions: what each write was asked for, what the page offered and
     // what was chosen and how. Values stay (secrets excluded): they are the
@@ -258,6 +300,7 @@ export function initializeDiagnostics() {
           source: record.source,
           method: record.method || "",
         }),
+        { trace: record },
       );
     }
     function profile(value) {
@@ -488,6 +531,7 @@ export function initializeDiagnostics() {
         },
         events: eventHistory(),
         droppedEvents: truncatedEvents,
+        recording: journal?.status(),
         valuePolicy: "fill_trace_values_only",
         verdict: "observation_only",
       };
@@ -550,6 +594,8 @@ export function initializeDiagnostics() {
       disposers = [];
     }
     function clear() {
+      journal?.clear();
+      journal = null;
       stop();
       session = null;
       reader = fallbackReader = null;
@@ -568,6 +614,7 @@ export function initializeDiagnostics() {
     function start(ats, options) {
       stop();
       stopped = false;
+      makeJournal();
       history = new WeakMap();
       questionStates = new Map();
       events = [];
@@ -646,7 +693,12 @@ export function initializeDiagnostics() {
         if (control && !sensitive(control)) probe(control, "click");
       });
       on(doc, "submit", () => add("submit_event", null, "attempt_only"));
-      on(view, "pagehide", publish);
+      on(view, "pagehide", () => {
+        publish();
+        void journal?.flush();
+      });
+      on(view, "focus", () => evidence(null, { stage: "lifecycle" }));
+      on(view, "blur", () => evidence(null, { stage: "lifecycle" }));
       on(view, "pageshow", schedule);
       on(doc, "visibilitychange", () =>
         add("visibility_changed", null, doc.visibilityState),
@@ -803,7 +855,9 @@ export function initializeDiagnostics() {
             country: item.country || "unknown",
             ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
           };
-          add("answer_decision", node, JSON.stringify(evidence));
+          add("answer_decision", node, JSON.stringify(evidence), {
+            decision: evidence,
+          });
           // Keep the current field's origin independently of the rolling activity
           // log. Later clicks/fills must not erase why this field was answered.
           // Its time orders it against later writes of the same field.
@@ -961,7 +1015,15 @@ export function initializeDiagnostics() {
           detail: String(provenance.length - budget + 1),
         });
       }
-      return [...context, ...[...selected].sort((a, b) => a.at - b.at)];
+      // The actionable remote snapshot keeps its existing public event contract.
+      return [...context, ...[...selected].sort((a, b) => a.at - b.at)].map(
+        ({ at, type, fieldId, detail }) => ({
+          at,
+          type,
+          ...(fieldId ? { fieldId } : {}),
+          ...(detail ? { detail } : {}),
+        }),
+      );
     }
     JobsDiagnostics = Object.freeze({
       start,
@@ -974,6 +1036,7 @@ export function initializeDiagnostics() {
       snapshot,
       stop,
       clear,
+      evidence: (node, value) => quiet(() => evidence(node, value)),
       note: (type, node, detail) => quiet(() => add(type, node, detail)),
       trace: (node, entry) => quiet(() => trace(node, entry)),
       useReader: (value) => {

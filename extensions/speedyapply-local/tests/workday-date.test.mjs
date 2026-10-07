@@ -23,6 +23,8 @@ const codes = await Promise.all(
 );
 const question = "Please indicate your expected graduation date.";
 function setup({
+  label = question,
+  answer,
   value = ["", "", ""],
   required = true,
   invalid = false,
@@ -32,7 +34,7 @@ function setup({
   url = "https://fixture.myworkdayjobs.com/en-US/apply",
 } = {}) {
   const dom = new JSDOM(
-    `<main><div data-automation-id="formField-graduation"><fieldset><legend><div data-automation-id="richText">${question}${required ? '<abbr title="required">*</abbr>' : ""}</div></legend><div role="group" data-automation-id="dateInputWrapper" id="date">${["Month", "Day", "Year"].map((part, i) => `<input role="spinbutton" aria-label="${part}" data-automation-id="dateSection${part}-input" value="${value[i]}" ${invalid ? 'aria-invalid="true"' : ""}>`).join("")}<div role="button" aria-label="Calendar">Calendar</div></div>${invalid ? '<p data-automation-id="inputAlert">Required date missing</p>' : ""}</fieldset></div><label>Existing answer<input id="keep" value="Keep"></label></main><button id="next">Save and Continue</button>`,
+    `<main><div data-automation-id="formField-graduation"><fieldset><legend><div data-automation-id="richText">${label}${required ? '<abbr title="required">*</abbr>' : ""}</div></legend><div role="group" data-automation-id="dateInputWrapper" id="date">${["Month", "Day", "Year"].map((part, i) => `<input role="spinbutton" aria-label="${part}" data-automation-id="dateSection${part}-input" value="${value[i]}" ${invalid ? 'aria-invalid="true"' : ""}>`).join("")}<div role="button" aria-label="Calendar">Calendar</div></div>${invalid ? '<p data-automation-id="inputAlert">Required date missing</p>' : ""}</fieldset></div><label>Existing answer<input id="keep" value="Keep"></label></main><button id="next">Save and Continue</button>`,
     {
       url: "https://fixture.myworkdayjobs.com/en-US/apply",
       runScripts: "outside-only",
@@ -61,7 +63,20 @@ function setup({
         if (message.type === "jobs:tab-profile")
           return { data: { id: "fixture", profile } };
         requests.push(message);
-        throw Error("No model call is allowed for missing date precision");
+        return {
+          data: {
+            answers: message.fields.map((field) => ({
+              fieldId: field.fieldId,
+              ...(answer || {
+                state: "needs_input",
+                value: null,
+                source: "unknown",
+                reason: "The fixture only supplies a graduation month.",
+                needsConfirmation: true,
+              }),
+            })),
+          },
+        };
       },
     },
   };
@@ -340,14 +355,14 @@ test("known complete date resolves as one question, preserves existing answers a
   }
 });
 
-test("month-only answer goes to one date editor without guessing or AI; user answer commits and confirmation continues once", async () => {
+test("month-only answer reaches AI; missing precision stays empty until a complete user answer", async () => {
   const h = setup({ invalid: true });
   try {
     assert.equal(
       await h.run(async () => [{ index: 0, answer: "May 2027" }]),
       false,
     );
-    assert.equal(h.requests.length, 0);
+    assert.equal(h.requests.length, 1);
     assert.equal(h.clicks(), 0);
     assert(h.parts.every((part) => part.value === ""));
     const view = h.view();
@@ -363,7 +378,7 @@ test("month-only answer goes to one date editor without guessing or AI; user ans
     assert.equal(h.clicks(), 0);
     assert.equal(await h.w.JobsAIReview.confirm(), true);
     assert.equal(h.clicks(), 1);
-    assert.equal(h.requests.length, 0);
+    assert.equal(h.requests.length, 1);
   } finally {
     h.close();
   }
@@ -388,3 +403,37 @@ test("date grouping stays Workday-only and does not consume the existing month/y
     other.close();
   }
 });
+
+for (const value of ["2030-05-19", "2030-02-30"]) {
+  test(`unresolved segmented date reaches AI and validates its returned ${value}`, async () => {
+    const label =
+      "Acknowledgement: If there are any changes in the responses provided herein, you will promptly share those updates with your assigned recruiter. Please acknowledge this by entering today's date.";
+    const h = setup({
+      label,
+      normalize: true,
+      partialBlur: true,
+      answer: {
+        state: "answer",
+        value,
+        source: "profile",
+        needsConfirmation: false,
+      },
+    });
+    try {
+      await h.run(async () => []);
+      assert.equal(h.requests.length, 1);
+      assert.equal(h.requests[0].fields.length, 1);
+      assert.equal(h.requests[0].fields[0].type, "date");
+      assert.equal(h.requests[0].fields[0].question, label + "*");
+      assert.equal(h.committed(), value === "2030-05-19" ? value : "");
+      assert.equal(h.root.querySelector("#keep").value, "Keep");
+      if (value === "2030-02-30") {
+        assert.equal(h.clicks(), 0);
+        assert(h.parts.every((part) => part.value === ""));
+        assert.equal(h.view().items[0].answer, "待补充");
+      }
+    } finally {
+      h.close();
+    }
+  });
+}

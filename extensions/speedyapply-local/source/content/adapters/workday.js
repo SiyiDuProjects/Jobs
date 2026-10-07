@@ -363,7 +363,7 @@ async function workdayFillLanguages(languages) {
         checked: entry.fluent ? true : undefined,
       },
     ]);
-    if (!entry.proficiency) continue;
+    if (!entry.proficiency && entry.fluent !== true) continue;
     // One proficiency list per skill (reading, speaking, writing...).
     const level = (skill) =>
       `${section}//button[@data-automation-id="languageProficiency-${skill}"] | (${section}//button[contains(@id,'language') and not(@name='language')])[${skill + 1}]`;
@@ -375,7 +375,7 @@ async function workdayFillLanguages(languages) {
             JobsWorkdayControls.listbox(jobsFindXPath(level(skill)), {
               language: true,
             }),
-          answer: JobsProfileAnswers.languageSpec(entry.proficiency),
+          answer: JobsProfileAnswers.languageSpec(entry.proficiency, entry),
         },
       ]);
   }

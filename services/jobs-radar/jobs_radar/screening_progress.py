@@ -9,7 +9,6 @@ import secrets
 import time
 
 from .board import Board, KINDS, RULES
-from .intern_companies import normalize_company
 
 
 class ScreeningProgress:
@@ -43,8 +42,7 @@ class ScreeningProgress:
 
     @staticmethod
     def included(row):
-        # Owner's excluded company should not consume daily AI screening work.
-        return normalize_company(row['company']) != normalize_company('TikTok')
+        return True
 
     @staticmethod
     def pending(row):
@@ -105,9 +103,9 @@ class ScreeningProgress:
         remaining = self._remaining(c,batch['id']) if remaining is None else remaining
         return {**dict(batch), 'remaining':{k:sum(r['kind']==k for r in remaining) for k in sorted(KINDS)},
                 'progress_unit':'canonical job id + kind + content fingerprint; timestamps are metadata only after initialization',
-                'policy':'Newly collected or materially changed jobs only; resume unfinished eligible work. No automatic historical backfill. TikTok excluded from daily screening. No rolling-day expiry.'}
+                'policy':'Newly collected or materially changed jobs only; resume unfinished eligible work. No automatic historical backfill. No rolling-day expiry.'}
 
-    def manage(self, action, run_id=None):
+    def manage(self, action, run_id=None, backfill_company=False):
         if action not in {'begin','status','complete'}: raise ValueError('Invalid screening run action')
         with self.store.connect(action!='status') as c:
             checkpoint = c.execute('SELECT * FROM screening_checkpoint WHERE id=1').fetchone()
@@ -126,7 +124,13 @@ class ScreeningProgress:
                           (now,json.dumps({'run_id':run_id,'cutoff':batch['cutoff']})))
                 return self._describe(c,c.execute('SELECT * FROM screening_batches WHERE id=?',(run_id,)).fetchone(),[])
             batch = c.execute("SELECT * FROM screening_batches WHERE status='active'").fetchone()
-            if batch: return self._describe(c,batch)
+            if batch:
+                if action=='begin' and backfill_company:
+                    for row in self._current():
+                        if self.pending(row):
+                            c.execute('INSERT OR IGNORE INTO screening_batch_items VALUES(?,?,?)',
+                                      (batch['id'],row['id'],row['kind']))
+                return self._describe(c,batch)
             if action=='status': return {'status':'idle','cutoff':checkpoint['cutoff'],'remaining':None}
             # The write lock prevents collection/reviews changing while membership
             # and the observed fingerprints are snapshotted together.
@@ -145,7 +149,8 @@ class ScreeningProgress:
                 newly_seen = checkpoint['initialized'] and not old
                 bootstrap = not checkpoint['initialized'] and (r['added_at']>=checkpoint['cutoff'] or r['review'])
                 if ((r['id'],r['kind']) in rechecks or
-                        self.pending(r) and (changed or newly_seen or bootstrap or (r['id'],r['kind']) in admitted)):
+                        self.pending(r) and (changed or newly_seen or bootstrap or (r['id'],r['kind']) in admitted
+                                             or backfill_company)):
                     c.execute('INSERT INTO screening_batch_items VALUES(?,?,?)',(run_id,r['id'],r['kind']))
                     selected.append(r)
                 c.execute('INSERT OR REPLACE INTO screening_seen VALUES(?,?,?,1)',(r['id'],r['kind'],r['fingerprint']))
@@ -163,7 +168,7 @@ class ScreeningProgress:
             rows = sorted((r for r in remaining if r['kind']==kind
                            and (not cursor or r['id']>cursor)),key=lambda r:r['id'])
             selected = rows[:limit]
-            rules = {**RULES,'screening_scope':'Daily screening processes newly collected or materially changed jobs, plus unfinished eligible work. No automatic historical backfill for any company, including FAANG+. TikTok is excluded from AI screening, without deleting its jobs. Some unverified incremental items may already show review; screen their titles and available metadata and write the new review version. Website history remains unlimited. Resume by job identity, not a rolling-day expiry.',
+            rules = {**RULES,'screening_scope':'Daily screening processes newly collected or materially changed jobs, plus unfinished eligible work. No automatic historical backfill for any company, including FAANG+. Some unverified incremental items may already show review; screen their titles and available metadata and write the new review version. Website history remains unlimited. Resume by job identity, not a rolling-day expiry.',
                      'screening_mode':'Start from upstream repository/README classifications in all_sources, then judge the actual occupation from titles and existing metadata. Source SWE/AI labels and legacy role_family hints are not proof of relevance. Do not open every official page or require full descriptions. Remove only an explicitly authorized category supported by the available evidence; otherwise keep visible. keep means title triage passed, not verified eligibility. Use review only for a specific ambiguity, never simply because the queue lacks official text. Omit role_family/role_evidence for title-only decisions; legacy title classifications are internal hints only and are not shown as website filters. Never infer sponsorship, clearance or eligibility from silence.'}
             return {'jobs':selected,'next_cursor':selected[-1]['id'] if len(rows)>limit else None,
                     'run':self._describe(c,batch,remaining),'rules':rules}

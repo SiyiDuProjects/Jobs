@@ -147,9 +147,19 @@ export const JobsPrivateSession = Object.freeze({
       assertCurrent(expected);
     });
   },
-  clear(check = undefined, retain = undefined) {
+  clear(check = undefined, retain = undefined, reason = "connection_changed") {
     epoch++;
     return serial(async () => {
+      // Content-free lifecycle breadcrumbs survive the state they explain.
+      if (chrome.storage.local?.get && chrome.storage.local?.set) {
+        const key = "jobsConnectionLifecycleV1";
+        try {
+          const saved = (await chrome.storage.local.get(key))[key];
+          const history = Array.isArray(saved) ? saved.slice(-19) : [];
+          history.push({ at: Date.now(), reason });
+          await chrome.storage.local.set({ [key]: history });
+        } catch { /* Diagnostics cannot prevent identity invalidation. */ }
+      }
       try {
         // Invalidate every frame before clearing storage, so its pending captures
         // cannot repopulate private caches after the connection has changed.

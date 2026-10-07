@@ -16,7 +16,13 @@ def main():
     collect.add_argument("--stream", action="append")
     screening = commands.add_parser('screen')
     screening.add_argument('--max-batches',type=int,default=20)
+    screening.add_argument('--backfill-company', action='store_true', help='Reevaluate existing unprocessed jobs and fill employer preference labels')
+    companies=commands.add_parser('screen-companies')
+    companies.add_argument('--max-batches',type=int,default=20)
+    companies.add_argument('--include-history',action='store_true',help='Include submitted and closed historical companies')
     commands.add_parser("status")
+    identities = commands.add_parser('refresh-workday-identities')
+    identities.add_argument('--limit', type=int, default=200)
     commands.add_parser("serve")
     backup = commands.add_parser("backup")
     backup.add_argument("destination")
@@ -27,7 +33,7 @@ def main():
     web.add_argument('request_id')
     args = parser.parse_args()
     from .maintenance import paused
-    if args.command in {'collect', 'screen'} and paused():
+    if args.command in {'collect', 'screen', 'screen-companies', 'refresh-workday-identities'} and paused():
         print(json.dumps({'status': 'release_maintenance'}))
         return
     from .restricted_recovery import active_recovery, RecoveryStore
@@ -50,7 +56,15 @@ def main():
     store = Store(args.db)
     if os.name != "nt":
         os.chmod(args.db, 0o600)
-    if args.command == "collect":
+    if args.command == 'refresh-workday-identities':
+        import httpx
+        from .workday_identity import refresh
+        async def refresh_identities():
+            async with httpx.AsyncClient(follow_redirects=False, trust_env=False,
+                                         headers={'User-Agent': 'JobsRadar/0.1'}) as client:
+                return await refresh(store, client, limit=args.limit)
+        print(json.dumps(asyncio.run(refresh_identities())))
+    elif args.command == "collect":
         from .sources import collect
         rows = asyncio.run(collect(store, args.stream))
         if os.environ.get('JOBS_SCREENING_ENABLED')=='1':
@@ -64,7 +78,15 @@ def main():
     elif args.command == 'screen':
         from .luna_screening import run, failure_summary
         try:
-            print(json.dumps(run(store,max_batches=args.max_batches)),flush=True)
+            print(json.dumps(run(store,max_batches=args.max_batches,backfill_company=args.backfill_company)),flush=True)
+        except Exception as exc:
+            print(json.dumps(failure_summary(exc)),flush=True)
+            raise SystemExit(1)
+    elif args.command == 'screen-companies':
+        from .company_screening import run_companies
+        from .luna_screening import failure_summary
+        try:
+            print(json.dumps(run_companies(store,max_batches=args.max_batches,include_history=args.include_history)),flush=True)
         except Exception as exc:
             print(json.dumps(failure_summary(exc)),flush=True)
             raise SystemExit(1)

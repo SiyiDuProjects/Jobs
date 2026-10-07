@@ -1,3 +1,5 @@
+> Historical record; not current operating instructions. Current service release rules: [release contract](../../deploy/RELEASE.md).
+
 # Profile 兼容接口部署记录
 
 > 脱敏工程候选（尚未替换原件、需逐文件审定）：本文件不得作为个人事实、答案或投递台账。标为 synthetic 的示例均为虚构；保留的测试数量、故障机制与待验边界沿用原记录，不代表新增真实成功。原始私人证据仅在已核验的受限备份中保留。

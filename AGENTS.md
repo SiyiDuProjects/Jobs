@@ -10,6 +10,12 @@ Private workspace: this Jobs repository, including from a worktree. Resolve path
 - Check that restored path before reporting a missing key. An empty SSH agent or a missing `~/.ssh/Siyi.pem` does not establish that the restored private-key file is missing. SSH can use it directly with `-i`.
 - `services/jobs-radar/deploy/release.sh` defaults to `~/.ssh/Siyi.pem`; on this Mac set `JOBS_RADAR_KEY=/Users/siyi/Projects/_private/Keys/Siyi.pem` for an authorized SSH/deployment task. Keep the existing service-release workflow and keep private-key contents outside Git and logs.
 
+## HeroUI Pro through CollectUI
+
+- Existing HeroUI UI work uses the global `heroui-react-pro` and `heroui-pro-design-taste` skills and the configured CollectUI-backed `heroui-pro` MCP. Use these proactively without requiring the user to name them again.
+- Inspect the actual frontend package, including `services/jobs-radar/web` and the extension's shared dependency/build arrangement, before reporting missing components. Keep project versions and delivery commands unchanged.
+- Follow the original CollectUI channel and existing project installation workflow; do not substitute official HeroUI account login. MCP/skill availability and installed package artifacts are independent checks. Credentials and authenticated tutorial URLs do not belong in repository instructions.
+
 ## Development and application work
 
 This is a development workspace that is also used for applications. Follow the user's current task. For code, architecture or documentation work, read the relevant implementation and evidence; do not routinely fetch personal Profiles or load application handoffs, old ledgers or benchmarks.

@@ -67,6 +67,8 @@ function fixture(
   };
   w.chrome = {
     runtime: {
+      id: "jobs",
+      onMessage: { addListener() {}, removeListener() {} },
       sendMessage: async (message) => {
         sent.push(message);
         if (message.type === "getAutofillConfig")
@@ -112,7 +114,7 @@ test("Workday account startup survives standalone login while posting status che
     { url: login, lookups: 0, runs: 1 },
     { url: login.split("?")[0], lookups: 0, runs: 1 },
     { url: posting, lookups: 1, runs: 1 },
-    { url: posting, lookups: 1, runs: 0, fail: true },
+    { url: posting, lookups: 1, runs: 1, fail: true },
   ]) {
     const h = fixture(scenario.url);
     let lookups = 0;
@@ -145,7 +147,7 @@ test("Workday account startup survives standalone login while posting status che
       };
       Object.assign(h.w.chrome.runtime, {
         id: "jobs",
-        onMessage: { addListener() {} },
+        onMessage: { addListener() {}, removeListener() {} },
         onConnect: { addListener() {} },
       });
       h.w.chrome.storage = {
@@ -174,6 +176,7 @@ test("Workday account startup survives standalone login while posting status che
           h.runs[0].accountSettings.accountPassword,
           account.accountPassword,
         );
+        if (scenario.fail) continue;
         const status = await h.w.handle(
           { type: "jobs:application-status", url: scenario.url },
           sender,
@@ -187,7 +190,7 @@ test("Workday account startup survives standalone login while posting status che
     }
   }
 });
-test("native shell extracts job details, presents isolated status and obtains a fresh tab Profile", async () => {
+test("native shell extracts job details, publishes side-panel status and obtains a fresh tab Profile", async () => {
   const h = fixture(
     undefined,
     '<script type="application/ld+json">{"@type":"JobPosting","title":"Fixture engineer","description":"<p>Build instruments</p>"}</script>',
@@ -197,7 +200,15 @@ test("native shell extracts job details, presents isolated status and obtains a 
     assert.equal(h.runs.length, 1);
     assert.equal(h.sent[0].title, "Fixture engineer");
     assert.equal(h.sent[0].description, "Build instruments");
-    assert(h.w.document.querySelector('[data-jobs-ui="status"]'));
+    assert(!h.w.document.querySelector('[data-jobs-ui="status"]'));
+    h.runs[0].setMessage("ai-review");
+    await tick();
+    assert(
+      h.sent.some(
+        (message) =>
+          message.type === "jobs:panel-status" && message.text === "等待审核",
+      ),
+    );
     assert.equal((await h.runs[0].getProfile()).profileName, "Intern");
     assert.equal(h.sent.at(-1).refresh, true);
     h.runs[0].ctx.abort();
@@ -208,14 +219,9 @@ test("native shell extracts job details, presents isolated status and obtains a 
 });
 test("a blocked configuration is presented once without an unhandled startup rejection or adapter run", async () => {
   const h = fixture();
-  const attach = h.w.Element.prototype.attachShadow;
-  let shadow,
-    requests = 0;
-  h.w.Element.prototype.attachShadow = function (options) {
-    shadow = attach.call(this, options);
-    return shadow;
-  };
+  let requests = 0;
   h.w.chrome.runtime.sendMessage = async (message) => {
+    h.sent.push(message);
     if (message.type === "getAutofillConfig") {
       requests++;
       return { error: "旧版插件的本地资料尚未完成受控迁移，自动填写已暂停" };
@@ -225,14 +231,19 @@ test("a blocked configuration is presented once without an unhandled startup rej
   try {
     h.w.watchPage();
     await tick();
-    assert.match(shadow.textContent, /受控迁移/);
+    assert(
+      h.sent.some(
+        (message) =>
+          message.type === "jobs:panel-status" && /受控迁移/.test(message.text),
+      ),
+    );
     assert.equal(h.runs.length, 0);
     h.w.document.body.append(h.w.document.createElement("div"));
     await tick();
     assert.equal(requests, 1);
     assert.equal(
       h.w.document.querySelectorAll('[data-jobs-ui="status"]').length,
-      1,
+      0,
     );
   } finally {
     h.close();
@@ -341,6 +352,110 @@ test("custom-domain injection uses locally registered job candidates and include
 const postingUrl =
   "https://pacificlife.wd1.myworkdayjobs.com/en-US/PacificLifeCareers/job/Newport-Beach-CA-700/Summer-2027-Data-Engineering-Internship_R17828";
 const fullTitle = "Summer 2027 Data Engineering Internship";
+const waymoPostingUrl =
+  "https://careers.withwaymo.com/jobs/2027-summer-intern-ms-phd-software-engineer-mountain-view-california-united-states-20d2d61e-755a-483f-80df-2c1c196c2743?gh_jid=8250220";
+const waymoTitle = "2027 Summer Intern, MS, PhD, Software Engineer";
+
+test("a recognized custom posting reports its heading without an autofill adapter", async () => {
+  const h = fixture(waymoPostingUrl, `<h1>${waymoTitle}</h1>`);
+  try {
+    h.w.watchPage();
+    await tick();
+    assert.deepEqual(
+      structuredClone(
+        h.sent.filter((message) => message.type === "jobs:job-title-observed"),
+      ),
+      [
+        {
+          type: "jobs:job-title-observed",
+          title: waymoTitle,
+          url: waymoPostingUrl,
+        },
+      ],
+    );
+    assert.equal(h.runs.length, 0);
+    assert(
+      h.sent.every((message) =>
+        ["storeJobDetails", "jobs:job-title-observed"].includes(message.type),
+      ),
+    );
+    h.w.dispatchEvent(new h.w.Event("focus"));
+    await tick();
+    assert.equal(h.sent.length, 2, "acknowledged metadata is deduplicated");
+
+    h.w.document.head.dataset.phId = "career";
+    await tick();
+    assert.equal(
+      h.runs.length,
+      1,
+      "metadata must not consume late adapter startup",
+    );
+  } finally {
+    h.close();
+  }
+});
+
+test("custom posting metadata retries late headings and failed acknowledgements without stale SPA titles", async () => {
+  const h = fixture(waymoPostingUrl, "<title>Careers</title>");
+  const send = h.w.chrome.runtime.sendMessage;
+  let accepted = false;
+  h.w.chrome.runtime.sendMessage = async (message) => {
+    const response = await send(message);
+    return message.type === "jobs:job-title-observed"
+      ? { ok: accepted }
+      : response;
+  };
+  const reports = () =>
+    h.sent.filter((message) => message.type === "jobs:job-title-observed");
+  try {
+    h.w.watchPage();
+    await tick();
+    assert.equal(h.sent.length, 0);
+    h.w.document.body.insertAdjacentHTML("beforeend", `<h1>${waymoTitle}</h1>`);
+    await tick();
+    assert.equal(reports().length, 1);
+    accepted = true;
+    h.w.dispatchEvent(new h.w.Event("online"));
+    await tick();
+    assert.equal(reports().length, 2);
+    const next = waymoPostingUrl.replace("8250220", "8250221");
+    h.w.history.pushState({}, "", next);
+    h.w.dispatchEvent(new h.w.Event("popstate"));
+    await tick();
+    assert.equal(
+      reports().length,
+      2,
+      "old heading must not rename a different posting",
+    );
+    h.w.document.querySelector("h1").textContent =
+      "Simulation Engineering Intern";
+    await tick();
+    assert.equal(reports().at(-1).title, "Simulation Engineering Intern");
+    assert.equal(reports().at(-1).url, next);
+    assert.equal(h.runs.length, 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("metadata-only observation ignores non-job pages and document titles alone", async () => {
+  for (const [url, html] of [
+    ["https://custom-careers.example/news", "<h1>Company update</h1>"],
+    ["https://careers.withwaymo.com/jobs", `<h1>${waymoTitle}</h1>`],
+    [waymoPostingUrl, `<title>${waymoTitle}</title><h1>Apply now</h1>`],
+  ]) {
+    const h = fixture(url, html);
+    try {
+      h.w.watchPage();
+      await tick();
+      assert.equal(h.sent.length, 0, url);
+      assert.equal(h.runs.length, 0);
+    } finally {
+      h.close();
+    }
+  }
+});
+
 function postingFixture(html = "") {
   const h = fixture(postingUrl, html);
   h.w.jobsAdapterRoutes = [{ pattern: /\.myworkdayjobs\.com\// }];
@@ -537,7 +652,7 @@ test("temporary job context retains the title through form steps and resets for 
     chrome: {
       runtime: {
         id: "jobs",
-        onMessage: { addListener() {} },
+        onMessage: { addListener() {}, removeListener() {} },
         onConnect: { addListener() {} },
       },
       storage: {
@@ -618,6 +733,30 @@ test("local account configuration does not bind a Profile, while Profile email s
       result.accountSettings.accountEmail,
       "profile@example.invalid",
     );
+  } finally {
+    h.close();
+  }
+});
+
+test("slow advisory status cannot block startup and recovery recreates a read-only run", async () => {
+  const h = fixture();
+  try {
+    const send = h.w.chrome.runtime.sendMessage;
+    h.w.chrome.runtime.sendMessage = (message) =>
+      message.type === "jobs:application-status"
+        ? new Promise(() => {})
+        : send(message);
+    const original = h.w.watchPage();
+    await tick();
+    assert.equal(h.runs.length, 1);
+    assert.equal(h.runs[0].jobsRecovery, false);
+    original.abort("connection changed");
+    await Promise.all([h.w.__jobsReconnectPage(), h.w.__jobsReconnectPage()]);
+    assert.equal(h.runs.length, 2, "concurrent reconnect requests coalesce");
+    assert.equal(h.runs[1].jobsRecovery, true);
+    assert.equal(h.runs[1].ctx.isInvalid, false);
+    await h.w.__jobsReconnectPage();
+    assert.equal(h.runs.length, 2, "healthy page never restarts");
   } finally {
     h.close();
   }

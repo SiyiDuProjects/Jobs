@@ -104,7 +104,7 @@ def seed_progress(aid, stage='applied', source='owner'):
 
 
 def matching_applications(c, key, *, verified=True):
-    keys=equivalent_keys(key) if verified else (key,) if key else ()
+    keys=equivalent_keys(key, c) if verified else (key,) if key else ()
     if not keys:return []
     marks=','.join('?' for _ in keys)
     return c.execute(f'SELECT * FROM applications WHERE job_key IN ({marks}) ORDER BY CASE WHEN record IS NULL THEN 1 ELSE 0 END,updated DESC',keys).fetchall()
@@ -188,13 +188,13 @@ def reconcile(c,job_ids=None):
     """Attach external records when a known posting is collected, preserving IDs."""
     changed=0
     for external in c.execute("SELECT * FROM applications WHERE job_id LIKE 'external:%' OR job_id LIKE 'historical:%'").fetchall():
-        ids=job_index(c).get(canonical_key(external['job_key']),set())
+        ids=job_index(c).get(canonical_key(external['job_key'], c),set())
         if job_ids is not None: ids &= set(job_ids)
         if len(ids)!=1: continue
         jid=next(iter(ids));target=c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone()
         if not target or target['record'] or target['status']!='not_started' or target['version']>0:continue
         c.execute('DELETE FROM applications WHERE job_id=?',(jid,))
-        c.execute('UPDATE applications SET job_id=?,job_key=? WHERE job_id=?',(jid,canonical_key(external['job_key']),external['job_id']))
+        c.execute('UPDATE applications SET job_id=?,job_key=? WHERE job_id=?',(jid,canonical_key(external['job_key'], c),external['job_id']))
         c.execute('UPDATE application_events SET job_id=? WHERE job_id=?',(jid,external['job_id']))
         changed+=1
     return changed
@@ -212,8 +212,8 @@ def add_manual(c,jid):
     if existing:return record(existing[0])
     source=next((json.loads(r[0]) for r in c.execute('SELECT payload FROM observations WHERE job_id=? ORDER BY last_seen DESC',(jid,)) if json.loads(r[0]).get('apply_url')),None)
     if not source:return
-    source_key=posting_key(source['apply_url'])
-    if app['job_key'] and source_key!=canonical_key(app['job_key']):raise ValueError('Application source posting identity changed; review required')
+    source_key=posting_key(source['apply_url'], c)
+    if app['job_key'] and source_key!=canonical_key(app['job_key'], c):raise ValueError('Application source posting identity changed; review required')
     existing=[r for r in matching_applications(c,source_key) if r['record'] is not None]
     if len(existing)>1:raise ValueError('Multiple applications share the posting identity; review required')
     if existing:return record(existing[0])
@@ -241,7 +241,7 @@ class ApplicationRecords:
                 app=c.execute('SELECT * FROM applications WHERE application_id=? AND deleted=0',(aid,)).fetchone() if aid else None
                 if action=='create':
                     value=validate(change.get('value'))
-                    key=posting_key(value['jobLink'])
+                    key=posting_key(value['jobLink'], c)
                     duplicate=any(r['record'] is not None for r in matching_applications(c,key))
                     if duplicate:raise ProfileConflict('This posting already has an application record')
                     result=upsert(c,value,submission_status='submitted_unconfirmed')
@@ -252,7 +252,7 @@ class ApplicationRecords:
                         raise ProfileConflict('申请记录已修改，请刷新后重试')
                     if action=='update':
                         value=validate(change.get('value'))
-                        if posting_key(value['jobLink'])!=canonical_key(app['job_key']):raise ValueError('Posting identity cannot be changed by a metadata edit')
+                        if posting_key(value['jobLink'], c)!=canonical_key(app['job_key'], c):raise ValueError('Posting identity cannot be changed by a metadata edit')
                         old_value=json.loads(app['record']);value['status']=old_value['status']
                         c.execute('UPDATE applications SET record=?,record_version=record_version+1,version=version+1 WHERE application_id=?',(json.dumps(value,ensure_ascii=False),aid))
                     else:

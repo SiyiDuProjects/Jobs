@@ -112,6 +112,92 @@ test("Workday information: committed source plus optional blanks continues once 
     h.close();
   }
 });
+test("source preferences preserve an existing site-valid choice and allow Next once", async () => {
+  for (const profile of [
+    {},
+    {
+      applicationData: {
+        aiNotes:
+          "Recruiting-source preference: prefer LinkedIn, then Job Board/Online.",
+      },
+    },
+  ]) {
+    const h = setup(complete + prompt(true));
+    try {
+      const input = h.w.document.getElementById("source"),
+        container = input.parentElement,
+        selected = container.querySelector(
+          '[data-automation-id="promptOption"]',
+        );
+      // A retained selection can differ from both a failed search preference
+      // and an earlier exact selection marker after the person edits the field.
+      container.setAttribute("data-jobs-expected-choice", "Corporate Website");
+      selected.textContent = "University / Example Campus Job Board";
+      h.w.JobsWorkdayControls.expect(
+        input,
+        h.w.JobsProfileAnswers.recruitingSourceSpec(profile),
+      );
+      assert.equal(await h.run(), true);
+      assert.equal(
+        selected.textContent,
+        "University / Example Campus Job Board",
+      );
+      assert.equal(h.calls(), 0);
+      assert.equal(h.clicks(), 1);
+      await h.run();
+      assert.equal(h.clicks(), 1);
+    } finally {
+      h.close();
+    }
+  }
+});
+test("source preferences still require a single committed choice without website errors", () => {
+  for (const failure of ["aria", "native", "empty", "multiple"]) {
+    const h = setup(complete + prompt(true));
+    try {
+      const input = h.w.document.getElementById("source"),
+        list = input.parentElement.querySelector("ul");
+      h.w.JobsWorkdayControls.expect(
+        input,
+        h.w.JobsProfileAnswers.recruitingSourceSpec({}),
+      );
+      if (failure === "aria") input.setAttribute("aria-invalid", "true");
+      if (failure === "native")
+        input.setCustomValidity("Choose a valid source");
+      if (failure === "empty") {
+        list.replaceChildren();
+        input.value = "Search text is not a selection";
+      }
+      if (failure === "multiple")
+        list.append(list.firstElementChild.cloneNode(true));
+      const reader = h.w.JobsControlFields.create(h.w.document, () => h.root);
+      assert.equal(reader.state().ready, false, failure);
+    } finally {
+      h.close();
+    }
+  }
+});
+test("explicit source facts and other answer expectations remain strict", () => {
+  const h = setup(complete + prompt(true));
+  try {
+    const input = h.w.document.getElementById("source"),
+      api = h.w.JobsProfileAnswers,
+      reader = h.w.JobsControlFields.create(h.w.document, () => h.root);
+    for (const spec of [
+      api.recruitingSourceSpec({}, { recruitingSource: "LinkedIn" }),
+      api.knownSpec("Field of study", "Physics"),
+    ]) {
+      h.w.JobsWorkdayControls.expect(input, spec);
+      assert.equal(reader.state().ready, false);
+      assert.equal(
+        reader.scan().find((row) => row.node === input).public.invalid,
+        true,
+      );
+    }
+  } finally {
+    h.close();
+  }
+});
 test("Workday observer does not start a second supplement for optional information blanks", async () => {
   const h = setup(complete + "<label>Address Line 2<input></label>");
   try {
@@ -146,15 +232,19 @@ test("Workday missing committed source and real validation errors still block Ne
     }
   }
 });
-test("Unknown control is not reported as a missing required answer", async () => {
+test("Unknown optional control permits ordinary next but not final submit", async () => {
   const h = setup(
     complete +
       '<div contenteditable="true" aria-label="Optional custom control"></div>',
   );
   try {
-    assert.equal(await h.run(), false);
-    assert.equal(h.clicks(), 0);
-    assert.equal(h.phases.at(-1), "complete-manually");
+    assert.equal(
+      h.w.JobsControlFields.create(h.w.document, () => h.root).state().ready,
+      false,
+    );
+    assert.equal(await h.run(), true);
+    assert.equal(h.clicks(), 1);
+    assert.equal(h.phases.at(-1), "awaiting-transition");
   } finally {
     h.close();
   }

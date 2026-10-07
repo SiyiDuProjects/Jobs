@@ -1,3 +1,4 @@
+import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -114,6 +115,7 @@ test("review updates when a Workday pill changes without an input/change event",
   try {
     h.w.eval(presenter);
     h.w.eval(review);
+    mountReviewPanel(h.w);
     h.w.JobsAIReview.add(
       h.w.document.querySelector("form"),
       h.reader,

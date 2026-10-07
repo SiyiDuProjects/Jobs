@@ -1,3 +1,4 @@
+import { diagnosticGuard } from "./diagnostic-evidence.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsControlFields } from "./control-fields.js";
@@ -11,6 +12,8 @@ import { JobsFormPipeline } from "./form-pipeline.js";
 import { JobsProfileAnswers } from "./profile-answers.js";
 import { JobsAnswerMemory } from "./answer-memory.js";
 import { JobsQueuePage } from "./queue-page.js";
+import { recoverReview, finishRecovery } from "./recover-review.js";
+import { automaticFillPolicy, shape } from "./automatic-field-policy.js";
 export var JobsAutomatic;
 let initialized = false;
 export function initializeAutomaticFill() {
@@ -25,13 +28,6 @@ export function initializeAutomaticFill() {
       latest = null;
     const note = (type, node, detail) =>
       JobsDiagnostics?.note(type, node, detail);
-    const shape = (row) =>
-      JSON.stringify([
-        row.public.question,
-        row.public.type,
-        row.public.options,
-        row.public.conditional,
-      ]);
     const isChoice = (row) =>
       JobsControlFields.choiceTypes.includes(row.public.type);
     const stoppedPhases = new Set([
@@ -466,13 +462,20 @@ export function initializeAutomaticFill() {
         action: options.action || "submit",
         submitted: false,
         hasIncompleteReview: /** @type {(() => boolean) | null} */ (null),
-        current: () =>
-          !record.manual &&
-          flow.state !== "cancelled" &&
-          visibility.visible(root) &&
-          location.href === url &&
-          (!owner || (owner.current() && owner.owns(record))) &&
-          canProceed(),
+        current: diagnosticGuard(
+          [
+            ["manual", () => !record.manual],
+            ["cancelled", () => flow.state !== "cancelled"],
+            ["form_hidden", () => visibility.visible(root)],
+            ["url_changed", () => location.href === url],
+            [
+              "owner_changed",
+              () => !owner || (owner.current() && owner.owns(record)),
+            ],
+            ["caller_invalid", canProceed],
+          ],
+          (value) => JobsDiagnostics?.evidence?.(null, value),
+        ),
       };
       const setMessage = (message) => {
         if (record.current()) {
@@ -545,12 +548,14 @@ export function initializeAutomaticFill() {
       autoConfirm = true,
       onNavigate = () => {},
       fill,
+      recover = false,
       navigation,
       onReviewCheck = (_check) => {},
     }) {
       const reader = JobsControlFields.create(document, () => root, {
         write: true,
       });
+      const canFill = await automaticFillPolicy(root);
       const operation = JobsOperationContext.create({
         root,
         profile,
@@ -641,9 +646,12 @@ export function initializeAutomaticFill() {
         }
         return { value: result.answer };
       }
-      const ready = () => current() && reader.state({ review }).ready;
+      const ready = () =>
+        current() && reader.state({ review, next: action === "next" }).ready;
       const beforeReady = async () => {
         await binding();
+        if (!(await reader.verify(current)))
+          throw Error("页面显示的答案尚未确认保存，请检查填写诊断");
         if (action !== "fill")
           await JobsQueuePage?.beforeNavigate(
             action,
@@ -678,6 +686,7 @@ export function initializeAutomaticFill() {
           prepared ||
           (await reader.settle({
             review,
+            next: action === "next",
             selector: action === "fill" ? undefined : selector,
             target: action === "fill" ? undefined : target,
             canProceed: () => current() && canProceed(),
@@ -807,6 +816,13 @@ export function initializeAutomaticFill() {
         await binding();
         flow.move("filling");
         setMessage("in-progress");
+        if (recover) {
+          await reader.verify(current);
+          assertCurrent();
+          recoverReview(reader, toCard);
+          finishRecovery(reader, review, flow, needsReview, setMessage);
+          return false;
+        }
         if (fill) {
           note(
             "auto_adapter_fill_started",
@@ -815,7 +831,7 @@ export function initializeAutomaticFill() {
           );
           const filled = await operation.write(() =>
             JobsFormPipeline.within(
-              { root, ledger: book, canProceed: current },
+              { root, ledger: book, canProceed: current, canFill },
               () => {
                 assertCurrent();
                 return fill(current);
@@ -831,6 +847,7 @@ export function initializeAutomaticFill() {
         }
         let prepared;
         const open = (row) =>
+          canFill(row.node) &&
           !row.public.filled &&
           row.public.supported &&
           !row.public.dependencyBlocked &&
@@ -951,7 +968,7 @@ export function initializeAutomaticFill() {
               row.public.options?.filter(
                 (option) => option.value && option.label,
               ) || [];
-            if (JobsControlFields.component(row.node)) {
+            if (isChoice(row) && JobsControlFields.component(row.node)) {
               await binding();
               options = await operation.write(() =>
                 reader.readOptions(
@@ -971,13 +988,6 @@ export function initializeAutomaticFill() {
             if (isChoice(row) && !options.length) {
               note("auto_unhandled_control", row.node, "No exact options");
               leave(row, "No exact options");
-              continue;
-            }
-            // A segmented calendar needs day precision; a model must not invent the day.
-            if (row.dateParts) {
-              leave(row, "A complete calendar date is required", {
-                source: undefined,
-              });
               continue;
             }
             submitted.push({
@@ -1178,28 +1188,15 @@ export function initializeAutomaticFill() {
           flow.move("scanning");
           if (written) continue;
           const rows = reader.scan();
-          // A Profile answer an optional field could not take (its binding
-          // abstained) is shown on the card, never silently left blank.
-          for (const row of rows) {
-            const record = book.peek(row.node);
-            if (
-              record?.state === "abstained" &&
-              String(record.decider).startsWith("binding:") &&
-              !record.card &&
-              !row.public.required &&
-              !row.public.filled
-            )
-              leave(row, "The Profile answer did not match this field");
-          }
           const pending = (row) => {
             const record = book.peek(row.node);
             return (
+              canFill(row.node) &&
               row.public.required &&
               supplement(row) &&
-              !(
-                record &&
-                (record.aiTried || record.card || record.state === "omitted")
-              )
+              !record?.aiTried &&
+              !record?.card &&
+              record?.state !== "omitted"
             );
           };
           note(
@@ -1214,13 +1211,21 @@ export function initializeAutomaticFill() {
           if (needsReview() && !rows.some(pending)) break;
           const settled = await reader.settle({
             review,
+            next: action === "next",
             selector: action === "fill" ? undefined : selector,
             target: action === "fill" ? undefined : target,
             canProceed: current,
             pending,
             beforeReady,
           });
-          if (!settled) throw Error("页面尚未就绪，请检查校验提示和继续按钮");
+          if (!settled) {
+            assertCurrent();
+            // Show unsettled gaps without writing answers or weakening navigation.
+            for (const row of reader.scan().filter(pending))
+              leave(row, "Form readiness timed out before supplementation");
+            if (needsReview()) break;
+            throw Error("页面尚未就绪，请检查校验提示和继续按钮");
+          }
           if (!settled.pending) {
             prepared = settled;
             break;

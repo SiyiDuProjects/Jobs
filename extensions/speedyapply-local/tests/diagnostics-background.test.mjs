@@ -77,6 +77,31 @@ function report() {
     observedAt: Date.now(),
   };
 }
+test("IForm reports are stored under their Chrome sender's public job without form tokens", async () => {
+  const h = harness(),
+    value = { ...report(), pageUrl: "", ats: "icims" };
+  const sender = {
+    id: "test",
+    tab: {
+      id: 8,
+      url: "https://careers-fixture.icims.com/jobs/123/example/form?hashed=private",
+    },
+    frameId: 42,
+    documentId: "inner",
+    url: "https://fixture.icims.com/forms?token=private&csrf=private&user=123",
+  };
+  assert.equal(
+    (await h.send({ type: "jobs:diagnostics-push", report: value }, sender))
+      .data.ok,
+    true,
+  );
+  const records = Object.values(h.data.jobsDiagnosticsV1.reports);
+  assert.equal(
+    records[0].report.pageUrl,
+    "https://careers-fixture.icims.com/jobs/123/example/form",
+  );
+  assert.equal(JSON.stringify(records).includes("private"), false);
+});
 test("current page diagnostics reach the private archive; obsolete and unknown versions are rejected", async () => {
   const h = harness(),
     dom = new JSDOM(

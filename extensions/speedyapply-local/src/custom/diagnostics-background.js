@@ -1,5 +1,6 @@
 import { JobsPrivateSession } from "./private-session.js";
 import { JobsDiagnosticHistory } from "./history-background.js";
+import { icimsFormJobUrl } from "./public-job-url.js";
 export var JobsDiagnosticsBackground;
 let initialized = false;
 export function initializeDiagnosticsBackground() {
@@ -69,7 +70,13 @@ export function initializeDiagnosticsBackground() {
         bytes(report) > 240000
       )
         throw Error("Invalid diagnostic report");
+      const formJobUrl = icimsFormJobUrl(sender);
+      if (formJobUrl) report = { ...report, pageUrl: formJobUrl };
       const id = key(sender.tab.id, sender.frameId, report.sessionId);
+      if (report.journalOnly) {
+        await JobsDiagnosticHistory.capture(report);
+        return { ok: true };
+      }
       await serial(async () => {
         const state = await read();
         JobsPrivateSession.assertCurrent(epoch);
@@ -173,42 +180,49 @@ export function initializeDiagnosticsBackground() {
       if (
         ![
           "jobs:diagnostics-push",
+          "jobs:diagnostics-journal",
           "jobs:diagnostics-list",
+          "jobs:diagnostics-export",
           "jobs:diagnostics-get",
           "jobs:diagnostics-refresh",
           "jobs:diagnostics-capture-case",
         ].includes(message?.type)
       )
         return;
-      if (message.type !== "jobs:diagnostics-push" && !ui(sender)) {
+      if (
+        !["jobs:diagnostics-push", "jobs:diagnostics-journal"].includes(
+          message.type,
+        ) &&
+        !ui(sender)
+      ) {
         reply({ error: "Private diagnostics page required" });
         return;
       }
       const task =
         message.type === "jobs:diagnostics-capture-case"
           ? captureCase(message.id)
-          : message.type === "jobs:diagnostics-push"
+          : ["jobs:diagnostics-push", "jobs:diagnostics-journal"].includes(
+                message.type,
+              )
             ? accept(message.report, sender)
             : message.type === "jobs:diagnostics-refresh"
               ? refresh(message.id)
               : serial(async () => {
-                  const state = await read(),
-                    bridge =
-                      /** @type {import('./worker-types.js').BrowserControlState|undefined} */ (
-                        (
-                          await chrome.storage.session.get(
-                            "jobsBrowserControlV1",
-                          )
-                        ).jobsBrowserControlV1
-                      );
+                  const state = await read();
+                  if (message.type === "jobs:diagnostics-export") {
+                    const report = state.reports[message.id]?.report;
+                    if (!report) throw Error("记录不存在");
+                    return JobsDiagnosticHistory.exportRun(
+                      report.pageUrl,
+                      report.runId,
+                    );
+                  }
                   return message.type === "jobs:diagnostics-get"
                     ? state.reports[message.id]
                     : {
-                        sync: bridge?.error
-                          ? { state: "error", message: bridge?.error }
-                          : bridge?.lastExchangeAt
-                            ? { state: "synced", at: bridge?.lastExchangeAt }
-                            : { state: "local" },
+                        sync: (await JobsDiagnosticHistory?.health?.()) || {
+                          state: "local",
+                        },
                         reports: Object.values(state.reports).map(
                           ({ report, ...row }) => ({
                             ...row,

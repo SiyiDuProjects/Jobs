@@ -7,9 +7,22 @@ import { readModule } from "./module-source.mjs";
 // Manifest ordering has its own contract test.
 const custom = new URL("../../src/custom/", import.meta.url);
 const dependencies = {
-  "history-background.js": ["history-store.js", "history-event-metrics.js"],
-  "diagnostics.js": ["history-event-metrics.js"],
+  "form-pipeline.js": ["page-actions.js", "dom-wait.js", "page-commit.js"],
+  "manual-answer.js": ["form-pipeline.js"],
+  "history-background.js": [
+    "history-store.js",
+    "history-event-metrics.js",
+    "diagnostic-evidence.js",
+  ],
+  "diagnostics.js": [
+    "history-event-metrics.js",
+    "diagnostic-evidence.js",
+    "diagnostic-journal.js",
+  ],
   "control-fields.js": [
+    "dom-wait.js",
+    "calendar-date.js",
+    "select-state.js",
     "page-actions.js",
     "platform-config.js",
     "option-match.js",
@@ -39,6 +52,9 @@ const dependencies = {
     "form-pipeline.js",
   ],
   "automatic-fill.js": [
+    "autofill-preferences.js",
+    "automatic-field-policy.js",
+    "recover-review.js",
     "page-actions.js",
     "option-match.js",
     "profile-answers.js",
@@ -46,6 +62,9 @@ const dependencies = {
   ],
   "ai-review.js": ["page-actions.js", "form-pipeline.js"],
   "control-content.js": [
+    "autofill-preferences.js",
+    "automatic-field-policy.js",
+    "recover-review.js",
     "page-actions.js",
     "option-match.js",
     "profile-answers.js",
@@ -54,13 +73,14 @@ const dependencies = {
     "automatic-fill.js",
   ],
 };
-export async function readWithDependencies(path, encoding) {
+export async function readWithDependencies(path, encoding, ancestors = []) {
   const value = await readModule(path, encoding);
   if (encoding !== "utf8") return value;
   const name = String(path)
     .replaceAll("\\", "/")
     .match(/\/src\/custom\/([^/]+)$/)?.[1];
   if (!name || name === "page-actions.js") return value;
+  if (ancestors.includes(name)) return "";
   const needed = [
     ...(dependencies[name] || []),
     ...(value.includes("globalThis.JobsPageActions") && !dependencies[name]
@@ -70,7 +90,11 @@ export async function readWithDependencies(path, encoding) {
   if (/globalThis.public(?:Job|Page)Url/.test(value))
     needed.unshift("job-match-rules.js", "job-match.js", "public-job-url.js");
   const prefix = await Promise.all(
-    needed.map((file) => readModule(new URL(file, custom), "utf8")),
+    // A control session also loads the automatic pipeline's preferences and
+    // the pipeline's commit observer. Keep indirect dependencies real too.
+    needed.map((file) =>
+      readWithDependencies(new URL(file, custom), "utf8", [...ancestors, name]),
+    ),
   );
   return [...prefix, value].join("\n");
 }

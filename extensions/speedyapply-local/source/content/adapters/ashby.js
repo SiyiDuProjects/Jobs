@@ -124,7 +124,7 @@ async function ashbyFillApplication(
     ashbySelectLocation(profile.addressData, lifecycle),
   );
   await section(`disclosures`, () => ashbyFillDisclosures(profile, canProceed));
-  await section(
+  return section(
     `resume`,
     () =>
       profile.resumeData?.resumeBase64 &&

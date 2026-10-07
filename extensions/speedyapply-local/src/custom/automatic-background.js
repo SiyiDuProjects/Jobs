@@ -113,6 +113,12 @@ export function initializeAutomaticBackground() {
             profileVersion: bound.lastSync,
             fields: message.fields,
             formContext: message.formContext,
+            // Calendar facts come from the extension, not page text or the model.
+            additionalContext: JSON.stringify({
+              currentLocalDate: JobsProfileAnswers.today(),
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              dateAnswerFormat: "YYYY-MM-DD",
+            }),
             jobTitle: String(job?.title || message.jobTitle || "").slice(
               0,
               500,

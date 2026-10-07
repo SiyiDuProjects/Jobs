@@ -85,9 +85,19 @@ export function initializeQueueBackground() {
       state: "cancelled",
     };
     const removalChecks = new Map();
-    async function removalState(url, fresh) {
+    async function removalState(url, fresh, localOnly = false) {
       const epoch = JobsPrivateSession.epoch;
       if (await JobsSync.removalPending(url)) return { removed: true };
+      if (localOnly) {
+        const key = JobsJobMatch.key(url);
+        for (const group of currentIdentities().values())
+          if (
+            group.includes(key) &&
+            (await JobsSync.removalPending(url, group))
+          )
+            return { removed: true };
+        return { removed: false };
+      }
       const key = JobsJobMatch.key(url);
       if (key) {
         let check = removalChecks.get(key);
@@ -169,7 +179,10 @@ export function initializeQueueBackground() {
               : message.data.url || sender.url;
           const removal = await removalState(
             tabUrl,
-            message.data.type === "intent",
+            message.data.type === "intent" && message.data.action !== "next",
+            message.data.type === "check" ||
+              (message.data.type === "intent" &&
+                message.data.action === "next"),
           );
           if (removal.removed) return removed;
           const result = await engine.page(message.data, {

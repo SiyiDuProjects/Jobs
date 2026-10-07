@@ -79,8 +79,8 @@ def test_title_rule_uses_job_title_not_category_or_description():
     assert title_reason('Machine Learning Engineer') is None
 
 
-@pytest.mark.parametrize('title',['Software PhD Internships','NVIDIA Ph.D. Research Intern','SWE Intern - BS/MS/PhD','ph.d intern'])
-def test_phd_titles_are_excluded_even_when_mixed_degree(title):
+@pytest.mark.parametrize('title',['Software PhD Internships','NVIDIA Ph.D. Research Intern','ph.d intern'])
+def test_explicit_phd_titles_are_excluded(title):
     assert title_reason(title)=='phd'
 
 

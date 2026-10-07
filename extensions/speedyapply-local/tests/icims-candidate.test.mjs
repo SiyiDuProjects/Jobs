@@ -58,11 +58,12 @@ function setup(html) {
     const host = trigger.parentElement,
       select = host.querySelector("select"),
       menu = host.querySelector(".dropdown-container");
-    trigger.onclick = () => {
+    doc.addEventListener("mousedown", (event) => {
+      if (event.target !== trigger) return;
       const opened = trigger.getAttribute("aria-expanded") === "true";
       trigger.setAttribute("aria-expanded", String(!opened));
       menu.classList.toggle("dropdown-invisible", opened);
-    };
+    });
     for (const li of menu.querySelectorAll("li[title]"))
       li.onclick = () => {
         select.replaceChildren(new w.Option(li.title, li.title, true, true));
@@ -80,6 +81,71 @@ function setup(html) {
     close: () => w.close(),
   };
 }
+
+test("recovered SMS consent exposes Yes and No without a cached option read or automatic answer", async () => {
+  const h = setup(
+    choices(
+      "sms",
+      "Do you consent to receiving SMS text message updates throughout the application and hiring process?",
+      true,
+    ),
+  );
+  const root = h.doc.querySelector("form"),
+    profile = {},
+    views = [];
+  let clicks = 0;
+  h.doc.addEventListener("click", () => clicks++);
+  h.w.JobsReviewPresenter = {
+    show: (data) => {
+      if (data) views.push(data);
+    },
+  };
+  h.w.chrome.runtime.sendMessage = async (message) => {
+    assert.equal(message.type, "jobs:tab-profile");
+    return { data: { id: "fixture", profile } };
+  };
+  try {
+    assert.equal(
+      h.w.JobsIcimsControls.cachedOptions(
+        h.doc.getElementById("sms_icimsDropdown"),
+      ),
+      undefined,
+    );
+    await h.w.JobsAutomatic.advance({
+      root,
+      profile,
+      recover: true,
+      action: "fill",
+      fill: () => assert.fail("Recovery must preserve the form"),
+    });
+    const item = views
+      .at(-1)
+      .items.find((item) => item.question.includes("consent to receiving SMS"));
+    assert.equal(item.editor?.kind, "buttons");
+    assert.deepEqual(
+      Array.from(item.editor.options, (option) => option.label),
+      ["Yes", "No"],
+    );
+    assert.equal(h.doc.getElementById("sms").value, "");
+    assert.equal(clicks, 0);
+    const review = h.w.JobsAIReview.remoteState(root);
+    const result = await h.w.JobsAIReview.remoteAnswer(
+      root,
+      review.id,
+      item.id,
+      { version: item.editor.version, value: "No" },
+      () => true,
+    );
+    assert.equal(result.error, undefined);
+    assert.equal(h.doc.getElementById("sms").value, "No");
+    assert.equal(
+      h.w.JobsIcimsControls.value(h.doc.getElementById("sms_icimsDropdown")),
+      "No",
+    );
+  } finally {
+    h.close();
+  }
+});
 
 test("iCIMS candidate has one canonical date, optional titles, required military choices and native referral", async () => {
   const h = setup(

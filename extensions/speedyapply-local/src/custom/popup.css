@@ -5,9 +5,10 @@
 /* Components own color, interaction states and shape; this file owns layout. */
 html,
 body {
-  width: 360px;
+  width: 100%;
+  min-width: 0;
   margin: 0;
-  max-height: 600px;
+  min-height: 100%;
   overflow-x: hidden;
 }
 body {
@@ -48,6 +49,16 @@ body {
 .popup-section h2 {
   font-size: 14px;
   font-weight: 600;
+}
+.popup-autofill-switch,
+.popup-autofill-switch .switch__content {
+  width: 100%;
+}
+.popup-autofill-switch .switch__content {
+  justify-content: space-between;
+}
+.popup-autofill-switch .description {
+  padding-inline-start: 0;
 }
 .popup-source,
 .popup-hint,
@@ -91,4 +102,125 @@ body {
 .popup-footer .link,
 .popup-header .link {
   font-size: 12px;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 12px;
+}
+/* HeroUI CSS components inside the isolated review editor. Only layout lives here. */
+.review-card {
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+  padding: 16px;
+}
+.review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.review-heading h2 {
+  font-weight: 600;
+  font-size: 14px;
+  margin: 0;
+}
+.review-row {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--separator);
+}
+.review-group {
+  margin-block-start: 16px;
+}
+.review-group h3,
+.review-group summary {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.review-group summary {
+  cursor: pointer;
+  padding-block: 8px;
+}
+.review-group summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.item {
+  display: block;
+  width: 100%;
+  text-align: start;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+.question,
+.answer,
+.source,
+.error {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.answer {
+  margin-block-start: 4px;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.source,
+.review-card #status {
+  color: var(--muted);
+  font-size: 12px;
+  margin-block: 6px;
+}
+.editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 8px;
+}
+.editor .choice {
+  white-space: normal;
+  height: auto;
+  min-height: 32px;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.editor .choice[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.answer-input {
+  width: 100%;
+  min-width: 0;
+}
+textarea.answer-input {
+  resize: vertical;
+}
+select[multiple].answer-input {
+  height: auto;
+  min-height: 96px;
+}
+.error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.error:empty {
+  display: none;
+}
+.review-card footer {
+  padding-block-start: 12px;
+}
+.review-card [hidden] {
+  display: none !important;
+}
+
+.panel-progress-heading {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
 }

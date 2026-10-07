@@ -1,3 +1,4 @@
+import { isPanel, readPanelRecord, storePanelRecord } from "./panel-state.js";
 // Relay the review within one browser tab. Never submit or choose an answer here.
 async function presentReview(tabId, message) {
   try {
@@ -23,14 +24,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (!["jobs:review-present", "jobs:review-action"].includes(message?.type))
     return;
   const run = async () => {
-    if (
-      sender.id !== chrome.runtime.id ||
-      !sender.tab?.id ||
-      typeof message.id !== "string"
-    )
+    if (sender.id !== chrome.runtime.id || typeof message.id !== "string")
       throw Error("Application tab required");
     if (message.type === "jobs:review-present") {
-      if (!sender.documentId) throw Error("Application document required");
+      if (!sender.tab?.id || !sender.documentId)
+        throw Error("Application document required");
       if (
         message.data &&
         (message.data.id !== message.id ||
@@ -39,6 +37,29 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
           JSON.stringify(message.data).length > 250000)
       )
         throw Error("Invalid review");
+      const previous = await readPanelRecord(sender.tab.id, "review");
+      if (
+        !message.data &&
+        (previous?.id !== message.id ||
+          previous?.documentId !== sender.documentId)
+      )
+        return { ok: true };
+      await storePanelRecord(
+        sender.tab.id,
+        "review",
+        message.data
+          ? {
+              id: message.id,
+              documentId: sender.documentId,
+              url: sender.tab.url,
+            }
+          : null,
+      );
+      await chrome.action.setBadgeText({
+        tabId: sender.tab.id,
+        text: message.data ? "!" : "",
+      });
+      if (sender.frameId === 0) return { ok: true };
       return presentReview(sender.tab.id, {
         type: "jobs:review-view",
         id: message.id,
@@ -47,11 +68,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       });
     }
     if (
-      sender.frameId !== 0 ||
+      !isPanel(sender) ||
+      !Number.isInteger(message.tabId) ||
       !["confirm", "locate", "answer"].includes(message.action) ||
       typeof message.documentId !== "string"
     )
-      throw Error("Top-level review required");
+      throw Error("Side panel required");
     if (
       message.action === "answer" &&
       (!message.payload ||
@@ -59,8 +81,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         JSON.stringify(message.payload).length > 50000)
     )
       throw Error("Invalid answer");
+    const route = await readPanelRecord(message.tabId, "review");
+    const tab = await chrome.tabs.get(message.tabId);
+    if (
+      !route ||
+      route.id !== message.id ||
+      route.documentId !== message.documentId ||
+      route.url !== tab.url
+    )
+      throw Error("这份补答已过期，请检查当前页面。");
     return chrome.tabs.sendMessage(
-      sender.tab.id,
+      message.tabId,
       {
         type: "jobs:review-command",
         id: message.id,

@@ -453,17 +453,17 @@ test("Workday full-date writer keeps true day precision and cancellation between
   }
 });
 
-test("Workday month stops after a manual edit between its year and month writes", async () => {
+test("Workday month stops after a manual edit between its month and year writes", async () => {
   const h = await fixture("month");
   try {
     const pending = chooseAnswer(h.control, "2027-05");
-    h.doc.getElementById("year").value = "2030";
+    h.doc.getElementById("month").value = "12";
     h.doc
-      .getElementById("year")
+      .getElementById("month")
       .dispatchEvent(new h.w.Event("input", { bubbles: true }));
     assert.equal(await pending, null);
-    assert.equal(h.doc.getElementById("year").value, "2030");
-    assert.equal(h.doc.getElementById("month").value, "");
+    assert.equal(h.doc.getElementById("month").value, "12");
+    assert.equal(h.doc.getElementById("year").value, "");
   } finally {
     h.close();
   }

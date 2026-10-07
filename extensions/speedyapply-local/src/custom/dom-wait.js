@@ -4,6 +4,19 @@ export function initializeDomWait() {
   if (initialized) return;
   initialized = true;
   (() => {
+    // Yield behind queued page work without chaining DOM timers. A hidden tab
+    // can defer even a zero-delay timer for a minute. Background *priority*
+    // lets ordinary framework tasks run first; scheduler.yield/MessageChannel
+    // can overtake their renders, and RAF stops while hidden. This task has no
+    // delay and is not a save acknowledgement: callers still verify the result.
+    /** @returns {Promise<void>} */
+    function task(view = window) {
+      if (typeof view.scheduler?.postTask === "function")
+        return view.scheduler.postTask(() => {}, { priority: "background" });
+      return new Promise((resolve) => {
+        view.setTimeout(resolve, 0);
+      });
+    }
     // interval: how often a quiet page is re-read (a condition that depends on
     // elapsed time, not only on DOM changes).
     /** @template T @param {()=>T} read @param {{root?:Document|Element|ShadowRoot,timeout?:number|null,signal?:AbortSignal,interval?:number}} [options] */
@@ -86,6 +99,6 @@ export function initializeDomWait() {
         }
       });
     }
-    JobsDOMWait = { until };
+    JobsDOMWait = { until, task };
   })();
 }

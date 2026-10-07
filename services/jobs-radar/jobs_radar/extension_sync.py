@@ -106,7 +106,7 @@ class ExtensionSync:
             else:
                 jid=payload.get('website_job_id') if payload.get('website_job_id') in ids else ids[0] if ids else None
                 from .job_match import posting_key
-                before=receipt_application(c,jid,posting_key(payload['job_url']))
+                before=receipt_application(c,jid,posting_key(payload['job_url'], c))
                 if before is not None:jid=before['job_id']
                 value=upsert(c,dict(job_id=jid,jobTitle=payload.get('job_title',''),jobLink=payload['job_url'],companyName=payload.get('company',''),
                     companyLink='',date=payload['observed_at'],status='applied',profileName=payload.get('profile_name','')),receipt_proof=payload['proof'])
@@ -186,7 +186,7 @@ class ExtensionSync:
         with self.store.connect() as c:
             ids, method = resolve(c, url, hint)
             if not ids:
-                external = matching_applications(c, posting_key(url))
+                external = matching_applications(c, posting_key(url, c))
                 return {'state': 'unmatched', 'application': application_state(external)}
             identity_keys = identity_job_keys(c, ids, url)
             marks = ','.join('?' for _ in ids)
@@ -202,7 +202,7 @@ class ExtensionSync:
                 [*scope_values, *ids]).fetchone()
             applications = list({r['job_id']:r for r in [
                 *c.execute(f'SELECT * FROM applications WHERE job_id IN ({marks})', ids).fetchall(),
-                *matching_applications(c, posting_key(url))]}.values())
+                *matching_applications(c, posting_key(url, c))]}.values())
             statuses = [r['status'] for r in applications]
             removed = c.execute(f"SELECT 1 FROM job_screening WHERE job_id IN ({marks}) AND state='trash' LIMIT 1", ids).fetchone() is not None
             removal = {'allowed': len(statuses) >= len(ids) and all(can_remove_unsubmitted(r) for r in applications), 'removed': removed}

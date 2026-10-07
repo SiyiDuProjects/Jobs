@@ -2,7 +2,8 @@
 
 Old job/application/audit rows remain intact. Only discovery observations move;
 job_aliases records the redirect and removes archived aliases from counts.
-Call consolidate inside an administrator-owned transaction after a DB backup.
+Every changed source/index row is journaled in the same transaction. This does
+not copy unrelated Profiles, attachments or diagnostics for each small merge.
 """
 import json
 import time
@@ -21,10 +22,11 @@ def preferred_job(c, ids):
         r['attempted_at'] is None, rank.get(r['status'], 9), r['first_seen'], r['id']))['id']
 
 
-def consolidate(c, dry_run=True):
+def consolidate(c, dry_run=True, *, keys=None):
     now = time.time()
     groups = []
     for key, ids in job_index(c).items():
+        if keys is not None and key not in keys: continue
         if len(ids) < 2: continue
         ids = sorted(ids)
         canonical = preferred_job(c, ids)
@@ -39,8 +41,8 @@ def consolidate(c, dry_run=True):
         if c.execute(f'SELECT 1 FROM owner_submission_undo WHERE job_id IN ({marks}) AND expires>?', [*ids, now]).fetchone(): reason = 'active_submission_undo'
         if c.execute(f"SELECT 1 FROM job_screening WHERE job_id IN ({marks}) AND state='trash' AND expires_at>?", [*ids, now]).fetchone(): reason = 'active_removal_undo'
         # An old job ID must not connect two different requisitions transitively.
-        keys = {posting_key(r[0]) for r in c.execute(f"SELECT json_extract(payload,'$.apply_url') FROM observations WHERE job_id IN ({marks})", ids)}
-        if keys != {key}: reason = 'conflicting_source_identities'
+        source_keys = {posting_key(r[0], c) for r in c.execute(f"SELECT json_extract(payload,'$.apply_url') FROM observations WHERE job_id IN ({marks})", ids)}
+        if source_keys != {key}: reason = 'conflicting_source_identities'
         reviews = [dict(r) for r in c.execute(f'SELECT * FROM job_screening WHERE job_id IN ({marks})', ids)]
         from .application_progress import job_progress
         progress = [p for jid in ids if (p:=job_progress(c,jid))]
@@ -50,9 +52,24 @@ def consolidate(c, dry_run=True):
         group = {'canonical_id': canonical, 'aliases': [i for i in ids if i != canonical], 'reason': reason}
         groups.append(group)
         if dry_run or reason: continue
+        # A compact before-image is enough to reverse this source-only change.
+        # Applications and events are never mutated. Keep journals atomically
+        # with the merge instead of making a full database copy on every tick.
+        before = {
+            table: [dict(r) for r in c.execute(f'SELECT {columns} FROM {table} WHERE job_id IN ({marks})', ids)]
+            for table, columns in (
+                ('observations', 'stream,source_id,job_id'),
+                ('search_index', 'stream,source_id,job_id'),
+                ('job_screening', '*'), ('web_opened', '*'))}
+        before['job_aliases'] = [dict(r) for r in c.execute(
+            f'SELECT * FROM job_aliases WHERE canonical_id IN ({marks}) OR alias_id IN ({marks})', [*ids, *ids])]
+        before['first_seen'] = c.execute('SELECT first_seen FROM jobs WHERE id=?', (canonical,)).fetchone()[0]
         # Keep all original evidence, fencing versions and audit IDs for inspection.
         for alias in group['aliases']:
             c.execute('INSERT INTO job_aliases VALUES(?,?,?)', (alias, canonical, now))
+            # An already consolidated member may later acquire a new sibling
+            # with the sole owner record. Keep every historical ID one hop away.
+            c.execute('UPDATE job_aliases SET canonical_id=? WHERE canonical_id=?', (canonical, alias))
             c.execute('UPDATE observations SET job_id=? WHERE job_id=?', (canonical, alias))
             c.execute('UPDATE search_index SET job_id=? WHERE job_id=?', (canonical, alias))
         # Preserve explicit restores; otherwise a deleted alias stays suppressed.
@@ -66,6 +83,7 @@ def consolidate(c, dry_run=True):
         for row in c.execute(f'SELECT kind,max(opened_at) opened_at FROM web_opened WHERE job_id IN ({marks}) GROUP BY kind', ids).fetchall():
             c.execute('INSERT OR REPLACE INTO web_opened VALUES(?,?,?)', (canonical, row['kind'], row['opened_at']))
         c.execute(f'UPDATE jobs SET first_seen=(SELECT min(first_seen) FROM jobs WHERE id IN ({marks})) WHERE id=?', [*ids, canonical])
-        c.execute("INSERT INTO audit(job_id,event,actor,created,payload) VALUES(?,'source_alias_consolidation','jobs-admin',?,?)", (canonical, now, json.dumps(group)))
+        c.execute("INSERT INTO audit(job_id,event,actor,created,payload) VALUES(?,'source_alias_consolidation','jobs-admin',?,?)",
+                  (canonical, now, json.dumps({**group, 'before': before})))
     return {'groups': len(groups), 'mergeable': sum(not g['reason'] for g in groups),
             'held': sum(bool(g['reason']) for g in groups), 'dry_run': dry_run, 'details': groups}

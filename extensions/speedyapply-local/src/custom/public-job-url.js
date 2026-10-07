@@ -5,6 +5,29 @@ const postingToken = (url, name) =>
   name === "token" &&
   /(^|\.)greenhouse\.io$/.test(url.hostname) &&
   /^\d+$/.test(url.searchParams.get(name) || "");
+// A tenant's nested IForm has only private form/session parameters. Chrome's
+// sender tab supplies its public posting identity; never derive it from a
+// claimed report URL or archive the form's token-bearing URL.
+export function icimsFormJobUrl(sender) {
+  try {
+    const frame = new URL(sender.url),
+      top = new URL(sender.tab?.url);
+    if (
+      !(sender.frameId > 0) ||
+      frame.protocol !== "https:" ||
+      top.protocol !== "https:" ||
+      !/^[^.]+\.icims\.com$/.test(frame.hostname) ||
+      !/^\/forms\/?$/.test(frame.pathname) ||
+      !/^\/jobs\/\d+(?:\/|$)/.test(top.pathname) ||
+      top.hostname.replace(/^careers-/, "") !==
+        frame.hostname.replace(/^careers-/, "")
+    )
+      return "";
+    return publicJobUrl(top.href);
+  } catch {
+    return "";
+  }
+}
 // An observation can exist before a posting has been identified. Its URL is
 // descriptive only; command freshness is bound to the actual Chrome document.
 export function publicPageUrl(value) {

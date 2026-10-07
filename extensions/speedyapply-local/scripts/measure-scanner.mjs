@@ -1,10 +1,9 @@
 import fs from "node:fs/promises";
-import { spawnSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { JSDOM } from "jsdom";
 import { readWithDependencies } from "../tests/helpers/runtime-source.mjs";
 const root = new URL("../", import.meta.url),
-  baselineCommit = "257a15f";
+  baselineFile = process.argv[2] || null;
 const fixture =
   "<form>" +
   Array.from(
@@ -13,21 +12,7 @@ const fixture =
       `<label>Question ${index}<input id="field-${index}" required></label>`,
   ).join("") +
   "</form>";
-function baseline(name) {
-  const result = spawnSync(
-    "git",
-    [
-      "show",
-      `${baselineCommit}:extensions/speedyapply-local/src/custom/${name}.js`,
-    ],
-    { cwd: root, encoding: "utf8" },
-  );
-  if (result.status !== 0) throw Error(result.stderr);
-  return result.stdout;
-}
-const prior = ["page-actions", "platform-config", "control-fields"].map(
-  baseline,
-);
+const prior = baselineFile ? [await fs.readFile(baselineFile, "utf8")] : [];
 const current = await readWithDependencies(
   new URL("../src/custom/control-fields.js", import.meta.url),
   "utf8",
@@ -83,26 +68,25 @@ function sample(version) {
   }
 }
 const evidence = {
-  baselineCommit,
+  baselineFile,
   fixture:
     "60 required labelled inputs, 40 repeated reads; property update; conditional required select insertion",
   runs: [],
 };
 for (let index = 0; index < 3; index++)
   evidence.runs.push({
-    baseline: sample("baseline"),
+    ...(baselineFile ? { baseline: sample("baseline") } : {}),
     current: sample("current"),
   });
-if (
-  evidence.runs.some(
-    (row) =>
-      row.current.structuralScans !== 1 || row.baseline.structuralScans !== 40,
-  )
-)
+if (evidence.runs.some((row) => row.current.structuralScans !== 1))
   throw Error("Performance count regression");
 await fs.mkdir(new URL("../.qa", import.meta.url), { recursive: true });
 await fs.writeFile(
   new URL("../.qa/scanner-performance.json", import.meta.url),
   JSON.stringify(evidence, null, 2) + "\n",
+);
+await fs.writeFile(
+  new URL("../.qa/scanner-source.js", import.meta.url),
+  current,
 );
 console.log(JSON.stringify(evidence, null, 2));

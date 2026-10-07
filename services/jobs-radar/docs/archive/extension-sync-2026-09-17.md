@@ -1,3 +1,5 @@
+> Historical record; not current operating instructions. Current service release rules: [release contract](../../deploy/RELEASE.md).
+
 # jobs 插件投递同步
 
 已部署网站端及回执接口，扩展构建为 `extensions/speedyapply-local/dist`，版本 `2.28.0-local.5`。保持独立 ID `ccohapahbamkcbgkpegidkpknoeikiko`。

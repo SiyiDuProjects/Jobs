@@ -48,6 +48,7 @@ export interface BrowserPage extends BrowserTarget {
   };
 }
 export interface BrowserFrame extends BrowserTarget {
+  snapshotRetryAt?: number;
   browserDocumentId?: string;
   lifecycleId?: string;
   snapshot?: BrowserPage;
@@ -81,6 +82,8 @@ export interface BrowserControlState {
   results: CommandResult[];
   snapshotRequests?: BrowserTarget[];
   lastExchangeAt?: number;
+  lastErrorAt?: number;
+  lastError?: string;
   error?: string;
 }
 export interface PrivateConnectionState {
@@ -89,6 +92,7 @@ export interface PrivateConnectionState {
 }
 /** The archive transports field details opaquely; the diagnostics page reads them. */
 export interface DiagnosticReport {
+  journalOnly?: boolean;
   schemaVersion: number;
   sessionId: string;
   runId?: string;

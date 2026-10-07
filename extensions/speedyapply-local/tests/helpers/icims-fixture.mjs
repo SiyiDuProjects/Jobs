@@ -98,6 +98,8 @@ export function icimsFixture({
             if (type === "click" && commit) {
               select.replaceChildren(new w.Option(name, name, true, true));
               select.dispatchEvent(new w.Event("change", { bubbles: true }));
+              trigger.setAttribute("aria-expanded", "false");
+              list.parentElement.style.display = "none";
             }
           });
         return option;
@@ -107,13 +109,15 @@ export function icimsFixture({
   options(labels);
   if (selected)
     select.replaceChildren(new w.Option(selected, selected, true, true));
-  trigger.onclick = () => {
-    trace.push("trigger:click");
-    trigger.setAttribute(
-      "aria-expanded",
-      trigger.getAttribute("aria-expanded") === "true" ? "false" : "true",
-    );
-  };
+  list.parentElement.style.display = "none";
+  // iCIMS opens on document mousedown, not a synthetic trigger click.
+  doc.addEventListener("mousedown", (event) => {
+    if (event.target !== trigger) return;
+    trace.push("trigger:mousedown");
+    const open = trigger.getAttribute("aria-expanded") !== "true";
+    trigger.setAttribute("aria-expanded", String(open));
+    list.parentElement.style.display = open ? "block" : "none";
+  });
   doc.querySelector("#other-field li").onclick = () =>
     trace.push("WRONG QUESTION");
   for (const type of [

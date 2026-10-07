@@ -205,7 +205,7 @@ for (const phase of ["json", "engine"])
       { url: aliasB, afterPage: phase === "engine" ? pause : undefined },
     );
     const intent = h.send("intent", {
-      action: phase === "json" ? "next" : "submit",
+      action: "submit",
     });
     await started.promise;
     pendingAlias(h);
@@ -259,7 +259,7 @@ test("queue intents ignore page-forged identity lists and only use fresh service
     });
     assert.equal(reply.data?.allowed, !verified);
     assert.equal(reply.data?.removed, verified ? true : undefined);
-    assert.equal(h.requests.length, 2);
+    assert.equal(h.requests.length, 1);
   }
 });
 test("queue fresh intents reject malformed identity metadata instead of silently losing alias protection", async () => {
@@ -334,7 +334,11 @@ for (const failure of [
       "unverified safety read must not grant navigation",
     );
     assert.equal((await h.send("check")).data?.allowed, true);
-    assert.equal(h.requests.length, 2, "only intent bypasses the cached check");
+    assert.equal(
+      h.requests.length,
+      1,
+      "only submit intent queries the service",
+    );
   });
 
 test("final ordinary-page intent rejects a connection change while resolution JSON is pending", async () => {
@@ -522,12 +526,12 @@ test("queue eligibility and navigation intents demand fresh resolution while che
   assert.equal(lookups[0].fresh, true);
   assert.equal(lookups[0].hint, "a".repeat(24));
   assert.equal((await send("check")).data.allowed, true);
-  assert.equal(lookups[1].fresh, false);
+  assert.equal(lookups.length, 1, "local checks do not query the service");
   assert.equal((await send("intent")).data.allowed, true);
-  assert.equal(lookups[2].fresh, true);
+  assert.equal(lookups[1].fresh, true);
   removed = true;
   assert.equal((await send("intent")).data.removed, true);
-  assert.equal(lookups[3].fresh, true);
+  assert.equal(lookups[2].fresh, true);
   assert.equal(
     pageCalls,
     2,
@@ -704,3 +708,15 @@ for (const alias of [false, true])
       }
     },
   );
+
+test("ordinary next uses local removal checks and remains usable during service outage", async () => {
+  const h = await integration(async () => {
+    throw Error("Service is unavailable");
+  });
+  const next = await h.send("intent", { action: "next" });
+  assert.equal(next.error, undefined);
+  assert.equal(h.requests.length, 0);
+  const submit = await h.send("intent", { action: "submit" });
+  assert.ok(submit.error || submit.data?.allowed === false);
+  assert.equal(h.requests.length, 1);
+});

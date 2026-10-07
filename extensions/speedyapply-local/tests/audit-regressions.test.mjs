@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
 const code = {};
 for (const name of [
+  "job-match-rules",
+  "job-match",
   "response-contract",
   "document-store",
   "answer-memory",
@@ -25,7 +27,7 @@ for (const name of [
     new URL("../src/custom/" + name + ".js", import.meta.url),
     "utf8",
   );
-const writer = await readWithDependencies(
+const writer = code["job-match-rules"] + "\n" + code["job-match"] + "\n" + await readWithDependencies(
   new URL("../source/saved-responses.js", import.meta.url),
   "utf8",
 );

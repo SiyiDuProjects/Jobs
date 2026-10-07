@@ -1,3 +1,5 @@
+import { JobsDiagnostics } from "./diagnostics.js";
+import { diagnosticGuard } from "./diagnostic-evidence.js";
 import { JobsProfileAnswers } from "./profile-answers.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsControlFields } from "./control-fields.js";
@@ -44,16 +46,22 @@ export function initializeOperationContext() {
         stopped = true;
         failure = reason || "页面或用户输入已变化，停止继续";
       };
-      const current = () =>
-        !stopped &&
-        !touched &&
-        Date.now() < expiresAt &&
-        root?.isConnected &&
-        root.parentNode === parent &&
-        getRoot() === root &&
-        doc.location.href === url &&
-        canProceed() &&
-        JobsPageActions.allowed();
+      const current = diagnosticGuard(
+        [
+          ["cancelled", () => !stopped],
+          ["user_input", () => !touched],
+          ["expired", () => Date.now() < expiresAt],
+          ["detached", () => root?.isConnected],
+          [
+            "root_changed",
+            () => root.parentNode === parent && getRoot() === root,
+          ],
+          ["url_changed", () => doc.location.href === url],
+          ["caller_invalid", canProceed],
+          ["queue_paused", () => JobsPageActions.allowed()],
+        ],
+        (value) => JobsDiagnostics?.evidence?.(null, value),
+      );
       const assertCurrent = () => {
         if (!current())
           throw Error(failure || "页面或用户输入已变化，停止继续");

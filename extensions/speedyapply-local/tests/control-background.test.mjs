@@ -173,6 +173,9 @@ function harness({
       local: {
         get: async () => structuredClone(local),
         set: async (data) => Object.assign(local, structuredClone(data)),
+        remove: async (key) => {
+          delete local[key];
+        },
       },
     },
     tabs: {
@@ -1368,4 +1371,60 @@ test("only the current lifecycle can release a page and only its last frame rele
     [8, "browser-0"],
     [8, "browser-2"],
   ]);
+});
+
+test("rejected snapshots recover inventory without dropping pending command receipts", async () => {
+  const h = harness({
+    respond: (payload) =>
+      payload.pages.length
+        ? Response.json({ error: "snapshot expired" }, { status: 409 })
+        : response([]),
+  });
+  await h.ready();
+  h.session[KEY].results = [{ id: "receipt", state: "completed" }];
+  await h.tick();
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.requests[1].payload.pages.length, 0);
+  assert.equal(h.requests[1].payload.results[0].id, "receipt");
+  assert.deepEqual(h.session[KEY].snapshotRequests, []);
+  assert.ok(h.session[KEY].lastExchangeAt);
+});
+
+test("a lost upload response does not replay an already consumed snapshot", async () => {
+  const h = harness({
+    respond: (_, n) => {
+      if (n === 1) throw Error("response lost after acceptance");
+      return response([]);
+    },
+  });
+  await h.ready();
+  await h.tick();
+  await h.tick();
+  assert.equal(h.requests[0].payload.pages.length, 1);
+  assert.equal(h.requests[1].payload.pages.length, 0);
+  assert.ok(h.session[KEY].lastExchangeAt);
+});
+
+test("a slow page command does not prevent another heartbeat", async () => {
+  const started = Promise.withResolvers(),
+    finish = Promise.withResolvers();
+  const h = harness({
+    respond: (payload, n) =>
+      response(n === 1 ? [command(payload.sessionId, page(1), "slow")] : []),
+    send: (_, message) => {
+      if (message.type === "jobs:control-inspect") return { data: page(1) };
+      started.resolve();
+      return finish.promise;
+    },
+  });
+  await h.ready();
+  const executing = h.tick();
+  await started.promise;
+  await h.tick();
+  assert.equal(h.requests.length, 2);
+  finish.resolve({ id: "slow", state: "completed" });
+  assert.equal(h.requests[1].payload.results.length, 0);
+  await executing;
+  await h.tick();
+  assert.equal(h.requests[2].payload.results[0].id, "slow");
 });

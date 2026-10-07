@@ -27,6 +27,7 @@ export async function checkRecoveryPause(response, expectedEpoch = undefined) {
     stopping = JobsPrivateSession.clear(
       undefined,
       JobsManagementSync.pendingSnapshot,
+      "recovery_pause",
     ).finally(() => {
       stopping = undefined;
     });

@@ -375,7 +375,7 @@ test("an optional Workday major whose search finds nothing stays blank and does 
   }
 });
 
-test("in a run, a Profile answer an optional field could not take goes on the card instead of blocking or staying silent", async () => {
+test("an optional Profile mismatch stays diagnosed without blocking the page", async () => {
   const { w, doc } = page(
     '<label>Field of Study<select id="major"><option value="">Select</option><option>Chemistry</option></select></label><button id="next">Next</button>',
   );
@@ -414,14 +414,9 @@ test("in a run, a Profile answer an optional field could not take goes on the ca
           },
         ]),
     });
-    assert.equal(done, false, "waits for the person");
-    assert(w.JobsAIReview.pending());
-    assert(
-      notes.some(
-        ([type, detail]) =>
-          type === "auto_needs_input" && /did not match/.test(detail),
-      ),
-    );
+    assert.equal(done, true, "optional fields do not block completion");
+    assert.equal(w.JobsAIReview.pending(), false);
+    assert(notes.some(([type, detail]) => type === "auto_binding_failed"));
   } finally {
     w.close();
   }

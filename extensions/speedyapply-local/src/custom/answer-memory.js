@@ -318,9 +318,9 @@ export function initializeAnswerMemory() {
             record?.response ||
             (node.matches("textarea") ? node.value.trim() : "");
           if (question && response) {
-            // Generated/reviewed drafts can describe one employer or role. Keep
-            // them reusable in this job only; ordinary real user input still uses
-            // capture() above, and explicit reusable rules remain Profile-wide.
+            // Retain the source posting as provenance. The saved-answer matcher
+            // derives its company scope, so another role at this employer can
+            // reuse a confirmed answer without sharing it with other employers.
             const jobKey = JobsJobMatch?.key(doc.location.href);
             if (!jobKey || JSON.parse(jobKey)[1] === "exact") {
               note("memory_job_scope_unavailable", node);
@@ -328,6 +328,12 @@ export function initializeAnswerMemory() {
             }
             queue({ question, response, jobKey }, node, true);
           }
+        },
+        followReview(node, replacement) {
+          if (!review.has(node) || review.has(replacement)) return;
+          review.set(replacement, review.get(node));
+          review.delete(node);
+          own.cancel(node);
         },
         confirmReview(nodes) {
           for (const node of nodes)
@@ -377,6 +383,8 @@ export function initializeAnswerMemory() {
       remember: (question, node, options) =>
         session?.remember(question, node, options),
       confirmReview: (nodes) => session?.confirmReview(nodes),
+      followReview: (node, replacement) =>
+        session?.followReview(node, replacement),
       discardReview: (nodes) => session?.discardReview(nodes),
       cancel: (node) => session?.cancel(node),
       flush: () => session?.flush(),

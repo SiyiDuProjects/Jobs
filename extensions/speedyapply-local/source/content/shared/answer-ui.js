@@ -41,7 +41,7 @@ export async function jobsMountManualAnswerControls(context, pairs) {
         });
       });
       context?.onInvalidated?.(() => {
-        request?.disconnect();
+        JobsManualAnswer.cancel(node);
         box.remove();
         delete node.dataset.jobsAnswerControl;
       });

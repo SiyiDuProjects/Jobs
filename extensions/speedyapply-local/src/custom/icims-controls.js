@@ -3,6 +3,7 @@ import { JobsPageActions } from "./page-actions.js";
 import { JobsDOMWait } from "./dom-wait.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsOptionMatch } from "./option-match.js";
+import { JobsPlatformConfig } from "./platform-config.js";
 export var JobsIcimsControls;
 let initialized = false;
 export function initializeIcimsControls() {
@@ -112,6 +113,13 @@ export function initializeIcimsControls() {
         : null;
     }
     function dateQuestion(node) {
+      const formCaption = JobsPlatformConfig?.detect(
+        node.ownerDocument,
+      )?.question?.(node, false, {
+        doc: node.ownerDocument,
+        textOnly: (fragment) => fragment.textContent,
+      });
+      if (formCaption) return formCaption;
       const row = node.closest(
         '.iCIMS_FieldRow,[role="group"][aria-labelledby]',
       );
@@ -342,7 +350,12 @@ export function initializeIcimsControls() {
           ((!control.input.disabled && !control.input.readOnly) ||
             options(control).length)
         ),
-        options: cachedOptions(node),
+        // Non-search choices already exist in the page even after a content
+        // script restart. Recovery must not depend on this instance's cache.
+        options:
+          control.select?.getAttribute("icimsdropdown-search") === "0"
+            ? listedOptions(control)
+            : cachedOptions(node),
       };
     }
     const options = (control) =>
@@ -357,6 +370,14 @@ export function initializeIcimsControls() {
       );
     const optionLabel = (option) =>
       text(option.getAttribute("title") || option.textContent);
+    function listedOptions(control) {
+      const labels = options(control).map(optionLabel).filter(Boolean);
+      return labels.length &&
+        labels.length <= 150 &&
+        new Set(labels.map(normalize)).size === labels.length
+        ? labels.map((label) => ({ label, value: label }))
+        : undefined;
+    }
     const exactOption = (control, answer, visibleOnly = false) => {
       const wanted = normalize(answer),
         matches = options(control).filter(
@@ -388,6 +409,21 @@ export function initializeIcimsControls() {
           option,
           new view.MouseEvent(type, { bubbles: true, cancelable: true, view }),
         );
+    }
+    async function setOpen(control, open, current) {
+      if (!current()) return false;
+      // iCIMS delegates opening to document mousedown. HTMLElement.click()
+      // alone leaves the AJAX results in a closed, invisible popup.
+      if ((control.node.getAttribute("aria-expanded") === "true") !== open)
+        mouseClick(control.node);
+      return !!(await wait(
+        () =>
+          (control.node.getAttribute("aria-expanded") === "true") === open &&
+          visible(control.container) === open,
+        control,
+        current,
+        1500,
+      ));
     }
     async function chooseUntraced(
       node,
@@ -449,8 +485,7 @@ export function initializeIcimsControls() {
       try {
         let option = findOption();
         if (!option) {
-          if (node.getAttribute("aria-expanded") !== "true")
-            JobsPageActions.click(node);
+          if (!(await setOpen(control, true, current))) return null;
           if (!current()) return null;
           // A closed popup may already have its exact result. Opening it makes
           // that result usable without editing a readonly search input. Hidden
@@ -563,7 +598,7 @@ export function initializeIcimsControls() {
       // a closed list exposes its current options without typing a new query.
       let selected = pickVisible();
       if (!selected && node.getAttribute("aria-expanded") !== "true") {
-        JobsPageActions.click(node);
+        if (!(await setOpen(control, true, current))) return fail();
         selected = pickVisible();
       }
       if (!current()) return null;
@@ -625,13 +660,8 @@ export function initializeIcimsControls() {
       // Non-search iCIMS lists are already loaded. Read their own list without
       // opening optional Prefix/Suffix before reaching required questions below.
       if (control.select.getAttribute("icimsdropdown-search") === "0") {
-        const labels = options(control).map(optionLabel).filter(Boolean);
-        if (
-          labels.length &&
-          labels.length <= 150 &&
-          new Set(labels.map(normalize)).size === labels.length
-        ) {
-          const answers = labels.map((label) => ({ label, value: label }));
+        const answers = listedOptions(control);
+        if (answers) {
           cache.set(node, {
             select: control.select,
             list: control.list,
@@ -648,7 +678,7 @@ export function initializeIcimsControls() {
       const same = () => current() && value(node) === previous;
       const available = () => options(control).filter(visible);
       try {
-        if (opened) JobsPageActions.click(node);
+        if (!(await setOpen(control, true, same))) return [];
         if (!same()) return [];
         if (!available().length) {
           if (control.input.readOnly || control.input.disabled) return [];
@@ -691,7 +721,7 @@ export function initializeIcimsControls() {
           if (query && control.input.value === String(query))
             await writeSearch(control, previousSearch, same);
           if (opened && same() && node.getAttribute("aria-expanded") === "true")
-            JobsPageActions.click(node);
+            await setOpen(control, false, same);
         }
       }
     }

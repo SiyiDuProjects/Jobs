@@ -13,7 +13,8 @@ const labels = {
   restore_conflict: "岗位状态已变化，请到回收站查看",
 };
 export function createPopupJob(api, changed) {
-  let tab,
+  let windowId,
+    tab,
     data,
     busy = false,
     reason = "",
@@ -96,9 +97,14 @@ export function createPopupJob(api, changed) {
     reason = "";
     render();
     try {
-      const tabs = await api.tabs.query({ active: true, currentWindow: true });
+      const tabs = await api.tabs.query(
+        windowId == null
+          ? { active: true, currentWindow: true }
+          : { active: true, windowId },
+      );
       if (seq !== revision || disposed) return;
       [tab] = tabs;
+      windowId = tab?.windowId ?? windowId;
       await refresh();
     } catch {
       if (seq !== revision || disposed) return;
@@ -130,7 +136,13 @@ export function createPopupJob(api, changed) {
   function storageChanged(changes, area) {
     if (area === "local" && changes.jobsSyncV1 && !busy) void refresh();
   }
-  function activated() {
+  function activated(info) {
+    if (
+      windowId != null &&
+      info?.windowId != null &&
+      info.windowId !== windowId
+    )
+      return;
     void select();
   }
   function updated(id, change) {

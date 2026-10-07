@@ -1,3 +1,7 @@
+import {
+  diagnosticEvidence,
+  evictDiagnosticEvent,
+} from "./diagnostic-evidence.js";
 import { JobsPrivateSession } from "./private-session.js";
 import { checkRecoveryPause } from "./recovery-pause.js";
 import { publicJobUrl } from "./public-job-url.js";
@@ -75,6 +79,15 @@ export function initializeHistoryBackground() {
           ])
             if (value != null) values.add(String(value));
       }
+      for (const event of report.events || [])
+        for (const value of [
+          event.trace?.answer,
+          event.trace?.chosen,
+          event.trace?.alias,
+          event.trace?.readback,
+          ...(event.trace?.options || []),
+        ])
+          if (value != null) values.add(String(value));
       const aliases = new Map();
       for (const value of values) {
         const bytes = await crypto.subtle.digest(
@@ -103,7 +116,7 @@ export function initializeHistoryBackground() {
         ...Object.fromEntries(
           ["source", "topic", "result", "method", "reason"]
             .filter((k) => short(t[k], 40))
-            .map((k) => [k, publicText(short(t[k], 40))]),
+            .map((k) => [k, publicText(short(t[k], 40)).slice(0, 40)]),
         ),
         ...Object.fromEntries(
           ["answer", "chosen", "alias", "readback"]
@@ -165,7 +178,8 @@ export function initializeHistoryBackground() {
         if (
           !state.applications[storageKey] &&
           !report.fields?.length &&
-          !report.unansweredContainers?.length
+          !report.unansweredContainers?.length &&
+          !report.events?.length
         )
           return;
         const data = entry.data;
@@ -212,7 +226,7 @@ export function initializeHistoryBackground() {
             : {}),
         };
         const signature = JSON.stringify({ ...snapshot, at: 0 });
-        let changed = entry.signature !== signature;
+        let changed = !report.journalOnly && entry.signature !== signature;
         if (changed) {
           data.snapshots.push(snapshot);
           entry.signature = signature;
@@ -228,6 +242,10 @@ export function initializeHistoryBackground() {
             e.phase || null,
             e.build || null,
             e.visibility || null,
+            e.sequence || null,
+            e.evidence || null,
+            e.trace || null,
+            e.decision || null,
             historyEventMetrics(e.type, e.timing).timing || null,
           ]);
         const priorEventCount = data.events.length;
@@ -245,6 +263,12 @@ export function initializeHistoryBackground() {
             type: e.type,
             ...(e.fieldId ? { fieldId: e.fieldId } : {}),
             ...historyEventMetrics(e.type, e.detail),
+            ...(Number.isSafeInteger(e.sequence) && e.sequence > 0
+              ? { sequence: e.sequence }
+              : {}),
+            ...(e.evidence ? { evidence: diagnosticEvidence(e.evidence) } : {}),
+            ...(e.trace ? { trace: trace(e.trace) } : {}),
+            ...(e.decision ? { decision: decision(e.decision) } : {}),
           });
           if (e.type === "phase" && /^[a-z_-]{1,80}$/.test(e.detail || ""))
             event.phase = e.detail;
@@ -270,7 +294,7 @@ export function initializeHistoryBackground() {
           data.truncated = true;
         }
         if (data.events.length > 1500) {
-          data.events = data.events.slice(-1500);
+          while (data.events.length > 1500) evictDiagnosticEvent(data.events);
           data.truncated = true;
         }
         if ((report.fields?.length || 0) > 150 || report.droppedEvents > 0)
@@ -278,8 +302,10 @@ export function initializeHistoryBackground() {
         while (bytes(data) > MAX_BYTES) {
           data.truncated = true;
           if (data.snapshots.length > 1) data.snapshots.shift();
-          else if (data.events.length) data.events.shift();
-          else data.snapshots[0].fields.pop();
+          else if (data.events.length) evictDiagnosticEvent(data.events);
+          else if (data.snapshots[0]?.fields.length)
+            data.snapshots[0].fields.pop();
+          else throw Error("Diagnostic metadata exceeds the storage budget");
         }
         entry.revision++;
         state.applications[storageKey] = entry;
@@ -318,18 +344,27 @@ export function initializeHistoryBackground() {
         await write(state);
       });
     }
-    async function pending(budget) {
+    async function pending(budget, forUpload = false) {
       return serial(async () => {
         const state = await read(),
           items = [],
           ack = [];
+        const rejected = forUpload
+          ? (await chrome.storage.local.get("jobsDiagnosticRejectedV1"))
+              .jobsDiagnosticRejectedV1 || {}
+          : {};
         let used = 0;
         for (const [url, entry] of Object.entries(state.applications).sort(
           (a, b) => a[1].data.lastSeen - b[1].data.lastSeen,
         )) {
           if (entry.ack === entry.revision) continue;
+          if (
+            rejected[url]?.revision === entry.revision &&
+            rejected[url].retryAt > Date.now()
+          )
+            continue;
           const size = bytes(entry.data);
-          if (used + size > budget) continue;
+          if (used + size > budget || items.length >= 10) continue;
           items.push(entry.data);
           ack.push({ url, revision: entry.revision });
           used += size;
@@ -356,6 +391,42 @@ export function initializeHistoryBackground() {
         await write(state, check ? { check, pendingAcks } : undefined);
       });
     }
+    const HEALTH = "jobsDiagnosticTransportV1";
+    async function health() {
+      const saved = /** @type {Record<string, any>} */ (
+        (await chrome.storage.local.get(HEALTH))[HEALTH]
+      ) || {
+        state: "local",
+      };
+      return serial(async () => {
+        const state = await read("__summary_only__");
+        const pendingRuns = Object.values(state.applications).filter(
+          (row) => row.ack !== row.revision,
+        );
+        return {
+          ...saved,
+          pending: pendingRuns.length,
+          newestLocalAt: Math.max(
+            0,
+            ...Object.values(state.applications).map(
+              (row) => row.data.lastSeen,
+            ),
+          ),
+        };
+      });
+    }
+    async function setHealth(value, epoch) {
+      const previous = /** @type {{lastAckAt?: number} | undefined} */ (
+        (await chrome.storage.local.get(HEALTH))[HEALTH]
+      );
+      JobsPrivateSession.assertCurrent(epoch);
+      await chrome.storage.local.set({
+        [HEALTH]: {
+          ...(previous?.lastAckAt ? { lastAckAt: previous.lastAckAt } : {}),
+          ...value,
+        },
+      });
+    }
     let uploading;
     async function upload() {
       const epoch = JobsPrivateSession.epoch;
@@ -363,9 +434,23 @@ export function initializeHistoryBackground() {
       const connection = /** @type {import('./sync-types').SyncState} */ (
         (await chrome.storage.local.get("jobsSyncV1")).jobsSyncV1
       );
-      if (!connection?.profileToken || connection.disabled) return;
-      const batch = await pending(495000);
+      if (!connection?.profileToken || connection.disabled) {
+        await setHealth(
+          { state: "disconnected", checkedAt: Date.now() },
+          epoch,
+        );
+        return;
+      }
+      const batch = await pending(495000, true);
       if (!batch.items.length) return;
+      await setHealth(
+        {
+          state: "uploading",
+          checkedAt: Date.now(),
+          pending: batch.items.length,
+        },
+        epoch,
+      );
       const origin = JobsBrand.origin;
       if (!origin) throw Error("Diagnostics connection is unavailable");
       JobsPrivateSession.assertCurrent(epoch);
@@ -389,13 +474,23 @@ export function initializeHistoryBackground() {
         JobsPrivateSession.assertCurrent(epoch);
         if (data.historyAccepted !== true)
           throw Error("Diagnostics were not acknowledged");
-        return { status: 0, metrics: data.historyEventMetrics === 1 };
+        return {
+          status: 0,
+          metrics: data.historyEventMetrics === 1,
+          evidence: data.historyEvidence === 1,
+        };
       };
       const accepted = (response) => {
         if (response.status)
           throw Error("Diagnostics upload failed (" + response.status + ")");
         return response;
       };
+      const hasEvidence = batch.items.some((item) =>
+        item.events.some(
+          (event) =>
+            event.sequence || event.evidence || event.trace || event.decision,
+        ),
+      );
       const hasMetrics = batch.items.some((item) =>
         item.events.some((event) => event.timing || event.visibility),
       );
@@ -406,23 +501,98 @@ export function initializeHistoryBackground() {
         }));
       // Probe with the existing empty-packet contract. Old servers never see
       // new event fields; the local archive still retains those measurements.
-      const metrics = hasMetrics && accepted(await post([])).metrics;
+      const capabilities =
+        hasMetrics || hasEvidence ? accepted(await post([])) : null;
+      if (hasEvidence && !capabilities?.evidence) {
+        await setHealth(
+          {
+            state: "upgrade_required",
+            checkedAt: Date.now(),
+            pending: batch.items.length,
+          },
+          epoch,
+        );
+        return;
+      }
+      const metrics = capabilities?.metrics;
       const response = await post(
         hasMetrics && !metrics ? legacy() : batch.items,
       );
       // The service can roll back between the probe and packet. Retry only a
       // rejected rich shape, once; auth/pause/network failures keep it pending.
-      accepted(
-        metrics && response.status === 400 ? await post(legacy()) : response,
-      );
+      async function rejectRun(index) {
+        const key = "jobsDiagnosticRejectedV1";
+        const saved = (await chrome.storage.local.get(key))[key] || {};
+        const row = batch.ack[index];
+        saved[row.url] = {
+          revision: row.revision,
+          retryAt: Date.now() + 60000,
+        };
+        // Keep transport metadata bounded independently of retained evidence.
+        const records = Object.entries(saved)
+          .sort((a, b) => b[1].retryAt - a[1].retryAt)
+          .slice(0, 1000);
+        await chrome.storage.local.set({ [key]: Object.fromEntries(records) });
+      }
+      const finalResponse =
+        !hasEvidence && metrics && response.status === 400
+          ? await post(legacy())
+          : response;
+      // One malformed run must not prevent the other runs in this batch arriving.
+      if (finalResponse.status === 400 && batch.items.length > 1) {
+        let rejected = 0;
+        for (let i = 0; i < batch.items.length; i++) {
+          const item = await post([batch.items[i]]);
+          if (item.status === 400) {
+            rejected++;
+            await rejectRun(i);
+            continue;
+          }
+          accepted(item);
+          await acknowledge([batch.ack[i]], epoch);
+          await setHealth(
+            { state: "uploading", checkedAt: Date.now(), lastAckAt: Date.now() },
+            epoch,
+          );
+        }
+        await setHealth(
+          {
+            state: rejected ? "rejected" : "synced",
+            rejected,
+            checkedAt: Date.now(),
+          },
+          epoch,
+        );
+        return;
+      }
+      if (finalResponse.status === 400) await rejectRun(0);
+      accepted(finalResponse);
       JobsPrivateSession.assertCurrent(epoch);
       await acknowledge(batch.ack, epoch);
+      if (JobsPrivateSession.epoch === epoch)
+        await setHealth(
+          { state: "synced", checkedAt: Date.now(), lastAckAt: Date.now() },
+          epoch,
+        );
     }
     function sync() {
+      const epoch = JobsPrivateSession.epoch;
       if (!uploading)
-        uploading = upload().finally(() => {
-          uploading = null;
-        });
+        uploading = upload()
+          .catch(async (error) => {
+            // Preserve the error category only. Exception strings can contain URLs/tokens.
+            const state = {
+              state: "error",
+              checkedAt: Date.now(),
+              reason: "upload_failed",
+            };
+            if (JobsPrivateSession.epoch === epoch)
+              await setHealth(state, epoch).catch(() => {});
+            throw error;
+          })
+          .finally(() => {
+            uploading = null;
+          });
       return uploading;
     }
     async function pin(url, value = true) {
@@ -480,6 +650,19 @@ export function initializeHistoryBackground() {
       sync,
       pin,
       caseRetention,
+      health,
+      exportRun: (url, runId) =>
+        serial(async () => {
+          const key = JobsJobMatch.key(identity(url)) + "|" + runId;
+          const state = await read(key);
+          const data = state.applications[key]?.data;
+          if (!data) throw Error("尚无持久诊断记录");
+          return {
+            ...data,
+            valuePolicy: "synthetic_values_only",
+            executable: false,
+          };
+        }),
     };
   })();
 }

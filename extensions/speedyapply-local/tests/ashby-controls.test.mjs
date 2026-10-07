@@ -573,7 +573,7 @@ test("Saved Response clicks the complete dropdown option and commits React state
     );
   });
 });
-test("unknown profile / source answers remain unanswered and do not open dropdown", async () => {
+test("unknown personal answers remain unanswered while an ordinary source uses the existing default", async () => {
   await fixture(
     h("div", null, h(YesNo, { question: authorization }), h(Dropdown)),
     async (root) => {
@@ -586,7 +586,7 @@ test("unknown profile / source answers remain unanswered and do not open dropdow
       );
       assert.deepEqual(
         Array.from(root.querySelectorAll("output"), (e) => e.textContent),
-        ["unanswered", "unanswered"],
+        ["unanswered", "LinkedIn Jobs"],
       );
       assert.equal(root.querySelector('[role="listbox"]'), null);
     },

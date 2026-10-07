@@ -77,6 +77,50 @@ function fixture(
   };
 }
 
+test("review memory follows a replacement without saving before confirmation or changing its learning policy", async () => {
+  for (const learn of [false, true]) {
+    const h = fixture("Why this team?");
+    try {
+      h.node.value = "Reviewed draft";
+      h.memory.remember("Why this team?", h.node, {
+        requireReview: true,
+        learn,
+      });
+      const fresh = h.node.cloneNode(true);
+      fresh.value = "Current answer";
+      h.node.replaceWith(fresh);
+      h.w.JobsAnswerMemory.followReview(h.node, fresh);
+      h.memory.flush();
+      h.memory.confirmReview([h.node]);
+      await settle();
+      assert.deepEqual(h.saved, []);
+      h.memory.confirmReview([fresh]);
+      await settle();
+      assert.deepEqual(
+        h.saved,
+        learn
+          ? [
+              {
+                question: "Why this team?",
+                response: "Current answer",
+                jobKey: h.w.JobsJobMatch.key(h.w.location.href),
+              },
+            ]
+          : [],
+      );
+      h.memory.confirmReview([fresh]);
+      await settle();
+      assert.equal(
+        h.saved.length,
+        learn ? 1 : 0,
+        "never save the review twice",
+      );
+    } finally {
+      h.close();
+    }
+  }
+});
+
 test("captured corrections that disagree with Profile retain their original answer and precision", async () => {
   for (const [question, value] of [
     ["Will you require sponsorship?", "No"],

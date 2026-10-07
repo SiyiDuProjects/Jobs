@@ -76,7 +76,7 @@ export async function readModule(file, encoding) {
   for (const node of ast.program.body)
     if (
       node.type === "ImportDeclaration" &&
-      /\/(migration-maintenance|migration-context-fields|storage-migration-policy)\.js$/.test(
+      /\/(migration-maintenance|migration-context-fields|storage-migration-policy|diagnostic-evidence)\.js$/.test(
         node.source.value,
       )
     )

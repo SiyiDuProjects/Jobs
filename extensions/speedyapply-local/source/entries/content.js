@@ -18,6 +18,7 @@ import { initializeAshbyControls } from "../../src/custom/ashby-controls.js";
 import { initializeOracleControls } from "../../src/custom/oracle-controls.js";
 import { initializePlatformConfig } from "../../src/custom/platform-config.js";
 import { initializeControlFields } from "../../src/custom/control-fields.js";
+import { initializeAshbySavedControls } from "../../src/custom/ashby-saved-controls.js";
 import { initializeManualAnswer } from "../../src/custom/manual-answer.js";
 import { initializeGreenhouseControls } from "../../src/custom/greenhouse-controls.js";
 import { initializeWorkdayControls } from "../../src/custom/workday-controls.js";
@@ -56,6 +57,7 @@ if (!globalThis.__jobsNativePage) {
   initializeDiagnostics();
   initializeAnswerMemory();
   initializeAshbyControls();
+  initializeAshbySavedControls();
   initializeOracleControls();
   initializePlatformConfig();
   initializeControlFields();

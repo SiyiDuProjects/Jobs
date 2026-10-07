@@ -54,38 +54,59 @@ export function lifecycle() {
   return context;
 }
 export function statusPresenter(context) {
-  const host = document.createElement("aside");
-  host.dataset.jobsUi = "status";
-  const shadow = host.attachShadow({ mode: "closed" }),
-    style = document.createElement("style"),
-    text = document.createElement("span");
-  style.textContent =
-    ":host{position:fixed;right:16px;bottom:16px;z-index:2147483646;font:14px system-ui;color:#222;background:#fff;border:1px solid #ccc;border-radius:10px;padding:10px 14px;box-shadow:0 2px 10px #0002}";
-  text.setAttribute("role", "status");
-  shadow.append(style, text);
-  (document.body || document.documentElement).append(host);
-  context.onInvalidated(() => host.remove());
-  const present = (value) => {
-    text.textContent = "Jobs · " + (phases[value] || value || "就绪");
+  const id = crypto.randomUUID();
+  let available,
+    active = true,
+    transport = Promise.resolve();
+  const publish = (text, extra = {}) => {
+    transport = transport
+      .catch(() => {})
+      .then(async () => {
+        if (active)
+          await chrome.runtime.sendMessage({
+            type: "jobs:panel-status",
+            id,
+            text,
+            ...extra,
+          });
+      })
+      .catch(() => {});
+    return transport;
   };
-  present.availability = (data) => {
-    text.textContent = data.message;
-    for (const button of shadow.querySelectorAll("button")) button.remove();
-    if (data.canRestore) {
-      const restore = document.createElement("button");
-      restore.type = "button";
-      restore.textContent = "恢复";
-      restore.onclick = () => void data.onRestore();
-      shadow.append(restore);
+  const listener = (message, sender, reply) => {
+    if (message?.type !== "jobs:status-command") return;
+    if (
+      !active ||
+      sender.id !== chrome.runtime.id ||
+      sender.tab ||
+      message.id !== id ||
+      !available
+    ) {
+      reply({ error: "岗位提示已过期" });
+      return;
     }
-    const close = document.createElement("button");
-    close.type = "button";
-    close.textContent = "关闭";
-    close.onclick = () => {
-      data.onDismiss();
-      host.remove();
-    };
-    shadow.append(close);
+    if (message.action === "dismiss") {
+      available.onDismiss();
+      available = null;
+      present("idle");
+      reply({ ok: true });
+    } else if (message.action === "restore" && available.canRestore) {
+      Promise.resolve(available.onRestore()).then(
+        () => reply({ ok: true }),
+        () => reply({ error: "恢复尚未确认" }),
+      );
+      return true;
+    } else reply({ error: "当前操作不可用" });
+  };
+  chrome.runtime.onMessage.addListener(listener);
+  context.onInvalidated(() => {
+    active = false;
+    chrome.runtime.onMessage.removeListener(listener);
+  });
+  const present = (value) => publish(phases[value] || value || "就绪");
+  present.availability = (data) => {
+    available = data;
+    publish(data.message, { canRestore: data.canRestore, dismissible: true });
   };
   return present;
 }
@@ -128,10 +149,11 @@ export function extractJob(doc = document) {
 }
 // Keep the existing local context and title-reporting paths fed by the same
 // observation. Only a server acknowledgement deduplicates a title report.
-async function syncJobDetails(context) {
+async function syncJobDetails(context, requireHeading = false) {
   const task = metadataSync.then(async () => {
     if (context.isInvalid) return;
     const details = extractJob();
+    if (requireHeading && !details.observedTitle) return;
     if (
       previousDetails &&
       !JobsJobMatch.same(previousDetails.appUrl, details.appUrl) &&
@@ -159,7 +181,7 @@ async function send(message) {
   if (result?.error) throw Error(result.error);
   return result?.data ?? result;
 }
-export async function startPage(existingContext) {
+export async function startPage(existingContext, recovery = false) {
   const route = jobsAdapterRoutes.find(
     (row) =>
       row.pattern?.test(location.href) ||
@@ -168,20 +190,32 @@ export async function startPage(existingContext) {
   const linkedIn =
     /(^|\.)linkedin\.com$/.test(location.hostname) &&
     location.pathname.startsWith("/jobs/");
-  if (!route && !linkedIn) return false;
-  const context = existingContext || lifecycle(),
-    present = statusPresenter(context);
+  const context = existingContext || lifecycle();
+  if (!route && !linkedIn) {
+    // Recognized posting identities can report public metadata before an
+    // application adapter exists. Generic URL fallbacks are not posting proof.
+    const key = JobsJobMatch.key(location.href);
+    if (key && JSON.parse(key)[1] !== "exact")
+      await syncJobDetails(context, true).catch(() => {});
+    // Keep watching for a late adapter marker; metadata does not start a form.
+    return false;
+  }
+  const present = statusPresenter(context);
   JobsAvailability?.attach(present.availability);
   JobsAppliedStatus?.attach(present);
   try {
     // A title lookup must not hold up account entry or autofill if the server
     // is slow. It has its own acknowledgement and can retry on page activity.
     await syncJobDetails(context);
-    const [prior, config] = await Promise.all([
-      send({ type: "jobs:application-status", url: location.href }),
-      send({ type: "getAutofillConfig" }),
-    ]);
-    if (prior?.applied) present(prior.label || "此岗位已有投递记录");
+    // Status is advisory here. The final submission path independently checks
+    // duplication; a slow status lookup must not delay sign-in or local filling.
+    void send({ type: "jobs:application-status", url: location.href })
+      .then((prior) => {
+        if (!context.isInvalid && prior?.applied)
+          present(prior.label || "此岗位已有投递记录");
+      })
+      .catch(() => {});
+    const config = await send({ type: "getAutofillConfig" });
     if (!config?.enabled) return true;
     if (!route) {
       installLinkedInTracking(context);
@@ -193,17 +227,19 @@ export async function startPage(existingContext) {
       autofillSettings: config.autofillSettings,
       accountSettings: config.accountSettings,
       getProfile: jobsGetProfile,
+      jobsRecovery: recovery,
     };
     await jobsRunAdapter(route.script, options);
   } catch (error) {
-    present(error.message);
+    await present(error.message);
+    if (recovery) context.abort("recovery unavailable");
   }
   return true;
 }
 // This observer exists only in known ATS pages or explicitly registered job
 // domains. It watches late framework mounts and native SPA navigation.
 export function watchPage() {
-  const context = lifecycle();
+  let context = lifecycle();
   let started = false,
     starting = false,
     url = location.href;
@@ -222,12 +258,45 @@ export function watchPage() {
     if (starting) return;
     starting = true;
     try {
-      started = await startPage(context);
+      started = await startPage(
+        context,
+        globalThis.__jobsRecoveryStart === true,
+      );
     } finally {
       starting = false;
       if (started) void syncJobDetails(context).catch(() => {});
     }
   };
+  let reconnecting;
+  const reconnect = () => {
+    if (!context.isInvalid) return Promise.resolve();
+    if (!reconnecting) {
+      context = lifecycle();
+      attach();
+      reconnecting = startPage(context, true)
+        .then((value) => {
+          started = value;
+        })
+        .finally(() => {
+          reconnecting = null;
+        });
+    }
+    return reconnecting;
+  };
+  globalThis.__jobsReconnectPage = reconnect;
+  chrome.runtime.onMessage.addListener((message, sender, reply) => {
+    if (
+      message?.type !== "jobs:page-reconnect" ||
+      sender.id !== chrome.runtime.id ||
+      sender.tab
+    )
+      return;
+    reconnect().then(
+      () => reply({ ok: !context.isInvalid }),
+      (error) => reply({ error: error.message }),
+    );
+    return true;
+  });
   let scheduled = false;
   const schedule = () => {
     if (scheduled) return;
@@ -261,23 +330,26 @@ export function watchPage() {
     )
       schedule();
   });
-  observer.observe(document.documentElement, {
-    subtree: true,
-    childList: true,
-    characterData: true,
-    attributes: true,
-    attributeFilter: ["id", "data-ph-id"],
-  });
-  context.addEventListener(window, "popstate", inspect);
-  context.addEventListener(window, "hashchange", inspect);
-  context.addEventListener(window, "online", inspect);
-  context.addEventListener(window, "focus", inspect);
-  if (window.navigation)
-    context.addEventListener(window.navigation, "navigatesuccess", inspect);
-  context.onInvalidated(() => {
-    observer.disconnect();
-    savedDetails = "";
-  });
+  function attach() {
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["id", "data-ph-id"],
+    });
+    context.addEventListener(window, "popstate", inspect);
+    context.addEventListener(window, "hashchange", inspect);
+    context.addEventListener(window, "online", inspect);
+    context.addEventListener(window, "focus", inspect);
+    if (window.navigation)
+      context.addEventListener(window.navigation, "navigatesuccess", inspect);
+    context.onInvalidated(() => {
+      observer.disconnect();
+      savedDetails = "";
+    });
+  }
+  attach();
   void inspect();
   return context;
 }

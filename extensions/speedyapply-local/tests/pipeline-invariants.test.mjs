@@ -67,12 +67,14 @@ test("a field the page replaces keeps its record: one decider, excluded from sav
     0,
     "the binding answer is not the person's own",
   );
-  await assert.rejects(
-    w.JobsFormPipeline.write(
-      fresh,
-      { value: "Bea" },
-      { ledger: book, root, decider: "rule", replace: true },
-    ),
+  assert.match(
+    (
+      await w.JobsFormPipeline.write(
+        fresh,
+        { value: "Bea" },
+        { ledger: book, root, decider: "rule", replace: true },
+      )
+    ).reason,
     /already has a decider/,
   );
   assert.equal(fresh.value, "Ada");
@@ -268,3 +270,41 @@ for (const outcome of ["kept", "changed", "dropped", "open", "invalid"])
     });
     assert.equal(result, outcome === "kept");
   });
+
+test("a duplicate binding fails only that write and later fields still fill", async (t) => {
+  const { w, root } = page(
+    t,
+    '<label>First<input id="a"></label><label>Second<input id="b"></label>',
+  );
+  const book = w.JobsFormPipeline.ledger(root);
+  await w.JobsFormPipeline.within(
+    { root, ledger: book, canProceed: () => true },
+    () =>
+      w.JobsFormPipeline.bind([
+        { name: "first", find: () => root.querySelector("#a"), answer: "One" },
+        {
+          name: "duplicate",
+          find: () => root.querySelector("#a"),
+          answer: "Wrong",
+          replace: true,
+        },
+        { name: "second", find: () => root.querySelector("#b"), answer: "Two" },
+      ]),
+  );
+  assert.equal(root.querySelector("#a").value, "One");
+  assert.equal(root.querySelector("#b").value, "Two");
+  assert.equal(book.peek(root.querySelector("#a")).decider, "binding:first");
+});
+
+test("ordinary next tolerates unreadable completed widgets, submit and real validation stay strict", async (t) => {
+  const { w, root } = page(
+    t,
+    '<label>Name<input id="name" required value="Kept"></label><label>Widget<div contenteditable="true" role="textbox">Existing website value</div></label>',
+  );
+  const reader = w.JobsControlFields.create(w.document, () => root);
+  const next = reader.state({ next: true });
+  assert.equal(next.ready, true);
+  root.querySelector("#name").setAttribute("aria-invalid", "true");
+  assert.equal(reader.state({ next: true }).ready, false);
+  assert.equal(reader.state().ready, false);
+});

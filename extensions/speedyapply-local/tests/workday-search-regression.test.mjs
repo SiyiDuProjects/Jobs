@@ -30,6 +30,9 @@ function fixture({
   delayedShell = false,
   resetOnOpen = false,
   stale = false,
+  responseDelay = 20,
+  unmarked = false,
+  commitDelay = 0,
   labels = ["Python Programming", "Python Scripting"],
 } = {}) {
   const dom = new JSDOM(
@@ -59,7 +62,8 @@ function fixture({
   let host;
   function list(names, isSearch, fresh) {
     const group = doc.createElement("div");
-    group.setAttribute("data-uxi-multiselectlist-issearch", String(isSearch));
+    if (!unmarked)
+      group.setAttribute("data-uxi-multiselectlist-issearch", String(isSearch));
     group.innerHTML =
       '<div data-automation-id="activeListContainer"><div role="presentation"></div></div>';
     const presentation = group.querySelector('[role="presentation"]');
@@ -71,7 +75,7 @@ function fixture({
         (major ? "radio" : "checkbox") +
         '"></div><div data-automation-id="promptOption"></div>';
       option.lastElementChild.textContent = name;
-      option.querySelector("input").onclick = () => {
+      const commit = () => {
         trace.push((fresh ? "selected:" : "stale:") + name);
         if (!fresh) return;
         const pill = doc.createElement("li");
@@ -84,6 +88,8 @@ function fixture({
         input.value = "";
         host.remove();
       };
+      option.querySelector("input").onclick = () =>
+        commitDelay ? w.setTimeout(commit, commitDelay) : commit();
       presentation.append(option);
     }
     return group;
@@ -126,7 +132,7 @@ function fixture({
         destination.replaceChildren(list(results, true, true));
         trace.push("results-ready");
       }
-    }, 20);
+    }, responseDelay);
   };
   const choose = (answer) =>
     w.JobsFormPipeline.bind([
@@ -344,6 +350,337 @@ test("Physics is found after a virtual result list mounts its later window", asy
       observer.disconnect();
     }
   } finally {
+    h.close();
+  }
+});
+
+test("Skills accepts explicit language catalog names without broad substring matches", async () => {
+  const h = fixture({ labels: (query) => [query + " (Programming Language)"] });
+  try {
+    await h.w.workdayFillSkills(["Python", "Java"]);
+    assert.deepEqual(h.values(), [
+      "Python (Programming Language)",
+      "Java (Programming Language)",
+    ]);
+  } finally {
+    h.close();
+  }
+});
+
+test("unmatched search results remain available to the diagnostic trace", async () => {
+  const h = fixture({ labels: ["JavaScript"] }),
+    traces = [];
+  h.w.JobsDiagnostics = {
+    note() {},
+    trace: (_node, entry) => traces.push(entry),
+  };
+  try {
+    assert.equal(await h.choose("Java"), null);
+    const failed = traces.find((entry) => entry.source === "binding:prompt");
+    assert.equal(failed.result, "no-matching-option");
+    assert.deepEqual(Array.from(failed.options), ["JavaScript"]);
+  } finally {
+    h.close();
+  }
+});
+
+test("a pending background search can finish after its first deadline without another Enter", async () => {
+  const h = fixture({ labels: ["SQL"], responseDelay: 240 });
+  try {
+    assert.equal(h.w.document.hidden, true);
+    assert(await h.choose("SQL"));
+    assert.deepEqual(h.values(), ["SQL"]);
+    assert.deepEqual(
+      h.trace.filter((item) => item.startsWith("search:")),
+      ["search:SQL"],
+    );
+  } finally {
+    h.close();
+  }
+});
+
+test("Skills recovery retries an earlier failure once after a later selection succeeds", async () => {
+  let attempts = 0;
+  const h = fixture({
+    labels: (query) =>
+      query === "Python" && ++attempts === 1 ? ["Unrelated skill"] : [query],
+  });
+  try {
+    await h.w.workdayFillSkills(["Python", "SQL"]);
+    assert.deepEqual(h.values(), ["SQL", "Python"]);
+    assert.deepEqual(
+      h.trace.filter((item) => item.startsWith("search:")),
+      ["search:Python", "search:SQL", "search:Python"],
+    );
+  } finally {
+    h.close();
+  }
+});
+
+test("prompt writes do not depend on zero-delay timers in background tabs", async () => {
+  const h = fixture({ labels: ["SQL"] });
+  const original = h.w.setTimeout.bind(h.w);
+  h.w.setTimeout = (callback, delay, ...args) =>
+    delay === 0 ? 0 : original(callback, delay, ...args);
+  try {
+    const result = await Promise.race([
+      h.choose("SQL"),
+      new Promise((resolve) => setTimeout(() => resolve(null), 600)),
+    ]);
+    assert(
+      result,
+      "an input-only write must reach the observed search response with zero-delay timers paused",
+    );
+    assert.deepEqual(h.values(), ["SQL"]);
+  } finally {
+    h.close();
+  }
+});
+
+test("each new virtual search window gets a response wait instead of sharing the first deadline", async () => {
+  const h = fixture({ labels: ["Unrelated 0"] });
+  let window = 0;
+  const observer = new h.w.MutationObserver(() => {
+    const list = h.w.document.querySelector(
+      '[data-uxi-multiselectlist-issearch="true"] [data-automation-id="activeListContainer"]',
+    );
+    if (!list || list.dataset.virtualFixture) return;
+    list.dataset.virtualFixture = "true";
+    Object.defineProperties(list, {
+      clientHeight: { value: 100 },
+      scrollHeight: { value: 500 },
+    });
+    list.addEventListener("scroll", () =>
+      h.w.setTimeout(() => {
+        window++;
+        const option = list.querySelector('[role="option"]');
+        option.lastElementChild.textContent =
+          window === 4 ? "SQL" : "Unrelated " + window;
+        option.id = "window-" + window;
+        option.querySelector("input").onclick = () => {
+          h.w.document.querySelector("ul").innerHTML =
+            '<li data-automation-id="menuItem"><div data-automation-id="selectedItem"><p>SQL</p></div></li>';
+        };
+      }, 60),
+    );
+  });
+  observer.observe(h.w.document.body, { subtree: true, childList: true });
+  try {
+    assert(await h.choose("SQL"));
+    assert.deepEqual(h.values(), ["SQL"]);
+  } finally {
+    observer.disconnect();
+    h.close();
+  }
+});
+
+test("an unmarked old nonmatching list does not end a pending search", async () => {
+  const h = fixture({ unmarked: true, labels: ["SQL"] });
+  try {
+    assert(await h.choose("SQL"));
+    assert.deepEqual(h.values(), ["SQL"]);
+  } finally {
+    h.close();
+  }
+});
+
+test("a reused virtual list is rewound before searching its later windows", async () => {
+  const h = fixture({ labels: ["Unrelated bottom result"] });
+  const observer = new h.w.MutationObserver(() => {
+    const list = h.w.document.querySelector(
+      '[data-uxi-multiselectlist-issearch="true"] [data-automation-id="activeListContainer"]',
+    );
+    if (!list || list.dataset.virtualFixture) return;
+    list.dataset.virtualFixture = "true";
+    Object.defineProperties(list, {
+      clientHeight: { value: 100 },
+      scrollHeight: { value: 400 },
+    });
+    list.scrollTop = 300;
+    list.addEventListener("scroll", () => {
+      if (list.scrollTop !== 0) return;
+      h.w.queueMicrotask(() => {
+        const option = list.querySelector('[role="option"]');
+        option.lastElementChild.textContent = "SQL";
+        option.querySelector("input").onclick = () => {
+          h.w.document.querySelector("ul").innerHTML =
+            '<li data-automation-id="menuItem"><div data-automation-id="selectedItem"><p>SQL</p></div></li>';
+        };
+      });
+    });
+  });
+  observer.observe(h.w.document.body, { subtree: true, childList: true });
+  try {
+    assert(await h.choose("SQL"));
+    assert.deepEqual(h.values(), ["SQL"]);
+  } finally {
+    observer.disconnect();
+    h.close();
+  }
+});
+
+test("returning to a hidden search allows its pending response to settle without replay", async () => {
+  const h = fixture({ labels: ["SQL"], responseDelay: 260 });
+  try {
+    h.w.setTimeout(() => {
+      Object.defineProperty(h.w.document, "hidden", {
+        value: false,
+        configurable: true,
+      });
+      h.w.document.dispatchEvent(new h.w.Event("visibilitychange"));
+    }, 220);
+    assert(await h.choose("SQL"));
+    assert.equal(h.trace.filter((item) => item === "search:SQL").length, 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("cancellation during a deferred search preserves a manual value and never selects", async () => {
+  const h = fixture({ labels: ["SQL"], responseDelay: 280 });
+  let live = true;
+  try {
+    h.w.setTimeout(() => {
+      live = false;
+      h.input.value = "Manual query";
+      h.w.document.dispatchEvent(new h.w.Event("visibilitychange"));
+    }, 220);
+    assert.equal(
+      await chooseAnswer(h.input, "SQL", { canProceed: () => live }),
+      null,
+    );
+    assert.equal(h.input.value, "Manual query");
+    assert.deepEqual(h.values(), []);
+    assert.equal(
+      h.trace.filter((item) => item.startsWith("selected:")).length,
+      0,
+    );
+  } finally {
+    h.close();
+  }
+});
+
+test("background deferral is bounded when the site never responds", async () => {
+  const h = fixture({ labels: ["SQL"], responseDelay: 100000 });
+  try {
+    const began = Date.now();
+    assert.equal(await h.choose("SQL"), null);
+    assert(Date.now() - began < 1200);
+    assert.equal(h.trace.filter((item) => item === "search:SQL").length, 1);
+    assert.deepEqual(h.values(), []);
+  } finally {
+    h.close();
+  }
+});
+
+test("a persistent absent skill receives at most one recovery and keeps committed skills", async () => {
+  const h = fixture({
+    labels: (query) => (query === "Java" ? ["JavaScript"] : [query]),
+  });
+  try {
+    assert.equal(await h.w.workdayFillSkills(["Java", "SQL", "SQL"]), null);
+    assert.deepEqual(h.values(), ["SQL"]);
+    assert.deepEqual(
+      h.trace.filter((item) => item.startsWith("search:")),
+      ["search:Java", "search:SQL", "search:Java"],
+    );
+  } finally {
+    h.close();
+  }
+});
+
+test("foregrounding before the hidden search deadline still grants a foreground response window", async () => {
+  const h = fixture({ labels: ["SQL"], responseDelay: 260 });
+  try {
+    h.w.setTimeout(() => {
+      Object.defineProperty(h.w.document, "hidden", {
+        value: false,
+        configurable: true,
+      });
+      h.w.document.dispatchEvent(new h.w.Event("visibilitychange"));
+    }, 80);
+    assert(await h.choose("SQL"));
+    assert.deepEqual(h.values(), ["SQL"]);
+    assert.equal(h.trace.filter((item) => item === "search:SQL").length, 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("a delayed selected pill is observed without replaying the option click", async () => {
+  const h = fixture({ labels: ["SQL"], commitDelay: 240 });
+  let clicks = 0;
+  h.w.document.addEventListener("click", (event) => {
+    if (event.target.matches('input[type="checkbox"]')) clicks++;
+  });
+  try {
+    assert(await h.choose("SQL"));
+    assert.deepEqual(h.values(), ["SQL"]);
+    assert.equal(clicks, 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("failed prompt cleanup also progresses when zero-delay timers are paused", async () => {
+  let attempts = 0;
+  const h = fixture({
+    labels: (query) =>
+      query === "Python" && ++attempts === 1 ? ["Unrelated skill"] : [query],
+  });
+  const original = h.w.setTimeout.bind(h.w);
+  h.w.setTimeout = (callback, delay, ...args) =>
+    delay === 0 ? 0 : original(callback, delay, ...args);
+  try {
+    const result = await Promise.race([
+      h.w.workdayFillSkills(["Python", "SQL"]),
+      new Promise((resolve) => setTimeout(() => resolve(null), 1000)),
+    ]);
+    assert(
+      result,
+      "failed query cleanup must not prevent a later successful item or recovery",
+    );
+    assert.deepEqual(h.values(), ["SQL", "Python"]);
+  } finally {
+    h.close();
+  }
+});
+
+test("candidate evidence from a recycled virtual row cannot authorize its new label", async () => {
+  const h = fixture({ labels: ["SQL"] });
+  let clicks = 0;
+  const observer = new h.w.MutationObserver(() => {
+    const list = h.w.document.querySelector(
+      '[data-uxi-multiselectlist-issearch="true"] [data-automation-id="activeListContainer"]',
+    );
+    if (!list || list.dataset.virtualFixture) return;
+    list.dataset.virtualFixture = "true";
+    Object.defineProperties(list, {
+      clientHeight: { value: 100 },
+      scrollHeight: { value: 180 },
+    });
+    list.addEventListener("scroll", () =>
+      h.w.queueMicrotask(() => {
+        const option = list.querySelector('[role="option"]');
+        option.lastElementChild.textContent = "Python";
+        option.querySelector("input").onclick = () => clicks++;
+      }),
+    );
+  });
+  observer.observe(h.w.document.body, { subtree: true, childList: true });
+  try {
+    assert.equal(
+      await h.choose({
+        tiers: [["SQL"]],
+        select: (labels) =>
+          labels.includes("SQL") && labels.includes("Python") ? "SQL" : null,
+      }),
+      null,
+    );
+    assert.equal(clicks, 0);
+    assert.deepEqual(h.values(), []);
+  } finally {
+    observer.disconnect();
     h.close();
   }
 });

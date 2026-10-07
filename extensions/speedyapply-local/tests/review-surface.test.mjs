@@ -1,251 +1,207 @@
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
+import { panelWorker, dispatch } from "./helpers/panel-worker.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs/promises";
-import vm from "node:vm";
 import { JSDOM } from "jsdom";
-const load = (name) =>
-  readWithDependencies(
-    new URL("../src/custom/" + name + ".js", import.meta.url),
-    "utf8",
-  );
-const [presenter, review, fields, background] = await Promise.all(
-  ["review-presenter", "ai-review", "control-fields", "review-background"].map(
-    load,
+const [presenter, review, fields] = await Promise.all(
+  ["review-presenter", "ai-review", "control-fields"].map((name) =>
+    readWithDependencies(
+      new URL(`../src/custom/${name}.js`, import.meta.url),
+      "utf8",
+    ),
   ),
 );
-for (const missingTop of [false, true])
-  test(`iframe review recovers missing top receiver=${missingTop}; actions stay in the source document`, async () => {
-    const dom = new JSDOM("<iframe></iframe><button>Submit</button>", {
+const settle = async (check) => {
+  for (let n = 0; n < 100; n++) {
+    if (await check()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  assert.fail("Review did not reach side panel");
+};
+for (const source of ["top", "frame"])
+  for (const missingTop of source === "frame" ? [false, true] : [false])
+    test(`${source} review reaches side panel; missing top receiver=${missingTop}; no page overlays`, async () => {
+      const w = new JSDOM("<iframe></iframe><button>Submit</button>", {
         url: "https://example.test/job",
         runScripts: "outside-only",
-      }),
-      top = dom.window,
-      frame = top.document.querySelector("iframe").contentWindow;
-    const listeners = { top: [], frame: [] };
-    let relay,
-      injections = 0;
-    const dispatch = (list, message, sender) =>
-      new Promise((resolve) => {
-        for (const fn of list) {
-          let answered = false;
-          const result = fn(message, sender, (value) => {
-            answered = true;
-            resolve(value);
-          });
-          if (answered || result === true) return;
-        }
-        resolve(undefined);
-      });
-    const sender = (where) => ({
-      id: "jobs",
-      tab: { id: 1 },
-      frameId: where === "top" ? 0 : 3,
-      documentId: where === "top" ? "top-doc" : "form-doc",
-    });
-    const call = (message, from) => dispatch([relay], message, from);
-    const chrome = {
-      runtime: { id: "jobs", onMessage: { addListener: (fn) => (relay = fn) } },
-      scripting: {
-        executeScript: async ({ target, files }) => {
-          assert.deepEqual(JSON.parse(JSON.stringify(target)), {
-            tabId: 1,
-            frameIds: [0],
-          });
+      }).window;
+      const frame = w.document.querySelector("iframe").contentWindow;
+      const listeners = { top: [], frame: [] };
+      let injections = 0;
+      const h = panelWorker({
+        send: async (tabId, message, target) => {
+          assert.equal(tabId, 1);
+          const name = target.documentId === "form-doc" ? "frame" : "top";
+          if (!listeners[name].length)
+            throw Error("Receiving end does not exist");
+          return dispatch(listeners[name], message, { id: "jobs" });
+        },
+        inject: async ({ files }) => {
           assert.deepEqual(Array.from(files), ["custom/review-surface.js"]);
           injections++;
-          top.eval(presenter);
+          w.eval(presenter);
           return [{ frameId: 0, documentId: "top-doc" }];
         },
-      },
-      tabs: {
-        sendMessage: async (tab, message, options) => {
-          assert.equal(tab, 1);
-          if (options.frameId === 0 || options.documentId === "top-doc") {
-            if (!listeners.top.length)
-              throw Error(
-                "Could not establish connection. Receiving end does not exist.",
-              );
-            return dispatch(listeners.top, message, { id: "jobs" });
-          }
-          if (options.documentId !== "form-doc")
-            throw Error("Document no longer exists");
-          return dispatch(listeners.frame, message, { id: "jobs" });
-        },
-      },
-    };
-    vm.runInNewContext(background, { chrome });
-    for (const [name, w] of [
-      ["top", top],
-      ["frame", frame],
-    ]) {
-      w.chrome = {
-        runtime: {
-          id: "jobs",
-          sendMessage: (message) => call(message, sender(name)),
-          onMessage: { addListener: (fn) => listeners[name].push(fn) },
-        },
-      };
-      w.eval(fields);
-      if (name !== "top" || !missingTop) w.eval(presenter);
-      w.eval(review);
-    }
-    try {
-      const host = top.document.createElement("speedyapply-autofill"),
-        container = missingTop
-          ? top.document.body
-          : host.attachShadow({ mode: "open" }),
-        original = top.document.createElement("div");
-      top.document.body.append(host);
-      container.append(original);
-      if (!missingTop)
-        top.JobsReviewPresenter.attach(host, container, () => host.remove());
-      frame.document.body.innerHTML =
-        '<form><label>Major<input value="Physics"></label><label>Decision<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label><button>Submit</button></form>';
-      const root = frame.document.querySelector("form"),
-        reader = frame.JobsControlFields.create(frame.document, () => root, {
-          write: true,
-        }),
-        row = reader.scan()[0];
-      frame.JobsAIReview.add(root, reader, row, {
-        source: "profile",
-        needsConfirmation: false,
-        reason: "教育档案中的专业",
       });
-      frame.JobsAIReview.add(root, reader, reader.scan()[1], {
-        needsInput: true,
+      const sender = (name) => ({
+        ...h.page,
+        frameId: name === "top" ? 0 : 3,
+        documentId: name === "top" ? "top-doc" : "form-doc",
       });
-      let confirmed = 0;
-      frame.JobsAIReview.ready(async (_nodes, release) => {
-        confirmed++;
-        release();
-      }, "fill");
-      for (
-        let i = 0;
-        i < 20 &&
-        !container
-          .querySelector("#jobs-ai-review")
-          ?.shadowRoot.querySelector("#confirm:not([disabled])");
-        i++
-      )
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      const card = container.querySelector("#jobs-ai-review");
-      assert(card);
-      assert.equal(injections, missingTop ? 1 : 0);
-      const listenerCount = listeners.top.length;
-      top.eval(presenter);
-      assert.equal(listeners.top.length, listenerCount);
-      assert.equal(container.querySelector("#jobs-ai-review"), card);
-      assert.equal(frame.document.querySelector("#jobs-ai-review"), null);
-      assert.equal(original.style.display, missingTop ? "" : "none");
-      assert.match(
-        card.shadowRoot.querySelector(".source").textContent,
-        /依据档案/,
-      );
-      card.shadowRoot.querySelector(".item").click();
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      assert.equal(frame.document.activeElement, row.node);
-      const id = await new Promise((resolve) => {
-        listeners.frame.unshift((msg) => {
-          if (msg.type === "jobs:review-command") resolve(msg.id);
+      for (const [name, win] of [
+        ["top", w],
+        ["frame", frame],
+      ]) {
+        win.chrome = {
+          runtime: {
+            id: "jobs",
+            sendMessage: (message) => h.call(message, sender(name)),
+            onMessage: { addListener: (fn) => listeners[name].push(fn) },
+          },
+        };
+        win.eval(fields);
+        if (name !== "top" || !missingTop) win.eval(presenter);
+        if (name === source) win.eval(review);
+      }
+      try {
+        const owner = source === "top" ? w : frame;
+        const root = owner.document.createElement("form");
+        root.innerHTML =
+          '<label>Decision<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label>';
+        owner.document.body.append(root);
+        const reader = owner.JobsControlFields.create(
+          owner.document,
+          () => root,
+          { write: true },
+        );
+        owner.JobsAIReview.add(root, reader, reader.scan()[0], {
+          needsInput: true,
         });
-        card.shadowRoot.querySelector(".item").click();
-      });
-      assert(
-        (
-          await call(
+        let confirmed = 0;
+        owner.JobsAIReview.ready(async (_nodes, release) => {
+          confirmed++;
+          release();
+        }, "fill");
+        const read = () => h.call({ type: "jobs:panel-read", tabId: 1 });
+        await settle(async () => (await read())?.review?.data.canConfirm);
+        await settle(
+          () => source !== "frame" || w.JobsReviewPresenter?.pending(),
+        );
+        assert.equal(injections, missingTop ? 1 : 0);
+        assert.equal(w.document.querySelector("#jobs-ai-review"), null);
+        assert.equal(frame.document.querySelector("#jobs-ai-review"), null);
+        const state = (await read()).review;
+        assert.equal(
+          state.documentId,
+          source === "top" ? "top-doc" : "form-doc",
+        );
+        assert.equal(
+          JSON.stringify(h.storage).includes('"items"'),
+          false,
+          "answer copies are not retained in session storage",
+        );
+        h.restart();
+        assert.equal(
+          (await read()).review.id,
+          state.id,
+          "worker restart recovers live source",
+        );
+        const action = (extra, from = h.panel) =>
+          h.call(
             {
               type: "jobs:review-action",
-              id,
-              documentId: "form-doc",
+              tabId: 1,
+              id: state.id,
+              documentId: state.documentId,
               action: "confirm",
+              ...extra,
             },
-            sender("frame"),
-          )
-        ).error,
-      );
-      assert(
-        (
-          await call(
-            {
-              type: "jobs:review-action",
-              id: "stale",
-              documentId: "form-doc",
-              action: "confirm",
-            },
-            sender("top"),
-          )
-        ).error,
-      );
-      assert.equal(confirmed, 0);
-      const choiceRow = card.shadowRoot.querySelectorAll(".review-row")[1],
-        version = choiceRow.reviewRow.editor.version;
-      assert(
-        (
-          await call(
-            {
-              type: "jobs:review-action",
-              id,
-              documentId: "form-doc",
+            from,
+          );
+        assert(
+          (await action({}, sender(source))).error,
+          "page scripts cannot impersonate panel",
+        );
+        assert((await action({ id: "stale" })).error);
+        assert((await action({ documentId: "other-document" })).error);
+        assert(
+          (
+            await action({
               action: "answer",
-              itemId: "1",
-              payload: { version, value: "N" },
-            },
-            sender("frame"),
-          )
-        ).error,
-      );
-      assert(
-        (
-          await call(
-            {
-              type: "jobs:review-action",
-              id,
-              documentId: "form-doc",
+              itemId: "0",
+              payload: { version: -1, value: "N" },
+            })
+          ).error,
+        );
+        assert.equal(confirmed, 0);
+        assert(
+          (
+            await action({
               action: "answer",
-              itemId: "1",
-              payload: { version: version - 1, value: "N" },
-            },
-            sender("top"),
-          )
-        ).error,
-      );
-      choiceRow.querySelectorAll(".choice")[1].onclick({ isTrusted: true });
-      for (
-        let i = 0;
-        i < 30 && frame.document.querySelector("select").value !== "N";
-        i++
-      )
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      assert.equal(frame.document.querySelector("select").value, "N");
-      assert.equal(confirmed, 0);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      assert(
-        (
-          await call(
-            {
-              type: "jobs:review-action",
-              id,
-              documentId: "form-doc",
-              action: "confirm",
-            },
-            sender("top"),
-          )
-        ).ok,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      assert.equal(confirmed, 1);
-      assert.equal(container.querySelector("#jobs-ai-review"), null);
-      assert.equal(original.style.display, "");
-      assert(
-        (
-          await call(
-            { type: "jobs:review-present", id, data: null },
-            { ...sender("frame"), id: "foreign" },
-          )
-        ).error,
-      );
-    } finally {
-      dom.window.close();
-    }
+              itemId: "0",
+              payload: {
+                version: state.data.items[0].editor.version,
+                value: "N",
+              },
+            })
+          ).ok,
+        );
+        assert.equal(root.querySelector("select").value, "N");
+        assert.equal(confirmed, 0);
+        assert((await action({})).ok);
+        await settle(async () => !(await read()).review);
+        assert.equal(confirmed, 1);
+        if (source === "frame")
+          await settle(() => !w.JobsReviewPresenter.pending());
+        assert(
+          (
+            await h.call(
+              { type: "jobs:review-present", id: state.id, data: null },
+              { ...sender(source), id: "foreign" },
+            )
+          ).error,
+        );
+      } finally {
+        w.close();
+      }
+    });
+
+test("navigation clears status/review and old review actions cannot target a new document", async () => {
+  let commands = 0;
+  const h = panelWorker({
+    send: async () => {
+      commands++;
+      return { ok: true };
+    },
   });
+  await h.call(
+    { type: "jobs:panel-status", id: "status", text: "等待审核" },
+    h.page,
+  );
+  await h.call(
+    {
+      type: "jobs:review-present",
+      id: "review",
+      data: { id: "review", items: [] },
+    },
+    h.page,
+  );
+  h.chrome.tabs.onUpdated.emit(1, { status: "loading" });
+  await settle(() => Object.keys(h.storage).length === 0);
+  assert(
+    (
+      await h.call({
+        type: "jobs:review-action",
+        tabId: 1,
+        id: "review",
+        documentId: "top-doc",
+        action: "confirm",
+      })
+    ).error,
+  );
+  assert.equal(commands, 0);
+  assert.equal(
+    (await h.call({ type: "jobs:panel-read", tabId: 1 })).status,
+    null,
+  );
+});

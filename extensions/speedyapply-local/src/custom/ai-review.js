@@ -12,6 +12,7 @@ export function initializeAiReview() {
     let active;
     const note = (type, detail) => JobsDiagnostics?.note(type, null, detail);
     const present = (own, data) => {
+      own.presentation = data;
       if (window === window.top)
         JobsReviewPresenter.show(data, (action, id, payload) =>
           action === "confirm"
@@ -56,8 +57,56 @@ export function initializeAiReview() {
           row.public.options,
           row.raw,
         ]);
+      const fieldShape = (row) =>
+        JSON.stringify([
+          row.public.question,
+          row.public.type,
+          row.public.options,
+          row.public.conditional,
+          row.public.required,
+        ]);
+      own.rows = () => {
+        const rows = reader.scan();
+        if (!root.isConnected || location.href !== own.url) return rows;
+        const book = JobsFormPipeline.ledgerFor?.(root);
+        for (const [node, item] of [...own.items]) {
+          if (node.isConnected) continue;
+          const row = JobsControlFields.follow(rows, node, item.fieldKey);
+          if (
+            !row ||
+            fieldShape(row) !== item.fieldShape ||
+            own.items.has(row.node) ||
+            (book && book.peek(row.node) !== item.record)
+          )
+            continue;
+          // Follow the scanner's unique field and the run's existing ledger.
+          // A replacement always retires drafts for the old DOM revision.
+          own.items = new Map(
+            [...own.items].map(([key, value]) => [
+              key === node ? row.node : key,
+              value,
+            ]),
+          );
+          item.signature = null;
+          item.schema = null;
+          if (reader.response(row)?.response !== item.originalResponse)
+            item.needsConfirmation = true;
+          node.removeAttribute("data-jobs-ai-review");
+          row.node.setAttribute(
+            "data-jobs-ai-review",
+            item.needsInput ? "needs-input" : "",
+          );
+          JobsAnswerMemory?.followReview?.(node, row.node);
+          JobsDiagnostics?.note(
+            "auto_review_field_followed",
+            row.node,
+            item.id,
+          );
+        }
+        return rows;
+      };
       own.refresh = (expand = false, render = true) => {
-        const rows = reader.scan(),
+        const rows = own.rows(),
           items = [];
         let unresolved = 0,
           omitted = 0,
@@ -172,6 +221,14 @@ export function initializeAiReview() {
               : response && !unchanged
                 ? "已手动修改"
                 : basis,
+            reviewState:
+              !row ||
+              row.public.invalid ||
+              item.error ||
+              (!record && !(item.omitted && !row.public.required)) ||
+              (!item.userAnswered && (item.needsConfirmation || !unchanged))
+                ? "pending"
+                : "ready",
             editor,
             error: item.error || "",
           });
@@ -179,7 +236,7 @@ export function initializeAiReview() {
         // Acknowledging AI answers is not whole-form validation. Missing or
         // replaced controls must never lock both Confirm and native Continue.
         own.canConfirm = !own.busy && !!own.onConfirm;
-        if (own.hidden || !render) return;
+        if (own.hidden || !render) return rows;
         present(own, {
           id: own.id,
           title:
@@ -194,6 +251,7 @@ export function initializeAiReview() {
           items,
           expand,
         });
+        return rows;
       };
       own.add = (
         row,
@@ -206,9 +264,13 @@ export function initializeAiReview() {
           needsConfirmation = true,
         } = {},
       ) => {
+        if ([...own.items.keys()].some((node) => !node.isConnected)) own.rows();
         if (own.items.has(row.node)) return;
         own.items.set(row.node, {
           id: String(own.items.size),
+          fieldKey: JobsControlFields.fieldKey(row),
+          fieldShape: fieldShape(row),
+          record: JobsFormPipeline.ledgerFor?.(root)?.entry(row),
           question: row.public.question,
           questionZh,
           answerZh,
@@ -226,8 +288,9 @@ export function initializeAiReview() {
         own.refresh();
       };
       own.locate = (id) => {
+        const rows = own.rows();
         const node = [...own.items].find(([, item]) => item.id === id)?.[0];
-        const row = reader.scan().find((row) => row.node === node);
+        const row = rows.find((row) => row.node === node);
         const target =
           row?.group.find(
             (node) =>
@@ -259,6 +322,21 @@ export function initializeAiReview() {
           queued
         )
           return;
+        if (event && !own.busy) {
+          const target = event.composedPath?.()[0] || event.target;
+          for (const item of own.items.values()) {
+            if (
+              item.members?.some(
+                (node) => node === target || node.contains?.(target),
+              )
+            ) {
+              // The person has taken over this field. Drop a failed editor
+              // draft; the fresh scan below still enforces website validation.
+              item.error = "";
+              item.needsInput = false;
+            }
+          }
+        }
         queued = true;
         queueMicrotask(() => {
           queued = false;
@@ -313,12 +391,13 @@ export function initializeAiReview() {
       payload,
       { canProceed = () => true, source = "user" } = {},
     ) {
-      const own = active,
-        entry = own && [...own.items].find(([, item]) => item.id === id);
+      const own = active;
+      const rows = own?.refresh(false, false);
+      const entry = own && [...own.items].find(([, item]) => item.id === id);
       if (!own || !entry || own.busy || !own.onConfirm)
         return { error: "当前不能修改，请稍候。" };
       const [node, item] = entry;
-      let row = own.reader.scan().find((row) => row.node === node);
+      let row = rows.find((row) => row.node === node);
       const current = () =>
         canProceed() &&
         active === own &&
@@ -432,13 +511,23 @@ export function initializeAiReview() {
     document.addEventListener("click", block, true);
     document.addEventListener("submit", block, true);
     chrome.runtime.onMessage?.addListener((message, sender, reply) => {
-      if (message?.type !== "jobs:review-command") return;
+      if (!["jobs:review-command", "jobs:review-read"].includes(message?.type))
+        return;
       if (
         sender.id !== chrome.runtime.id ||
         sender.tab ||
         message.id !== active?.id
       ) {
         reply({ error: "这份补答已过期，请检查当前页面。" });
+        return;
+      }
+      if (message.type === "jobs:review-read") {
+        reply({
+          data:
+            active.root.isConnected && location.href === active.url
+              ? active.presentation
+              : null,
+        });
         return;
       }
       if (message.action === "locate") {
@@ -468,8 +557,7 @@ export function initializeAiReview() {
         const own = active;
         if (!onPage(root) || !root.isConnected || location.href !== own.url)
           return null;
-        own.refresh(false, false);
-        const rows = own.reader.scan();
+        const rows = own.refresh(false, false);
         return {
           id: own.id,
           ready: !own.busy && !!own.onConfirm,
@@ -502,7 +590,7 @@ export function initializeAiReview() {
       },
       canAutoConfirm(root) {
         if (!active || active.root !== root) return false;
-        const rows = active.reader.scan();
+        const rows = active.refresh(false, false);
         return [...active.items].every(([node, item]) => {
           const row = rows.find((row) => row.node === node);
           return (

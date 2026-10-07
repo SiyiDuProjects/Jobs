@@ -260,8 +260,13 @@ export function initializeAnswerResolver() {
           ?.map((e) => e.trim())
           .filter((e) => e.length > 0);
       const jobKey = JobsJobMatch?.key(globalThis.location?.href);
+      const companyKey = JobsJobMatch?.companyFromKey(jobKey);
       responseRules = responseRules.filter(
-        (rule) => !rule.jobKey || rule.jobKey === jobKey,
+        (rule) =>
+          !rule.jobKey ||
+          rule.jobKey === jobKey ||
+          (companyKey &&
+            JobsJobMatch.companyFromKey(rule.jobKey) === companyKey),
       );
       // Old captured drafts have no job identity. Never treat an employer/role
       // answer as universal merely because another company uses the same prompt.

@@ -14,7 +14,13 @@ import {
 import { generateContracts } from "./generate-contracts.mjs";
 import { buildPopup } from "./build-popup.mjs";
 const root = path.resolve(import.meta.dirname, "..");
-export async function buildPackage({ publish = false, personal = false } = {}) {
+export async function buildPackage({
+  publish = false,
+  personal = false,
+  development = false,
+} = {}) {
+  if (development && personal)
+    throw Error("Development builds cannot embed the live connection");
   if (publish)
     throw Error(
       "Use npm run update to check and update the installed extension",
@@ -78,6 +84,8 @@ export async function buildPackage({ publish = false, personal = false } = {}) {
       },
     };
     for (const [entry, outfile, format] of [
+      ["select-state", "custom/select-state.js", "iife"],
+      ["workday-state", "custom/workday-state.js", "iife"],
       ["content", "custom/runtime-bundle.js", "iife"],
       ["review-surface", "custom/review-surface.js", "iife"],
       ["background", "background.js", "esm"],
@@ -143,8 +151,29 @@ export async function buildPackage({ publish = false, personal = false } = {}) {
       version: "3.0.0",
       version_name: buildId,
       background: { service_worker: "background.js", type: "module" },
-      action: { default_title: brand.name, default_popup: "popup.html" },
+      action: { default_title: brand.name },
+      side_panel: { default_path: "popup.html" },
+      minimum_chrome_version: "120",
       content_scripts: [
+        {
+          matches: [
+            "https://*.myworkdayjobs.com/*",
+            "https://*.myworkdaysite.com/*",
+          ],
+          all_frames: true,
+          run_at: "document_start",
+          world: "MAIN",
+          js: ["custom/workday-state.js"],
+        },
+        {
+          matches: [
+            "https://*.applytojob.com/*",
+            "https://*.theresumator.com/*",
+          ],
+          all_frames: true,
+          run_at: "document_start",
+          js: ["custom/select-state.js"],
+        },
         {
           matches: applicationMatches,
           all_frames: true,
@@ -158,6 +187,11 @@ export async function buildPackage({ publish = false, personal = false } = {}) {
         },
       ],
     };
+    if (development) {
+      delete manifest.key;
+      manifest.name += " · Development";
+      manifest.action.default_title = manifest.name;
+    }
     await fs.writeFile(
       path.join(stage, "manifest.json"),
       JSON.stringify(manifest, null, 2) + "\n",

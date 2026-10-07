@@ -75,6 +75,70 @@ const profile = (extra = {}) => ({
 const answer = (question, p = profile(), context) =>
   api.resolve(question, p, context)?.answer ?? null;
 
+test("observed disclosure wording uses explicit Profile facts without AI or broader identity guesses", async () => {
+  const questions = [
+    {
+      question:
+        "Please select your Veteran status. To see if you classify as a Protected Veteran, please click on the link provided above.*",
+      options: ["I am not a protected veteran", "I am a protected veteran"],
+      type: "select-one",
+    },
+    {
+      question: "Are you Hispanic or Latinx?*",
+      options: ["Yes", "No"],
+      type: "select-one",
+    },
+    {
+      question:
+        "Race (*Please select one option that best describes how you identify*)*",
+      options: ["Asian", "White"],
+      type: "select-one",
+    },
+  ];
+  vm.runInContext(resolverWith("[]"), sandbox);
+  const resolved = await sandbox.JobsAnswerResolver.resolve(
+    questions,
+    profile(),
+  );
+  assert.equal(resolved.length, 3);
+  assert.deepEqual(
+    Array.from(resolved, (x) => x.source),
+    ["profile", "profile", "profile"],
+  );
+  assert.deepEqual(
+    Array.from(
+      resolved,
+      (x, i) =>
+        sandbox.JobsOptionMatch.pick(questions[i].options, x.optionSpec)?.label,
+    ),
+    ["I am not a protected veteran", "No", "Asian"],
+  );
+  assert.equal(
+    (
+      await sandbox.JobsAnswerResolver.resolve(
+        questions,
+        profile({ employmentData: {} }),
+      )
+    ).length,
+    0,
+  );
+  assert.equal(
+    answer(
+      questions[0].question,
+      profile({ employmentData: { veteran: true } }),
+      { options: questions[0].options },
+    ),
+    null,
+  );
+  for (const question of [
+    "Are any of your relatives Hispanic or Latinx?",
+    "Please select your spouse's Veteran status.",
+    "Race and religion",
+    "Do you identify as transgender?",
+  ])
+    assert.equal(answer(question), null, question);
+});
+
 test("existing identity/contact/address/links fields use actual values, including preferred-name switch", () => {
   for (const [question, expected] of [
     ["First name", "Alex"],

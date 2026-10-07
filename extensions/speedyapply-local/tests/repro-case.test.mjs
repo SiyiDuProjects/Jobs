@@ -7,7 +7,7 @@ import { replayCase, readerModules } from "../scripts/repro-runner.mjs";
 import { importCase } from "../scripts/repro-case.mjs";
 import { pathToFileURL } from "node:url";
 const sources = await Promise.all(
-  readerModules.map((n) =>
+  ["calendar-date", "select-state", ...readerModules].map((n) =>
     readModule(new URL("../src/custom/" + n + ".js", import.meta.url), "utf8"),
   ),
 );

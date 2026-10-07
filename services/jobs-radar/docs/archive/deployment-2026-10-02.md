@@ -1,8 +1,10 @@
+> Historical record; not current operating instructions. Current service release rules: [release contract](../../deploy/RELEASE.md).
+
 # Deployment verification
 
 ## Release process — 2026-10-02
 
-The current contract is [deploy/RELEASE.md](deploy/RELEASE.md). Build the committed
+The current contract is [deploy/RELEASE.md](../../deploy/RELEASE.md). Build the committed
 service locally on macOS or WSL with Docker Desktop, then use `release.sh release
 --artifact <directory>` to verify/import the image and invoke the release driver.
 Production does not build images. The entries below are historical evidence;

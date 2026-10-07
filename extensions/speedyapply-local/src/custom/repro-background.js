@@ -1,7 +1,7 @@
 import { JobsReproCase } from "./repro-case.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsDiagnosticHistory } from "./history-background.js";
-import { publicJobUrl } from "./public-job-url.js";
+import { publicJobUrl, icimsFormJobUrl } from "./public-job-url.js";
 let initialized = false;
 export function initializeReproBackground() {
   if (initialized) return;
@@ -56,7 +56,8 @@ export function initializeReproBackground() {
       (typeof runId !== "string" || !runId || runId.length > 200)
     )
       throw Error("Invalid run identity");
-    const identity = JobsJobMatch.key(url.href);
+    const applicationUrl = icimsFormJobUrl(sender) || url.href;
+    const identity = JobsJobMatch.key(applicationUrl);
     if (!identity) throw Error("Job identity unavailable");
     const key = Array.from(
       new Uint8Array(
@@ -69,7 +70,7 @@ export function initializeReproBackground() {
     ).join("");
     let publicUrl;
     try {
-      publicUrl = publicJobUrl(url.href);
+      publicUrl = publicJobUrl(applicationUrl);
     } catch {}
     return serial(async () => {
       const state = await read();

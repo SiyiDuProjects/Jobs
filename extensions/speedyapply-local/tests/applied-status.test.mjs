@@ -98,6 +98,82 @@ test("already-applied Review error and initial posting badge backfill without cl
     assert.equal(clicks, 0);
   }
 });
+test("dated posting receipts are observed initially and after mounting without clicking View Application", async (t) => {
+  for (const [receipt, late] of [
+    ["You applied for this job on October 5, 2026.", false],
+    ["You applied for this job on January 31, 2026.", true],
+  ]) {
+    const html = `<h2 data-automation-id="jobPostingHeader">Engineer</h2><p>${receipt}</p><button>View Application</button>`;
+    const h = page(t, late ? "<main></main>" : html);
+    let clicks = 0;
+    h.w.document.addEventListener("click", () => clicks++);
+    if (late) h.w.document.querySelector("main").innerHTML = html;
+    await until(() => h.confirmations() === 1);
+    assert.equal(h.sent.length, 1);
+    assert.equal(h.sent[0].quote, receipt);
+    h.w.dispatchEvent(new h.w.Event("focus"));
+    await tick();
+    assert.equal(h.sent.length, 1);
+    assert.equal(clicks, 0);
+  }
+});
+test("dated receipt passes live-document verification and reaches the ATS receipt queue once", async (t) => {
+  const receipt = "You applied for this job on October 5, 2026.";
+  const posting =
+    "https://fixture.wd5.myworkdayjobs.com/External/job/Test/Engineer_R-00192469";
+  const writes = [];
+  let confirmed = false,
+    verifies = 0,
+    h;
+  const context = vm.createContext({
+    URL,
+    JobsJobMatch,
+    publicJobUrl,
+    chrome: {
+      storage: { local: { get: async () => ({ settings: {} }) } },
+      tabs: {
+        sendMessage: async (_tab, _message, target) => {
+          assert.equal(target.documentId, "dated-doc");
+          verifies++;
+          return h.w.detectAppliedStatus();
+        },
+      },
+    },
+    JobsSync: {
+      resolveJob: async () => ({
+        state: "matched",
+        application: { confirmed },
+      }),
+      record: async (...args) => {
+        writes.push(args);
+        confirmed = true;
+      },
+    },
+  });
+  vm.runInContext(worker, context);
+  h = page(
+    t,
+    `<main><p>${receipt}</p><button>View Application</button></main>`,
+    posting,
+    async (message) => ({
+      data: await context.recordAppliedStatus(message, {
+        documentId: "dated-doc",
+        frameId: 0,
+        tab: { id: 1 },
+        url: posting,
+      }),
+    }),
+  );
+  await until(() => h.messages.at(-1)?.includes("等待同步"));
+  assert.equal(verifies, 2);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0][0].jobLink, posting);
+  assert.equal(writes[0][0].jobTitle, "");
+  assert.equal(writes[0][1].proof, "ats_confirmation");
+  h.change();
+  await until(() => h.messages.at(-1)?.includes("后台已同步"));
+  assert.equal(writes.length, 1);
+});
 test("hidden messages, listing descriptions, recommendations, ambiguous badges and non-postings do not mark applied", async (t) => {
   for (const html of [
     `<p hidden>${quote}</p>`,
@@ -121,6 +197,32 @@ test("hidden messages, listing descriptions, recommendations, ambiguous badges a
     await tick();
     assert.equal(h.sent.length, 0);
   }
+});
+test("dated wording in hidden content, descriptions, other job cards and non-receipts never backfills", async (t) => {
+  const receipt = "You applied for this job on October 5, 2026.";
+  for (const html of [
+    `<p hidden>${receipt}</p>`,
+    `<p style="opacity:0">${receipt}</p>`,
+    `<div data-automation-id="jobPostingDescription"><p>${receipt}</p></div>`,
+    `<article><p>${receipt}</p></article>`,
+    `<div data-automation-id="similarJob"><p>${receipt}</p></div>`,
+    "<button>View Application</button>",
+    `<p>If ${receipt} please contact us.</p>`,
+    "<p>You applied for another job on October 5, 2026.</p>",
+    "<p>You have not applied for this job on October 5, 2026.</p>",
+    "<p>You applied for this job on a previous date.</p>",
+  ]) {
+    const h = page(t, html);
+    await tick();
+    assert.equal(h.sent.length, 0, html);
+  }
+  const h = page(
+    t,
+    `<p>${receipt}</p>`,
+    "https://fixture.wd5.myworkdayjobs.com/en-US/Careers/login",
+  );
+  await tick();
+  assert.equal(h.sent.length, 0);
 });
 test("late message is observed, failed delivery retries on focus, and pending delivery becomes synced on storage acknowledgement", async (t) => {
   let attempts = 0;

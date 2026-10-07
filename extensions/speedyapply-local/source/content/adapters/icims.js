@@ -4,6 +4,7 @@ import { JobsFormPipeline } from "../../../src/custom/form-pipeline.js";
 import { JobsIcimsControls } from "../../../src/custom/icims-controls.js";
 import { JobsPageActions } from "../../../src/custom/page-actions.js";
 import { JobsDOMWait } from "../../../src/custom/dom-wait.js";
+import { JobsControlFields } from "../../../src/custom/control-fields.js";
 import { JobsAutomatic } from "../../../src/custom/automatic-fill.js";
 import {
   jobsReportJobTitle,
@@ -52,6 +53,8 @@ function icimsDateBindings(name, date, field) {
     : [];
 }
 async function icimsFillCandidateProfile(profile, canProceed = () => true) {
+  const upload = await icimsPrepareResume(profile.resumeData, canProceed);
+  if (upload?.hold || !JobsPageActions.live(canProceed)) return upload;
   const section = (name, run) =>
     JobsFormPipeline.section(name, run, { canProceed });
   await section(`contact`, () => icimsFillContact(profile));
@@ -62,6 +65,47 @@ async function icimsFillCandidateProfile(profile, canProceed = () => true) {
   await section(`employment`, () =>
     icimsFillEmploymentHistory(profile.jobData, canProceed),
   );
+}
+// A local selection stays in the form until Submit Profile; its hidden
+// FileName can remain empty. Other tenants retain a previously saved file or
+// replace the document after parsing. All three paths belong to this run.
+async function icimsPrepareResume(resume, canProceed) {
+  const prefix = "PortalProfileFields.Resume",
+    get = (suffix) => document.getElementById(prefix + suffix),
+    input = /** @type {HTMLInputElement|null} */ (get("_File")),
+    reader = JobsControlFields.create(document),
+    shown = (node) => !!node && reader.visible(node),
+    loading = () => shown(get("_Loading"));
+  if (!input && !get("_Content") && !get("_FileName")) return null;
+  const ready = () => {
+    const file = /** @type {HTMLInputElement|null} */ (get("_File")),
+      saved = /** @type {HTMLInputElement|null} */ (get("_FileName")),
+      label = get("_FileNameLabel")?.textContent?.trim() || "";
+    if (
+      loading() ||
+      !shown(get("_CurrentFile")) ||
+      !label ||
+      file?.getAttribute("aria-invalid") === "true"
+    )
+      return false;
+    // A displayed name alone is not a retained local file. Require the
+    // selected File to agree with the widget, or a saved-file marker.
+    return file?.files?.length
+      ? label.split(/[\\/]/).at(-1) === file.files[0].name
+      : !!saved?.value?.trim();
+  };
+  if (!JobsPageActions.live(canProceed) || ready()) return null;
+  // Preserve an existing selection, including an upload still being processed.
+  if (!input?.files?.length && !loading()) {
+    if (!input || !resume?.resumeBase64)
+      return { hold: "resume_upload_unconfirmed" };
+    jobsUploadResume(resume, `input[id="${prefix}_File"][type="file"]`);
+  }
+  const result = await JobsDOMWait.until(
+    () => (!JobsPageActions.live(canProceed) ? { cancelled: true } : ready()),
+    { timeout: 30000, interval: 250 },
+  );
+  return result ? null : { hold: "resume_upload_unconfirmed" };
 }
 async function icimsFillEducationHistory(
   educationEntries,
@@ -342,6 +386,7 @@ async function icimsRunApplication({
     await JobsAutomatic.advance({
       profile,
       setMessage,
+      canProceed: () => !context?.isInvalid,
       ...navigation,
       fill: fill && ((canProceed) => fill(profile, canProceed)),
     });
@@ -351,6 +396,19 @@ async function icimsRunApplication({
     target:
       jobsFindXPath(JobsPlatformConfig.structure.icims.nextXPath) || void 0,
   });
+  // Cross-origin IForms receive their own content script. Run their fields
+  // in that document; the portal wrapper cannot own the inner form's answers.
+  // A template's Submit may be a step or a final signature, so filling alone
+  // does not create navigation authority.
+  if (/^\/forms\/?$/.test(window.location.pathname)) {
+    jobsWaitForXPathNodes(JobsPlatformConfig.structure.icims.iformXPath).then(
+      () => {
+        const root = JobsPlatformConfig.root(document, "icims");
+        return root && run(null, { root, action: "fill" });
+      },
+    );
+    return;
+  }
   jobsWaitForXPathNodes(
     `//main[@class= '_widget login-id' or @class= '_widget login']`,
   ).then(() =>
@@ -368,18 +426,6 @@ async function icimsRunApplication({
   );
   jobsWaitForXPathNodes(`//div[contains(@class, 'iCIMS_CandidatePage')]`).then(
     async () => {
-      // Without a resume the page takes the upload first and reloads.
-      if (
-        jobsFindXPath(
-          `//input[@id='PortalProfileFields.Resume_FileName' and @value and @value!='']`,
-        ) === null
-      ) {
-        void jobsReportJobTitle(icimsReadApplication().jobTitle);
-        const profile = await getProfile();
-        profile.resumeData?.resumeBase64 &&
-          jobsUploadResume(profile.resumeData, `input[type='file']`);
-        return;
-      }
       // The candidate profile also holds the portal account's login.
       await jobsFillAccount([
         {
@@ -412,10 +458,8 @@ async function icimsRunApplication({
   jobsWaitForXPathNodes(`//div[contains(@class, 'iCIMS_EEOPage')]`).then(() =>
     run((profile) => icimsFillDisclosures(profile.employmentData), next()),
   );
-  // A form inside the page's own frame is outside this adapter.
-  jobsWaitForXPathNodes(`//iframe[@id='icims_formFrame']`).then(() =>
-    setMessage(`complete-manually`),
-  );
+  // The nested IForm owns its own progress; the portal must not overwrite it
+  // with a blanket manual-completion status.
   autofillSettings.saveApplications &&
     jobsWaitForConfirmation("icims").then(async () => {
       (await icimsRecordApplication(), setMessage(null));

@@ -202,6 +202,39 @@ export function initializeWorkdayControls() {
     }
     const wait = (read, node, timeout = 2500) =>
       JobsDOMWait.until(read, { root: node.ownerDocument, timeout });
+    // Keep observing the SAME pending operation while a hidden page is slow.
+    // A foreground/resume event gets one fresh response window, without Enter
+    // or a selection click being replayed. Every extension is bounded.
+    async function promptWait(read, node, current, timeout = 2500) {
+      const doc = node.ownerDocument;
+      let wasHidden = doc.hidden;
+      const visibility = () => {
+        wasHidden ||= doc.hidden;
+      };
+      doc.addEventListener("visibilitychange", visibility);
+      const readCurrent = () => (!current() ? [] : read());
+      let result;
+      try {
+        result = await wait(readCurrent, node, timeout);
+      } finally {
+        doc.removeEventListener("visibilitychange", visibility);
+      }
+      if (result || !current()) return result;
+      if (!doc.hidden)
+        return wasHidden ? wait(readCurrent, node, timeout) : result;
+      JobsDiagnostics?.note(
+        "auto_prompt_background_wait",
+        node,
+        "Pending response while hidden",
+      );
+      const resumed = {};
+      result = await wait(
+        () => readCurrent() || (!node.ownerDocument.hidden ? resumed : null),
+        node,
+        30000,
+      );
+      return result === resumed ? wait(readCurrent, node, timeout) : result;
+    }
     const close = (node) => {
       if (popupHosts(node).length) press(node, "Escape");
     };
@@ -209,10 +242,11 @@ export function initializeWorkdayControls() {
       if (!current()) return false;
       if (activate && !popupHosts(node).length) JobsPageActions.click(node);
       return (
-        !!(await wait(
+        !!(await promptWait(
           () =>
             !current() ? { cancelled: true } : roots(node).length ? true : null,
           node,
+          current,
         )) && current()
       );
     }
@@ -240,6 +274,7 @@ export function initializeWorkdayControls() {
       // explicit Enter after the list is ready.
       const written = await JobsControlFields.writeText(node, answer, {
         blur: false,
+        waitForRender: false,
         canProceed: current,
       });
       note("auto_prompt_wait", "Waiting for active list");
@@ -258,6 +293,7 @@ export function initializeWorkdayControls() {
         if (
           !(await JobsControlFields.writeText(node, answer, {
             blur: false,
+            waitForRender: false,
             canProceed: current,
           }))
         ) {
@@ -276,92 +312,133 @@ export function initializeWorkdayControls() {
       // Preserve the old wait for list replacement, also accepting an in-place
       // response whose options/search mode change. A list without search-mode
       // markers is read as it stands.
-      let responseLoading = false,
-        scrollState = "",
-        scrollSteps = 0;
-      const result = await wait(() => {
-        if (!current()) return [];
-        if (value(node).some((label) => norm(label) === norm(answer)))
-          return [];
-        if (loading(node)) {
-          responseLoading = true;
-          return null;
-        }
-        const found = options(node, { search: true });
-        const fresh =
-          responseLoading ||
-          roots(node).some((root) => !beforeRoots.includes(root)) ||
-          found.some(
-            (option) =>
-              !before.some(
-                (old) =>
-                  old.node === option.node &&
-                  old.label === option.label &&
-                  old.searchMode === option.searchMode,
-              ),
-          );
-        const unmarked = before.every((option) => option.searchMode === null);
-        if (!(fresh || unmarked)) return null;
+      let responseLoading = false;
+      const response = await promptWait(
+        () => {
+          if (!current()) return [];
+          if (value(node).some((label) => norm(label) === norm(answer)))
+            return [];
+          if (loading(node)) {
+            responseLoading = true;
+            return null;
+          }
+          const found = options(node, { search: true });
+          const fresh =
+            responseLoading ||
+            roots(node).some((root) => !beforeRoots.includes(root)) ||
+            found.some(
+              (option) =>
+                !before.some(
+                  (old) =>
+                    old.node === option.node &&
+                    old.label === option.label &&
+                    old.searchMode === option.searchMode,
+                ),
+            );
+          const unmarked = before.every((option) => option.searchMode === null);
+          if (!(fresh || unmarked)) return null;
+          // An unrelated unchanged window cannot conclude the new search.
+          if (
+            !fresh &&
+            !matchingOptions(found, policy.target ?? answer, policy).length
+          )
+            return null;
+          const empty =
+            fresh &&
+            roots(node).some((root) =>
+              /\bno (?:items|results)\b/i.test(root.textContent),
+            );
+          return found.length || empty ? found : null;
+        },
+        node,
+        current,
+      );
+      if (!response || !current()) {
+        note(
+          "auto_prompt_failed",
+          "Search response unavailable before deadline",
+        );
+        return [];
+      }
+      note("auto_prompt_results", "Current search response observed");
+      if (!response.length) return response;
+      // Each virtual window is a separate page response. Charging all windows
+      // to the initial search deadline loses valid late candidates, especially
+      // while the site's rendering is delayed in a background tab.
+      let found = response;
+      const observed = new Map();
+      for (let step = 0; current() && step <= 20; step++) {
+        for (const option of found) observed.set(option.label, option);
+        const lists = popupHosts(node).flatMap((host) => [
+          ...(host.matches('[data-automation-id="activeListContainer"]')
+            ? [host]
+            : []),
+          ...host.querySelectorAll(
+            '[data-automation-id="activeListContainer"]',
+          ),
+        ]);
+        const list = lists.find(
+          (item) =>
+            visible(item) &&
+            item.clientHeight > 0 &&
+            item.scrollHeight > item.clientHeight,
+        );
+        // A reused list can retain the previous query's scroll position.
+        const rewind = step === 0 && list?.scrollTop > 0;
         if (matchingOptions(found, policy.target ?? answer, policy).length)
           return found;
-        // Workday virtualizes long result sets. Intel's exact Physics result
-        // was item 22 of 27 and did not exist in the first rendered window.
-        // Scroll only this prompt's refreshed result list; wait for a different
-        // rendered window before moving again, and retain exact-major matching.
-        if (fresh && current() && scrollSteps < 20) {
-          const lists = popupHosts(node).flatMap((host) => [
-            ...(host.matches('[data-automation-id="activeListContainer"]')
-              ? [host]
-              : []),
-            ...host.querySelectorAll(
-              '[data-automation-id="activeListContainer"]',
-            ),
-          ]);
-          const list = lists.find(
-            (item) =>
-              visible(item) &&
-              item.clientHeight > 0 &&
-              item.scrollHeight > item.clientHeight &&
-              item.scrollTop + item.clientHeight < item.scrollHeight - 1,
-          );
-          const windowKey = found
-            .map(
-              (option) =>
-                option.node.id +
-                ":" +
-                option.node.getAttribute("aria-posinset") +
-                ":" +
-                option.label,
-            )
-            .join("|");
-          if (list && windowKey && windowKey !== scrollState) {
-            scrollState = windowKey;
-            scrollSteps++;
-            list.scrollTop = Math.min(
+        if (
+          !list ||
+          step === 20 ||
+          (!rewind &&
+            list.scrollTop + list.clientHeight >= list.scrollHeight - 1)
+        )
+          break;
+        const previous = found;
+        list.scrollTop = rewind
+          ? 0
+          : Math.min(
               list.scrollHeight - list.clientHeight,
               list.scrollTop + Math.max(1, list.clientHeight * 0.8),
             );
-            JobsPageActions.dispatch(
-              list,
-              new node.ownerDocument.defaultView.Event("scroll", {
-                bubbles: true,
-              }),
-            );
-            note(
-              "auto_prompt_scroll",
-              "Searching the next rendered result window",
-            );
-          }
+        JobsPageActions.dispatch(
+          list,
+          new node.ownerDocument.defaultView.Event("scroll", { bubbles: true }),
+        );
+        note(
+          "auto_prompt_scroll",
+          rewind
+            ? "Reset new search to first window"
+            : "Searching the next rendered result window",
+        );
+        const next = await promptWait(
+          () => {
+            if (loading(node)) return null;
+            const items = options(node, { search: true });
+            return items.some(
+              (option, index) =>
+                option.node !== previous[index]?.node ||
+                option.label !== previous[index]?.label,
+            )
+              ? items
+              : null;
+          },
+          node,
+          current,
+        );
+        if (!next || !current()) {
+          note(
+            "auto_prompt_failed",
+            "Virtual result window unavailable before deadline",
+          );
+          break;
         }
-        return null;
-      }, node);
-      note(
-        result ? "auto_prompt_results" : "auto_prompt_failed",
-        result
-          ? "Current search response observed"
-          : "No matching response before deadline",
-      );
-      return current() ? result || [] : [];
+        found = next;
+      }
+      // Return inspected unmatched candidates to the shared rule/trace. Empty
+      // arrays previously mislabeled an actual catalog mismatch as no-options.
+      // Detached candidates remain evidence only: chooseOptions checks liveness.
+      return current() ? [...observed.values()] : [];
     }
     // The education entry a field belongs to (its numbered section): page
     // structure the rule layer uses to pick that entry's facts.
@@ -435,6 +512,7 @@ export function initializeWorkdayControls() {
           if (query && node.value === query)
             await JobsControlFields.writeText(node, "", {
               blur: false,
+              waitForRender: false,
               canProceed: current,
             });
         }
@@ -559,23 +637,32 @@ export function initializeWorkdayControls() {
           return node;
         const selected = found.find((option) => option.label === label);
         if (!selected || !selected.target.isConnected) return null;
+        // Virtual lists can reuse a still-connected option for another label.
+        // Previously inspected windows are evidence, not permission to click
+        // a recycled row that now represents a different choice.
+        if (
+          !options(node).some(
+            (option) =>
+              option.target === selected.target && option.label === label,
+          )
+        )
+          return null;
         if (prompt && !append)
           container(node).setAttribute("data-jobs-expected-choice", label);
         if (!selected.target.checked) JobsPageActions.click(selected.target);
-        const accepted = await wait(
-          () => {
-            if (!current()) return { cancelled: true };
-            const actual = value(node);
-            return (
-              (prompt
-                ? actual.some((item) => norm(item) === norm(label))
-                : norm(actual) === norm(label)) &&
-              node.getAttribute("aria-invalid") !== "true"
-            );
-          },
-          node,
-          1500,
-        );
+        const readAccepted = () => {
+          if (!current()) return { cancelled: true };
+          const actual = value(node);
+          return (
+            (prompt
+              ? actual.some((item) => norm(item) === norm(label))
+              : norm(actual) === norm(label)) &&
+            node.getAttribute("aria-invalid") !== "true"
+          );
+        };
+        const accepted = await (prompt
+          ? promptWait(readAccepted, node, current, 1500)
+          : wait(readAccepted, node, 1500));
         if (languageDropdowns.has(node) && accepted !== true)
           extraAttempts.set(node, {
             expected: text(label),
@@ -600,6 +687,7 @@ export function initializeWorkdayControls() {
           if (prompt && typed && node.value === typed)
             await JobsControlFields.writeText(node, "", {
               blur: false,
+              waitForRender: false,
               canProceed: current,
             });
         }
@@ -809,7 +897,7 @@ export function initializeWorkdayControls() {
           required || explicitOptional || language || paste || choice,
         disabled,
         invalid:
-          !!(parts && raw && !parseMonth(raw)) ||
+          !!(parts && (dateHasError(node) || (raw && !parseMonth(raw)))) ||
           group.some(
             (item) =>
               item.getAttribute("aria-invalid") === "true" ||
@@ -834,6 +922,96 @@ export function initializeWorkdayControls() {
         ...(extraAttempts.has(node) ? { commitState: "unconfirmed" } : {}),
       };
     }
+    // Both month/year and full dates are one transaction. Numeric segments
+    // normalize leading zeroes; the form saves only after the whole group exits.
+    const numericDatePart = (actual, expected) =>
+      /^\d+$/.test(actual) && Number(actual) === Number(expected);
+    const dateHasError = (node) =>
+      !!node.closest('[aria-invalid="true"]') ||
+      [
+        ...(field(node) || node).querySelectorAll(
+          '[data-automation-id="inputAlert"],[data-automation-id="inputError"]',
+        ),
+      ].some((error) => visible(error) && text(error.textContent));
+    async function writeDateSegments(node, group, values, current, accepted) {
+      const doc = node.ownerDocument,
+        view = doc.defaultView;
+      let edited = false,
+        writing = false;
+      const live = () => !edited && current();
+      const onEdit = () => {
+        if (!writing) edited = true;
+      };
+      for (const part of group)
+        for (const type of ["input", "change"])
+          part.addEventListener(type, onEdit);
+      try {
+        for (let index = 0; index < group.length; index++) {
+          if (!live()) return null;
+          let pending;
+          writing = true;
+          try {
+            pending = JobsControlFields.writeText(group[index], values[index], {
+              canProceed: live,
+              click: true,
+              blur: false,
+              matchesValue: numericDatePart,
+            });
+          } finally {
+            writing = false;
+          }
+          if (!(await pending) || !live())
+            throw Error("日期控件已变化或未接受输入，请检查该题。");
+        }
+        const complete = () =>
+          live() &&
+          group.every((part, index) =>
+            numericDatePart(part.value, values[index]),
+          );
+        if (!complete()) return null;
+        // Focus may be redirected to a sibling spinner. Exit the actual active
+        // member, and fall back only if no group exit occurred after all writes.
+        let exited = false;
+        const onExit = (event) => {
+          if (!node.contains(event.relatedTarget)) exited = true;
+        };
+        node.addEventListener("focusout", onExit);
+        try {
+          const active = doc.activeElement;
+          if (node.contains(active) && complete())
+            JobsPageActions.when(() =>
+              /** @type {HTMLElement} */ (active).blur(),
+            );
+          if (!exited && complete()) {
+            const last = group.at(-1),
+              relatedTarget = node.contains(doc.activeElement)
+                ? null
+                : doc.activeElement;
+            for (const type of ["blur", "focusout"])
+              JobsPageActions.dispatch(
+                last,
+                new view.FocusEvent(type, {
+                  bubbles: type === "focusout",
+                  composed: true,
+                  relatedTarget,
+                }),
+              );
+          }
+        } finally {
+          node.removeEventListener("focusout", onExit);
+        }
+        if (!live()) return null;
+        const result = await JobsDOMWait.until(
+          () => (!live() ? { ok: false } : accepted() ? { ok: true } : null),
+          { root: doc, timeout: 1500 },
+        );
+        return result?.ok ? node : null;
+      } finally {
+        for (const part of group)
+          for (const type of ["input", "change"])
+            part.removeEventListener(type, onEdit);
+      }
+    }
     async function writeMonthParts(
       node,
       answer,
@@ -843,107 +1021,29 @@ export function initializeWorkdayControls() {
       } = {},
     ) {
       canProceed = JobsPageActions.guard(canProceed);
-      if (
-        !isMonth(node) ||
-        !parseMonth(answer) ||
-        !JobsPageActions.live(canProceed) ||
-        !visible(node) ||
-        (value(node) && !replace)
-      )
+      const parts = monthParts(node);
+      if (!parts || !parseMonth(answer) || (value(node) && !replace))
         return null;
-      const [year, month] = answer.split("-"),
-        doc = node.ownerDocument,
-        view = doc.defaultView;
-      let edited = false,
-        writing = false;
       const current = () =>
-        !edited &&
         JobsPageActions.live(canProceed) &&
-        node.isConnected &&
         visible(node) &&
         monthParts(node)?.year === parts.year &&
         monthParts(node)?.month === parts.month &&
-        !parts.year.disabled &&
-        !parts.month.disabled &&
-        !parts.year.readOnly &&
-        !parts.month.readOnly;
-      const parts = monthParts(node);
-      const onEdit = () => {
-          if (!writing) edited = true;
-        },
-        inputs = [parts.year, parts.month];
-      for (const input of inputs)
-        for (const type of ["input", "change"])
-          input.addEventListener(type, onEdit);
-      const writingSync = (action) => {
-        writing = true;
-        try {
-          return action();
-        } finally {
-          writing = false;
-        }
-      };
-      try {
-        if (!JobsPlatformConfig.structure.workday.modernFlow(doc)) {
-          await writingSync(() =>
-            JobsControlFields.writeText(parts.year, year, {
-              blur: false,
-              change: false,
-              canProceed: current,
-            }),
-          );
-          if (current())
-            await writingSync(() =>
-              JobsControlFields.writeText(parts.month, month, {
-                blur: false,
-                keyboard: true,
-                click: true,
-                canProceed: current,
-              }),
-            );
-        } else {
-          const writePart = (input, value, key, keyCode) => {
-            if (!input || !current()) return;
-            const setter = Object.getOwnPropertyDescriptor(
-              view.HTMLInputElement.prototype,
-              "value",
-            )?.set;
-            writingSync(() => {
-              input.focus();
-              for (const type of ["keydown", "keypress", "keyup"])
-                JobsPageActions.dispatch(
-                  input,
-                  new view.KeyboardEvent(type, {
-                    key,
-                    keyCode,
-                    bubbles: true,
-                    cancelable: true,
-                  }),
-                );
-              setter?.call(input, value);
-              for (const type of ["input", "change"])
-                JobsPageActions.dispatch(
-                  input,
-                  new view.Event(type, { bubbles: true, cancelable: true }),
-                );
-              input.blur();
-            });
-          };
-          writePart(parts.year, year, "5", 53);
-          await JobsDOMWait.until(
-            () => current() && parts.year.value === year,
-            { root: doc, timeout: 1500 },
-          );
-          writePart(parts.month, month, "1", 49);
-        }
-        return current() && value(node) === answer && !describe(node).invalid
-          ? node
-          : null;
-      } finally {
-        for (const input of inputs)
-          for (const type of ["input", "change"])
-            input.removeEventListener(type, onEdit);
-      }
+        [parts.month, parts.year].every(
+          (part) =>
+            visible(part) &&
+            !part.disabled &&
+            !part.readOnly &&
+            part.getAttribute("aria-disabled") !== "true",
+        );
+      const [year, month] = answer.split("-");
+      return writeDateSegments(
+        node,
+        [parts.month, parts.year],
+        [month, year],
+        current,
+        () => value(node) === answer && !describe(node).invalid,
+      );
     }
     function clickCheckbox(item, doc) {
       JobsPlatformConfig.structure.workday.modernFlow(doc)
@@ -1107,25 +1207,6 @@ export function initializeWorkdayControls() {
         );
       const [year, month, day] = date.iso.split("-"),
         values = [month, day, year];
-      // Workday normalizes 09 to 9. Leaving the group between segments commits
-      // an incomplete date, which some forms turn into a year-only value.
-      const matchesValue = (actual, expected) =>
-        /^\d+$/.test(actual) && Number(actual) === Number(expected);
-      for (let index = 0; index < group.length; index++)
-        if (
-          !current() ||
-          !(await JobsControlFields.writeText(
-            group[index],
-            String(values[index]),
-            {
-              canProceed: current,
-              click: true,
-              blur: index === group.length - 1,
-              matchesValue,
-            },
-          ))
-        )
-          throw Error("日期控件已变化或未接受输入，请检查该题。");
       const accepted = () =>
         current() &&
         calendarDate(`${group[0].value}/${group[1].value}/${group[2].value}`)
@@ -1135,21 +1216,13 @@ export function initializeWorkdayControls() {
             part.getAttribute("aria-invalid") === "true" ||
             (part.willValidate && !part.validity.valid),
         ) &&
-        !node.closest('[aria-invalid="true"]') &&
-        ![
-          ...(
-            node.closest('[data-automation-id^="formField-"]') || node
-          ).querySelectorAll(
-            '[data-automation-id="inputAlert"],[data-automation-id="inputError"]',
-          ),
-        ].some((error) => visible(error) && text(error.textContent));
-      if (
-        !(await JobsDOMWait.until(accepted, {
-          root: node.ownerDocument,
-          timeout: 1500,
-        }))
-      )
-        throw Error("网页尚未接受完整日期，请检查该题。");
+        !dateHasError(node);
+      if (!(await writeDateSegments(node, group, values, current, accepted)))
+        throw Error(
+          current()
+            ? "网页尚未接受完整日期，请检查该题。"
+            : "日期控件已变化或未接受输入，请检查该题。",
+        );
       return node;
     }
     // Every entrance (a binding, a known answer, AI, remote review)
@@ -1177,13 +1250,20 @@ export function initializeWorkdayControls() {
           spec.answer || spec.tiers[0][0],
         );
     }
-    function selectionValid(node) {
+    function selectionExpectation(node) {
       const expected = expectedSelections.get(node);
-      if (!expected || expected.url !== node.ownerDocument.location.href)
-        return true;
+      return expected?.url === node.ownerDocument.location.href
+        ? expected.spec
+        : null;
+    }
+    function selectionValid(node) {
+      const expected = selectionExpectation(node);
+      if (!expected) return true;
       const values = value(node);
       return (
-        values.length === 1 && !!JobsOptionMatch.pick(values, expected.spec)
+        values.length === 1 &&
+        (expected.preferenceOnly === true ||
+          !!JobsOptionMatch.pick(values, expected))
       );
     }
     // Partial facts for the common scanner: listbox buttons and search prompts.
@@ -1199,9 +1279,11 @@ export function initializeWorkdayControls() {
         // Workday clears the search input once a value becomes a selected pill.
         // Search text is never evidence of a committed selection.
         const selected = value(node) || [],
-          expected = node
-            .closest('[data-automation-id="multiSelectContainer"]')
-            ?.getAttribute("data-jobs-expected-choice");
+          expected = selectionExpectation(node)?.preferenceOnly
+            ? null
+            : node
+                .closest('[data-automation-id="multiSelectContainer"]')
+                ?.getAttribute("data-jobs-expected-choice");
         // An expectation judges a committed selection; an empty prompt is only unanswered
         // (an optional major whose search found nothing must not block the step).
         const wrong =

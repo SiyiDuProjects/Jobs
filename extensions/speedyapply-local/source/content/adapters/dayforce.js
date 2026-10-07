@@ -21,10 +21,7 @@ import {
   jobsWatchAttribute,
   jobsWatchCssPresence,
 } from "../shared/dom-controls.js";
-import {
-  jobsFormatProfileMonth,
-  jobsIsProfileMonthInPast,
-} from "../shared/profile-format.js";
+import { jobsIsProfileMonthInPast } from "../shared/profile-format.js";
 async function dayforceFillLogin(accountSettings) {
   await jobsFillAccount([
     { find: `#loginForm #email`, value: accountSettings.accountEmail },
@@ -86,16 +83,12 @@ async function dayforceFillApplication(profile, canProceed = () => true) {
           {
             name: "start",
             find: field(`effectiveStart`),
-            answer:
-              entry.startDate &&
-              jobsFormatProfileMonth(entry.startDate, `yyyy-MM-dd`),
+            answer: entry.startDate,
           },
           {
             name: "end",
             find: field(`effectiveEnd`),
-            answer:
-              entry.endDate &&
-              jobsFormatProfileMonth(entry.endDate, `yyyy-MM-dd`),
+            answer: entry.endDate,
           },
           {
             name: "not-completed",
@@ -128,16 +121,12 @@ async function dayforceFillApplication(profile, canProceed = () => true) {
           {
             name: "start",
             find: field(`effectiveStart`),
-            answer:
-              entry.startDate &&
-              jobsFormatProfileMonth(entry.startDate, `yyyy-MM-dd`),
+            answer: entry.startDate,
           },
           {
             name: "end",
             find: field(`effectiveEnd`),
-            answer:
-              entry.endDate &&
-              jobsFormatProfileMonth(entry.endDate, `yyyy-MM-dd`),
+            answer: entry.endDate,
           },
           {
             name: "current",
@@ -171,10 +160,7 @@ async function dayforceFillPersonalInformation(profile) {
     {
       name: "middle-name",
       find: field(`middleName`),
-      answer:
-        name.preferredFirstName && name.preferredName
-          ? name.preferredFirstName
-          : name.firstName,
+      answer: name.middleName,
     },
     { name: "last-name", find: field(`lastName`), answer: name.lastName },
     {

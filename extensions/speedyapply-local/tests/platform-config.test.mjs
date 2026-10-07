@@ -1,4 +1,5 @@
 import { readModule } from "./helpers/module-source.mjs";
+import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -8,6 +9,10 @@ const platform = await readModule(
   "utf8",
 );
 const fields = await readModule(
+  new URL("../src/custom/control-fields.js", import.meta.url),
+  "utf8",
+);
+const fieldsRuntime = await readWithDependencies(
   new URL("../src/custom/control-fields.js", import.meta.url),
   "utf8",
 );
@@ -67,7 +72,7 @@ test("a Workday-shaped date on an unrelated site remains independent generic con
     runScripts: "outside-only",
   });
   try {
-    dom.window.eval(platform + "\n" + fields);
+    dom.window.eval(fieldsRuntime);
     const rows = dom.window.JobsControlFields.create(
       dom.window.document,
     ).scan();

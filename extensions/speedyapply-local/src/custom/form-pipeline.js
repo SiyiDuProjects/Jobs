@@ -2,6 +2,7 @@ import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsDOMWait } from "./dom-wait.js";
+import { JobsPageCommit } from "./page-commit.js";
 export var JobsFormPipeline;
 let initialized = false;
 export function initializeFormPipeline() {
@@ -11,6 +12,7 @@ export function initializeFormPipeline() {
     const note = (type, node, detail) =>
       JobsDiagnostics?.note(type, node, detail);
     const act = () => JobsPageActions;
+    let diagnosticOperation = 0;
     let active = null,
       fillTail = Promise.resolve(undefined);
     const ledgers = new WeakMap();
@@ -28,7 +30,7 @@ export function initializeFormPipeline() {
     //   decider  binding:<name> | rule | saved | ai | user
     //   ruled    the rules were asked         aiTried  sent to AI and not obsolete
     //   hint     the rules' decision, for reading the field's options later
-    //   confirm  an AI answer must be confirmed
+    //   confirm  a missing explicit fact requires review of an AI proposal
     //   card     {shape, allowEmpty} while the field is on the review card
     function ledger(root) {
       const records = new Map();
@@ -143,7 +145,9 @@ export function initializeFormPipeline() {
           const record = book.get(node);
           record.state = "abstained";
           record.decider = decider;
-          record.confirm = true;
+          // A failed write does not make a later answer uncertain. The next
+          // writer must still keep its value; AI and missing-fact review decide
+          // confirmation independently of this past failure.
           note(
             "auto_decider_abstained",
             record.node,
@@ -224,13 +228,33 @@ export function initializeFormPipeline() {
       } = {},
     ) {
       canProceed = act().guard(canProceed);
-      book?.claim(node, decider, { replace });
+      const operation = ++diagnosticOperation;
+      const evidence = (value) =>
+        JobsDiagnostics?.evidence?.(node, { operation, ...value });
+      evidence({
+        stage: "write",
+        result: "started",
+        total: answer.specs?.length || 1,
+      });
+      try {
+        book?.claim(node, decider, { replace });
+      } catch (error) {
+        if (!act().live(canProceed)) throw error;
+        // Refuse the second writer without replacing the first field's ledger
+        // entry or aborting unrelated bindings in this page.
+        return { ok: false, reason: String(error.message || error) };
+      }
       const started = Date.now(),
         scans = JobsControlFields.scans?.() || 0;
       let written = null,
         why = "not committed",
         heldMs = 0;
       try {
+        if (
+          JobsPageCommit &&
+          !(await JobsPageCommit.wait(node, { canProceed }))
+        )
+          throw Error("Page definition update is not confirmed");
         if (answer.checked !== undefined) {
           // A check goes through the field's setter (a widget's own); one radio
           // of a group, or a native input the scanner does not list, is set
@@ -240,9 +264,7 @@ export function initializeFormPipeline() {
             () => root || node.ownerDocument,
             { write: true },
           );
-          const row = reader
-              .scan()
-              .find((row) => row.node === node || row.group?.includes(node)),
+          const row = reader.field(node),
             radio = node.matches?.('input[type="radio"]');
           if (
             radio
@@ -277,9 +299,7 @@ export function initializeFormPipeline() {
             () => root,
             { write: true },
           );
-          const row = reader
-            .scan()
-            .find((row) => row.node === node || row.group?.includes(node));
+          const row = reader.field(node);
           if (!row) throw Error("Field changed before writing");
           await reader.apply(row, answer.value, canProceed, {
             replace,
@@ -289,25 +309,70 @@ export function initializeFormPipeline() {
           });
           written = row.node;
         } else {
-          written = node;
-          for (const spec of answer.specs)
-            if (
-              !(await JobsControlFields.chooseSpec(node, spec, {
-                canProceed,
-                replace,
-                source,
-                decider,
-              }))
-            )
-              written = null;
+          let committed = 0,
+            lastCommitted = -1;
+          const missing = new Set();
+          const chooseItem = async (item, spec) => {
+            evidence({
+              stage: "item",
+              result: "started",
+              item,
+              total: answer.specs.length,
+            });
+            const chosen = await JobsControlFields.chooseSpec(node, spec, {
+              canProceed,
+              replace,
+              source,
+              decider,
+            });
+            if (chosen) {
+              committed++;
+              lastCommitted = Math.max(lastCommitted, item);
+              missing.delete(item);
+            } else missing.add(item);
+            evidence({
+              stage: "item",
+              result: chosen ? "committed" : "failed",
+              item,
+              total: answer.specs.length,
+              committed,
+              ...(!chosen ? { reason: "not_committed" } : {}),
+            });
+          };
+          for (const [item, spec] of answer.specs.entries())
+            await chooseItem(item, spec);
+          // A later retained selection is new evidence that the widget responds.
+          // Recover earlier append failures once, inside the same writer/claim;
+          // chooseSpec checks existing pills before any search or click.
+          const recover = [...missing].filter(
+            (item) =>
+              item < lastCommitted && answer.specs[item]?.append === true,
+          );
+          for (const item of recover) {
+            if (!act().live(canProceed) || !node.isConnected) break;
+            note(
+              "auto_choice_recovery",
+              node,
+              "Retry earlier append after a later commit",
+            );
+            await chooseItem(item, answer.specs[item]);
+          }
+          written = missing.size ? null : node;
         }
         const holding = Date.now();
+        if (
+          written &&
+          JobsPageCommit &&
+          !(await JobsPageCommit.wait(node, { canProceed }))
+        )
+          throw Error("Page definition update is not confirmed");
         if (written && root && !(await hold(root, node, { canProceed })).kept) {
           written = null;
           why = "value not kept";
         }
         heldMs = Date.now() - holding;
       } catch (error) {
+        evidence({ stage: "write", result: "failed", reason: "exception" });
         if (!act().live(canProceed)) throw error;
         written = null;
         why = String(error?.message || error);
@@ -325,6 +390,15 @@ export function initializeFormPipeline() {
         book.stats.heldMs += cost.heldMs;
         book.stats.scans += cost.scans;
       }
+      evidence({
+        stage: "write",
+        result: written ? "kept" : "failed",
+        ...(!written
+          ? {
+              reason: why === "value not kept" ? "value_lost" : "not_committed",
+            }
+          : {}),
+      });
       if (written) book?.decide(node, decider);
       else book?.abstain(node, decider, why);
       return written ? { ok: true, node: written } : { ok: false, reason: why };
@@ -468,6 +542,11 @@ export function initializeFormPipeline() {
           node = null;
         }
         if (!node) {
+          results.push(null);
+          continue;
+        }
+        if (active?.canFill?.(node) === false) {
+          note("auto_binding_disabled", node, binding.name);
           results.push(null);
           continue;
         }

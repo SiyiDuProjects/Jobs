@@ -77,6 +77,10 @@ export interface HistoryEvent {
   build?: string;
   visibility?: "hidden" | "visible";
   timing?: Record<string, number | Record<string, number>>;
+  sequence?: number;
+  evidence?: Record<string, string | number | boolean>;
+  trace?: Record<string, string | number | string[]>;
+  decision?: Record<string, string | number>;
 }
 export interface HistorySnapshot {
   at: number;

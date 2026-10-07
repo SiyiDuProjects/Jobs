@@ -10,6 +10,10 @@ import httpx
 
 from .board import Board
 from .screening_progress import ScreeningProgress
+from .geography import non_us_only, screening_locations
+from .company_screening import public_input
+from .sponsorship import restriction, title_citizenship
+from .education import restriction as education_restriction
 
 MODEL = 'gpt-6-luna'
 from .screening_policy import POLICY, PROMPT
@@ -24,8 +28,25 @@ DECISION_SCHEMA = {
 def response_schema(references):
     # Fixed required keys make an incomplete/foreign identity set invalid in
     # Structured Outputs itself, instead of merely discovering it after billing.
+    properties={}
+    for ref in references:
+        schema=DECISION_SCHEMA
+        if isinstance(references,dict):
+            row=references[ref]
+            quotes=[s.get(field,'') for s in row['all_sources'] for field in ('title','description')]
+            education=education_restriction(row['all_sources'])
+            if education: quotes.append(education[1])
+            if non_us_only(screening_locations(row['all_sources'])):
+                quotes.extend(loc for s in row['all_sources'] for loc in s.get('locations',[]))
+            limited=restriction(row['all_sources'])
+            if limited: quotes.append(limited[1])
+            quotes=list(dict.fromkeys(q for q in quotes if isinstance(q,str) and q.strip()))
+            if quotes:
+                schema={**DECISION_SCHEMA,'properties':{**DECISION_SCHEMA['properties'],
+                    'evidence_quote':{'type':'string','enum':quotes}}}
+        properties[ref]=schema
     return {'type':'object','properties':{'jobs':{
-        'type':'object','properties':{ref:DECISION_SCHEMA for ref in references},
+        'type':'object','properties':properties,
         'required':list(references),'additionalProperties':False,
     }},'required':['jobs'],'additionalProperties':False}
 
@@ -53,7 +74,7 @@ ERROR_CODES = frozenset({
     'provider_shape', 'job_coverage', 'decision_invalid', 'evidence_mismatch',
     'credential_missing', 'batch_limit', 'lock_lost', 'unexpected',
 })
-STAGES = frozenset({'credentials', 'progress', 'queue', 'provider', 'review', 'complete', 'lock'})
+STAGES = frozenset({'credentials', 'progress', 'queue', 'provider', 'review', 'complete', 'lock', 'companies'})
 PROVIDER_CODES = frozenset({
     'insufficient_quota', 'rate_limit_exceeded', 'invalid_api_key', 'model_not_found',
     'unsupported_value', 'unsupported_parameter', 'invalid_json_schema', 'invalid_request_error',
@@ -75,23 +96,14 @@ def failure_summary(exc):
     return result
 
 
-def public_input(row, reference):
-    return {'id':reference,'kind':row['kind'],'company':row['company'],'title':row['title'],
-            'sources':[{k:s.get(k,'') for k in ('company','title','repository','category','source_category','section')}
-                       for s in row['all_sources']]}
-
-
-def classify(client, rows):
-    # One short reference per (job, kind) row; copying long canonical IDs is
-    # unnecessary, and one job can legitimately occur in both kind queues.
-    references = {f'job_{index}':row for index,row in enumerate(rows)}
+def request_output(client, instructions, inputs, schema):
     try:
         response = client.post('https://api.openai.com/v1/responses', json={
             'model':MODEL,'store':False,
-            'instructions':PROMPT+'\nReturn jobs as an object keyed by every supplied id. Each id names one row, including its kind. Copy evidence_quote exactly from that row\'s source title.',
-            'input':json.dumps([public_input(row,ref) for ref,row in references.items()],ensure_ascii=False),
+            'instructions':instructions,
+            'input':json.dumps(inputs,ensure_ascii=False),
             'reasoning':{'effort':'low'},'max_output_tokens':8192,
-            'text':{'format':{'type':'json_schema','name':'job_screening','strict':True,'schema':response_schema(references)}},
+            'text':{'format':{'type':'json_schema','name':'job_screening','strict':True,'schema':schema}},
         })
     except httpx.RequestError as exc:
         raise ScreeningError('provider_transport') from exc
@@ -117,11 +129,23 @@ def classify(client, rows):
         content = ''.join(part.get('text','') for output in data.get('output',[]) for part in output.get('content',[])
                           if part.get('type') == 'output_text')
         decoded = json.loads(content, object_pairs_hook=unique_object)
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        if isinstance(exc, ScreeningError): raise
+        raise ScreeningError('provider_shape') from exc
+    return decoded, data.get('usage',{})
+
+
+def classify(client, rows):
+    # One short reference per (job, kind) row; copying long canonical IDs is
+    # unnecessary, and one job can legitimately occur in both kind queues.
+    references = {f'job_{index}':row for index,row in enumerate(rows)}
+    decoded,usage=request_output(client,PROMPT,[public_input(row,ref) for ref,row in references.items()],response_schema(references))
+    try:
         if not isinstance(decoded,dict) or set(decoded)!={'jobs'}: raise ScreeningError('provider_shape')
         decisions = decoded['jobs']
         if not isinstance(decisions, dict) or not all(isinstance(item,dict) and
                 set(item)=={'decision','reason','evidence_quote'} and
-                all(isinstance(item[k],str) for k in item) for item in decisions.values()):
+                all(isinstance(item[k],str) for k in ('decision','reason','evidence_quote')) for item in decisions.values()):
             raise ScreeningError('provider_shape')
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         if isinstance(exc, ScreeningError): raise
@@ -134,10 +158,22 @@ def classify(client, rows):
         if item['decision'] not in {'keep','trash'} or not item['reason'].strip() or len(item['reason'])>1200:
             raise ScreeningError('decision_invalid')
         quote=item['evidence_quote'].strip()
-        if not quote or not any(quote in source.get('title','') for source in row['all_sources']):
+        title_quote = any(quote in source.get('title','') for source in row['all_sources'])
+        description_quote = any(quote == source.get('description') for source in row['all_sources'])
+        education = education_restriction(row['all_sources'])
+        education_quote = bool(education and quote==education[1])
+        location_quote = any(quote in loc for source in row['all_sources'] for loc in source.get('locations', []))
+        geographic = item['decision']=='trash' and not (title_quote or description_quote or education_quote) and location_quote
+        sponsored = restriction(row['all_sources'])
+        restriction_quote = bool(sponsored and quote==sponsored[1])
+        if not quote or not (title_quote or description_quote or education_quote or location_quote or restriction_quote):
             raise ScreeningError('evidence_mismatch')
-        checked.append({**item,'id':row['id'],'kind':row['kind']})
-    return checked, data.get('usage',{})
+        if geographic and not non_us_only(screening_locations(row['all_sources'])):
+            raise ScreeningError('evidence_mismatch')
+        checked.append({**item,'id':row['id'],'kind':row['kind'],
+                        'reason_code':'phd' if education_quote else sponsored[2] if restriction_quote else 'non_us_only' if geographic
+                        else 'citizenship' if title_quote and title_citizenship(quote) else 'off_target_role'})
+    return checked, usage
 
 
 def api_key():
@@ -149,7 +185,7 @@ def api_key():
     return key
 
 
-def run(store, max_batches=20, batch_size=20, client=None):
+def run(store, max_batches=20, batch_size=20, client=None, backfill_company=False):
     if not 1<=max_batches<=100 or not 1<=batch_size<=30:
         exc = ScreeningError('batch_limit'); exc.stage = 'progress'; raise exc
     owner=secrets.token_hex(12)
@@ -166,8 +202,15 @@ def run(store, max_batches=20, batch_size=20, client=None):
         if owned_client:
             client=httpx.Client(timeout=90,trust_env=False,headers={'Authorization':'Bearer '+api_key()})
         stage='progress'
+        # Correct earlier automatic keeps as well as new imports, while the
+        # same transaction preserves processed and manually restored jobs.
+        if backfill_company:
+            from .screening import reopen_automatic_reviews
+            with store.connect(True) as c:
+                reopen_automatic_reviews(c)
+        store.screen_titles()
         progress=ScreeningProgress(store)
-        batch=progress.manage('begin')
+        batch=progress.manage('begin',backfill_company=backfill_company)
         board=Board(store)
         for _ in range(max_batches):
             stage='lock'
@@ -189,12 +232,16 @@ def run(store, max_batches=20, batch_size=20, client=None):
                           (MODEL,time.time(),json.dumps({'run_id':batch['id'],'policy':POLICY,'jobs':len(rows),'usage':usage})))
             for item in decisions:
                 row=lookup[(item['id'],item['kind'])]
-                source=next(s for s in row['all_sources'] if item['evidence_quote'].strip() in s.get('title',''))
+                education=education_restriction(row['all_sources']) if item['reason_code']=='phd' else None
+                source=education[0] if education else next(s for s in row['all_sources'] if item['evidence_quote'].strip() in s.get('title','')
+                            or item['evidence_quote'].strip()==s.get('description')
+                            or any(item['evidence_quote'].strip() in loc for loc in s.get('locations', []))
+                            or item['evidence_quote'].strip()==s.get('sponsorship'))
                 evidence=[{'url':source.get('source_url') or source.get('apply_url'),
                            'quote':item['evidence_quote'].strip(),'observed_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}]
                 key=hashlib.sha256(json.dumps([POLICY,batch['id'],row['id'],row['kind'],row['fingerprint'],row['review_version'],item],sort_keys=True).encode()).hexdigest()
                 try:
-                    board.review(row['id'],row['kind'],item['decision'],'off_target_role' if item['decision']=='trash' else 'eligible',
+                    board.review(row['id'],row['kind'],item['decision'],item['reason_code'] if item['decision']=='trash' else 'eligible',
                                  item['reason'],evidence,row['fingerprint'],row['review_version'],key,actor=MODEL)
                     counts[item['decision']]+=1
                 except ValueError:
@@ -203,7 +250,10 @@ def run(store, max_batches=20, batch_size=20, client=None):
             print(json.dumps({'screening':'luna','run_id':batch['id'],**counts}),flush=True)
         stage='complete'
         final=progress.manage('complete',batch['id'])
-        return {'status':final['status'],'run_id':batch['id'],'remaining':final['remaining'],**counts}
+        stage='companies'
+        from .company_screening import run_companies
+        companies=run_companies(store,client=client,max_batches=max_batches)
+        return {'status':final['status'] if companies['remaining']==0 else 'active','run_id':batch['id'],'remaining':final['remaining'],'companies':companies,**counts}
     except Exception as exc:
         failure = exc if isinstance(exc, ScreeningError) else ScreeningError('unexpected')
         failure.stage = stage

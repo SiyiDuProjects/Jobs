@@ -62,7 +62,7 @@ export function popupPage(sendMessage, local = {}) {
   w.HTMLElement.prototype.scrollIntoView = () => {};
   w.HTMLElement.prototype.getAnimations = () => [];
   w.chrome = {
-    runtime: { sendMessage },
+    runtime: { id: "fixture", onMessage: event(), sendMessage },
     storage: { onChanged: changed, local },
     tabs: {
       query: async () => [tab],

@@ -6,6 +6,8 @@ export interface ControlAnswerSpec {
   query?: string;
   queries?: string[];
   append?: boolean;
+  /** Rank new answers by this spec, but accept an existing committed choice. */
+  preferenceOnly?: boolean;
   selections?: ControlAnswerSpec[];
   literal?: boolean;
   equals?: (label: string, answer: string) => boolean;

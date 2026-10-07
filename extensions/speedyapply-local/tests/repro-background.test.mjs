@@ -89,6 +89,41 @@ const sender = (i) => ({
   frameId: 0,
   url: `https://fixture.invalid/jobs/${i}?token=secret`,
 });
+test("a nested IForm capture retains its public parent job and excludes private form parameters", async () => {
+  const h = setup(),
+    v = { ...value(), origin: "https://fixture.icims.com", ats: "icims" };
+  const frame = {
+    id: "test",
+    frameId: 42,
+    tab: {
+      id: 1,
+      url: "https://careers-fixture.icims.com/jobs/123/example/form?hashed=private",
+    },
+    url: "https://fixture.icims.com/forms?token=private&csrf=private&user=123",
+  };
+  assert.equal(
+    (await h.send({ type: "jobs:repro-push", value: v }, frame)).error,
+    undefined,
+  );
+  const applications = Object.values(h.local.jobsReproCasesV1.applications);
+  assert.equal(
+    applications[0].url,
+    "https://careers-fixture.icims.com/jobs/123/example/form",
+  );
+  assert.equal(JSON.stringify(h.local).includes("private"), false);
+  assert.match(
+    (
+      await h.send(
+        { type: "jobs:repro-push", value: v },
+        {
+          ...frame,
+          tab: { id: 1, url: "https://careers-other.icims.com/jobs/123/form" },
+        },
+      )
+    ).error,
+    /identity/,
+  );
+});
 test("cases persist across worker restart and preserve unresolved applications and distinct snapshots", async () => {
   const h = setup();
   for (let i = 1; i <= 4; i++)

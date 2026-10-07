@@ -10,6 +10,7 @@ function fixture(seed = {}) {
   let data = structuredClone(seed);
   return {
     get: async (key) => {
+      if (key === "jobsWorkdaySkillsAutofill") return {};
       assert.equal(key, "autofillAccount");
       return structuredClone(data);
     },
@@ -356,7 +357,8 @@ test("a failed initial read retries on reopen without exposing its error", async
   const read = storage.get;
   let reads = 0;
   storage.get = async (key) => {
-    if (++reads === 1) throw Error("synthetic sensitive failure");
+    if (key === "autofillAccount" && ++reads === 1)
+      throw Error("synthetic sensitive failure");
     return read(key);
   };
   const h = accountPopup(storage);

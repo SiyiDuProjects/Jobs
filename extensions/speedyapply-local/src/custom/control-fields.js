@@ -1,3 +1,5 @@
+import { calendarDate } from "./calendar-date.js";
+import { JobsSelectState } from "./select-state.js";
 import { JobsWorkdayControls } from "./workday-controls.js";
 import { JobsOracleControls } from "./oracle-controls.js";
 import { JobsTagControls } from "./tag-controls.js";
@@ -10,6 +12,7 @@ import { JobsIcimsControls } from "./icims-controls.js";
 import { JobsSuccessFactorsControls } from "./successfactors-controls.js";
 import { JobsGreenhouseControls } from "./greenhouse-controls.js";
 import { JobsAshbyControls } from "./ashby-controls.js";
+import { JobsAshbySavedControls } from "./ashby-saved-controls.js";
 import { JobsTeslaControls } from "./tesla-controls.js";
 import { JobsAriaControls } from "./aria-controls.js";
 import { JobsDiagnostics } from "./diagnostics.js";
@@ -25,6 +28,7 @@ let initialized = false;
 export function initializeControlFields() {
   if (initialized) return;
   initialized = true;
+  if (typeof document !== "undefined") JobsSelectState.observe(document);
   (() => {
     const text = (value) =>
       String(value ?? "")
@@ -144,31 +148,6 @@ export function initializeControlFields() {
       "search-choice",
     ]);
     // Accept explicit calendar dates only. Never add a day to a month/year answer.
-    function calendarDate(value) {
-      if (typeof value !== "string") return null;
-      const iso = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      const us = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (!iso && !us) return null;
-      const [year, month, day] = iso
-        ? [+iso[1], +iso[2], +iso[3]]
-        : [+us[3], +us[1], +us[2]];
-      const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-      const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-      if (
-        year < 1 ||
-        month < 1 ||
-        month > 12 ||
-        day < 1 ||
-        day > days[month - 1]
-      )
-        return null;
-      return {
-        year,
-        month,
-        day,
-        iso: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-      };
-    }
     // One component registry for the scanner and every writing entrance, in
     // priority order. Every entry has the same contract: isControl, and either a
     // full describe (the component owns the field description) or partial facts
@@ -194,6 +173,7 @@ export function initializeControlFields() {
         ["successfactors-paged", JobsSuccessFactorsControls],
         ["react-select", JobsGreenhouseControls],
         ["ashby-listbox", JobsAshbyControls],
+        ["ashby-saved", JobsAshbySavedControls],
         ["tesla-calendar", JobsTeslaControls],
         ["aria-combobox", JobsAriaControls, null, true],
       ].filter(([, api]) => api?.isControl);
@@ -290,6 +270,7 @@ export function initializeControlFields() {
       // Site structure comes from the platform declaration; the scanner itself
       // never branches on a platform id.
       const platform = JobsPlatformConfig.detect(doc);
+      JobsSelectState.observe(doc);
       const unansweredOption = (option) =>
         platform.placeholder?.(option) || placeholderOption(option);
       const boxSelector = [
@@ -323,6 +304,24 @@ export function initializeControlFields() {
         ) {
           if (current.matches('[hidden],[inert],[aria-hidden="true"]'))
             return false;
+          // Native visibility checks handle CSS ancestors in one operation;
+          // still inspect attributes across shadow hosts. display:contents
+          // groups intentionally have no box and use the compatible fallback.
+          if (
+            node.checkVisibility &&
+            doc.defaultView.getComputedStyle(node).display !== "contents"
+          ) {
+            if (!node.checkVisibility({ visibilityProperty: true }))
+              return false;
+            for (
+              let host = current.getRootNode?.().host;
+              host;
+              host = host.getRootNode?.().host
+            )
+              if (host.closest('[hidden],[inert],[aria-hidden="true"]'))
+                return false;
+            return true;
+          }
           const style = doc.defaultView.getComputedStyle(current);
           if (style.display === "none" || style.visibility === "hidden")
             return false;
@@ -910,7 +909,7 @@ export function initializeControlFields() {
               details?.component ||
               owner?.name ||
               (parts ? "segmented-date" : kind),
-            ...(details?.commitState === "unconfirmed"
+            ...((details || facts)?.commitState === "unconfirmed"
               ? { commitState: "unconfirmed" }
               : {}),
             capabilities: {
@@ -947,6 +946,21 @@ export function initializeControlFields() {
       // Reuse discovery, never a field's old value/validity. Structural changes
       // and cross-field conditions require the complete canonical scan again.
       // Error-summary titles also need every row to detect ambiguous matches.
+      function field(node) {
+        const narrow =
+          !platform.conditions &&
+          !errorSummary().titles.length &&
+          !component(node) &&
+          node.matches(
+            'textarea,input:not([type]),input[type="text"],input[type="email"],input[type="tel"],input[type="url"],input[type="number"]',
+          ) &&
+          !node.matches(
+            '[role="combobox"],[aria-haspopup],[aria-autocomplete]',
+          );
+        return scan(narrow ? new Set([node]) : null).find(
+          (row) => row.node === node || row.group?.includes(node),
+        );
+      }
       function read(row) {
         const current = structure(root(), platform, ctx, cache);
         const narrow =
@@ -995,14 +1009,13 @@ export function initializeControlFields() {
           },
         );
         if (!result && failure) throw failure;
-        const after =
-          scan().find((item) => item.node === row.node) || replacement(row);
+        const after = read(row) || replacement(row);
         if (after?.public.invalid) throw Error("Field still fails validation");
         if (!result) throw Error("Control change was not committed");
         return result;
       }
       function validateRow(row) {
-        const fresh = scan().find((item) => item.node === row.node);
+        const fresh = read(row);
         if (
           !fresh ||
           fresh.public.type !== row.public.type ||
@@ -1421,7 +1434,7 @@ export function initializeControlFields() {
         }
         return found;
       }
-      function state({ review = false } = {}) {
+      function state({ review = false, next = false } = {}) {
         const scope = root(),
           rows = scan();
         const failure = pageFailure();
@@ -1437,8 +1450,11 @@ export function initializeControlFields() {
         errors.push(
           ...errorSummary().nodes.filter((node) => !errors.includes(node)),
         );
-        const invalid = rows.filter((row) =>
-          ["invalid", "required-empty"].includes(completion(row.public)),
+        const invalid = rows.filter(
+          (row) =>
+            row.public.invalid ||
+            (completion(row.public) === "required-empty" &&
+              (!next || row.public.supported)),
         );
         const busy = [
           ...(scope?.querySelectorAll(
@@ -1469,7 +1485,7 @@ export function initializeControlFields() {
             !busy &&
             !errors.length &&
             !invalid.length &&
-            !unsupported,
+            (!unsupported || next),
           phase: failure
             ? "site-error"
             : errors.length || invalid.length
@@ -1482,15 +1498,19 @@ export function initializeControlFields() {
       async function settle(
         {
           review = false,
+          next = false,
           selector,
           target,
           canProceed = /** @type {() => boolean} */ (() => true),
           timeout = 2500,
           pending,
           beforeReady,
-        } = /** @type {{review?:boolean, selector?:string, target?:HTMLButtonElement|HTMLInputElement, canProceed?:()=>boolean, timeout?:number, pending?:(row:ReturnType<typeof scan>[number])=>boolean, beforeReady?:()=>unknown}} */ ({}),
+        } = /** @type {{review?:boolean, next?:boolean, selector?:string, target?:HTMLButtonElement|HTMLInputElement, canProceed?:()=>boolean, timeout?:number, pending?:(row:ReturnType<typeof scan>[number])=>boolean, beforeReady?:()=>unknown}} */ ({}),
       ) {
         canProceed = JobsPageActions.guard(canProceed);
+        // Reconcile a previously pending save before using cached completion.
+        // This reads acknowledgements only; it never retries the write.
+        if (!(await verify(canProceed))) return null;
         let deadline = Date.now() + timeout;
         let previous = "",
           since = Date.now();
@@ -1508,13 +1528,8 @@ export function initializeControlFields() {
           );
         const fingerprintOf = (current) =>
           JSON.stringify(current.rows.map((row) => [row.public, row.raw]));
-        while (
-          Date.now() < deadline &&
-          JobsPageActions.live(canProceed) &&
-          root() &&
-          visible(root())
-        ) {
-          const current = state({ review });
+        while (JobsPageActions.live(canProceed) && root() && visible(root())) {
+          const current = state({ review, next });
           if (current.failure) return null;
           const buttons = buttonsNow();
           const fingerprint = fingerprintOf(current);
@@ -1531,7 +1546,11 @@ export function initializeControlFields() {
             since = Date.now();
             previous = fingerprint;
           } else if (Date.now() - since >= 200) {
+            // A throttled callback may wake after the deadline. Re-read before
+            // timing out: unchanged required gaps still need supplementation.
+            // Navigation keeps its deadline and full authorization barrier.
             if (gaps) return { state: current, pending: true };
+            if (Date.now() >= deadline) break;
             // Async authorization belongs inside the readiness barrier. Its
             // result cannot authorize a DOM snapshot that changed while waiting.
             // Network authorization has its own timeout. Its elapsed time must
@@ -1547,7 +1566,7 @@ export function initializeControlFields() {
                 !visible(root())
               )
                 return null;
-              const verified = state({ review }),
+              const verified = state({ review, next }),
                 verifiedButtons = buttonsNow();
               if (
                 !verified.ready ||
@@ -1574,6 +1593,7 @@ export function initializeControlFields() {
             }
             return { state: current, button: buttons[0] };
           }
+          if (Date.now() >= deadline) break;
           await new Promise((resolve) =>
             doc.defaultView.setTimeout(resolve, 50),
           );
@@ -1608,6 +1628,7 @@ export function initializeControlFields() {
         write || JobsControlConfig?.enabled === true
           ? {
               scan,
+              field,
               read,
               unrecognized,
               response,
@@ -1616,22 +1637,38 @@ export function initializeControlFields() {
               visible,
               state,
               settle,
+              verify,
               pageFailure,
               identify: id,
             }
           : {
               scan,
+              field,
               read,
               unrecognized,
               response,
               visible,
               state,
               settle,
+              verify,
               pageFailure,
               identify: id,
             };
       commitValues.set(reader, applyValue);
       return reader;
+      async function verify(canProceed = () => true) {
+        for (const row of scan()) {
+          if (!JobsPageActions.live(canProceed)) return false;
+          const api = component(row.node)?.api;
+          if (
+            row.public.filled &&
+            api?.verify &&
+            !(await api.verify(row.node, { canProceed }))
+          )
+            return false;
+        }
+        return true;
+      }
     }
     // Adapters' semantic writes (degree, and any other JobsProfileAnswers spec)
     // share one entrance with the supplement: this control's own options, the
@@ -1711,9 +1748,7 @@ export function initializeControlFields() {
       const described = create(
         node.ownerDocument,
         () => node.parentElement || node.ownerDocument,
-      )
-        .scan()
-        .find((row) => row.node === node);
+      ).field(node);
       const grouped = described?.group?.length,
         segmented = !!described?.dateParts;
       if (
@@ -1739,11 +1774,22 @@ export function initializeControlFields() {
         );
       if (!wanted.tiers.length && !Array.isArray(wanted.selections))
         return null;
+      if (
+        !replace &&
+        wanted.replaceDefault &&
+        JobsPlatformConfig.detect(node.ownerDocument).defaultChoice?.(node) &&
+        JobsSelectState.initial(node) &&
+        wanted.replaceDefault(
+          [...node.selectedOptions].map((option) => option.label),
+        )
+      )
+        replace = true;
       const trace = (result, detail = {}) => {
-        const observer = create(node.ownerDocument),
-          current = observer
-            .scan()
-            .find((item) => item.node === node || item.group?.includes(node));
+        const observer = create(
+            node.ownerDocument,
+            () => node.parentElement || node.ownerDocument,
+          ),
+          current = observer.field(node);
         const readback = current
           ? observer.response(current)?.response
           : undefined;
@@ -1795,6 +1841,7 @@ export function initializeControlFields() {
         trace(satisfied ? "kept-existing" : "preserved-existing", {
           chosen: existing.join("; "),
         });
+        if (satisfied) JobsSelectState.protect(node);
         return !!satisfied;
       };
       const api = component(node)?.api,
@@ -2284,7 +2331,9 @@ export function initializeControlFields() {
         keyboard = false,
         click = false,
         onWritten = /** @type {(node:Element)=>void} */ (() => {}),
+        waitForRender = true,
         matchesValue = (actual, expected) => actual === expected,
+        beforeBlur = null,
       } = {},
     ) {
       canProceed = JobsPageActions.guard(canProceed);
@@ -2319,8 +2368,13 @@ export function initializeControlFields() {
           })
         )
           return null;
-        await new Promise((resolve) => view.setTimeout(resolve, 0));
+        // Input-only widgets observe their own response/commit below. A timer
+        // here adds a background-throttled task without confirming any state.
+        if (waitForRender || blur || beforeBlur)
+          await JobsDOMWait.task(view);
+        else await Promise.resolve();
         if (!node.isConnected || !JobsPageActions.live(canProceed)) return null;
+        if (beforeBlur && !(await beforeBlur())) return null;
         if (blur) {
           if (node.ownerDocument.activeElement === node) node.blur();
           if (!exited && node.isConnected && JobsPageActions.live(canProceed)) {
@@ -2344,7 +2398,8 @@ export function initializeControlFields() {
             );
           }
         }
-        await new Promise((resolve) => view.setTimeout(resolve, 0));
+        if (waitForRender || blur)
+          await JobsDOMWait.task(view);
         if (
           !node.isConnected ||
           !JobsPageActions.live(canProceed) ||
@@ -2521,7 +2576,7 @@ export function initializeControlFields() {
       writeChecked,
       writeChoice,
       writeSelect,
-      calendarDate,
+      calendarDate: calendarDate,
     };
   })();
 }

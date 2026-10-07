@@ -6,6 +6,7 @@ import re
 import secrets
 import time
 
+from .diagnostic_evidence import evidence, trace as validate_trace, decision as validate_decision, explain, evict_event
 from .store import encoded
 from .job_match import job_key
 
@@ -69,6 +70,13 @@ def redact(item, salt, scope=''):
                     trace[key] = synthetic(trace[key])
             if 'options' in trace:
                 trace['options'] = [synthetic(v) for v in trace['options']]
+    for event in item['events']:
+        trace = event.get('trace', {})
+        for key in ('answer', 'chosen', 'alias', 'readback'):
+            if key in trace:
+                trace[key] = synthetic(trace[key])
+        if 'options' in trace:
+            trace['options'] = [synthetic(v) for v in trace['options']]
     return item
 
 
@@ -109,20 +117,9 @@ def validate(value, now):
             # Why a field holds its value: the answer decision and the last
             # write's choice among the options the page offered.
             if 'decision' in field:
-                d = shape(field['decision'], (), ('status', 'source', 'reason', 'field', 'ruleId', 'at'))
-                f['decision'] = {k: integer(v, now + 60_000) if k == 'at' else text(v, 80) for k, v in d.items()}
+                f['decision'] = validate_decision(field['decision'], now)
             if 'trace' in field:
-                t = shape(field['trace'], (), ('source', 'topic', 'result', 'method', 'reason', 'answer', 'chosen',
-                                               'alias', 'readback', 'optionCount', 'options', 'at'))
-                trace = {k: text(t[k], 40) for k in ('source', 'topic', 'result', 'method', 'reason') if k in t}
-                trace.update({k: text(t[k], 120, empty=True) for k in ('answer', 'chosen', 'alias', 'readback') if k in t})
-                if 'at' in t:
-                    trace['at'] = integer(t['at'], now + 60_000)
-                if 'optionCount' in t:
-                    trace['optionCount'] = integer(t['optionCount'], 100_000)
-                if 'options' in t:
-                    trace['options'] = [text(o, 60, empty=True) for o in sequence(t['options'], 12)]
-                f['trace'] = trace
+                f['trace'] = validate_trace(field['trace'], now)
             item['fields'].append(f)
         # Questions the extension's reader did not turn into a field: the
         # title and the region's tag/role/class outline, never field values.
@@ -135,7 +132,7 @@ def validate(value, now):
                                                  structure=text(entry['structure'], 800, empty=True)))
         result['snapshots'].append(item)
     for event in sequence(value['events'], 1500):
-        shape(event, ('at', 'document', 'type'), ('fieldId', 'phase', 'build', 'timing', 'visibility'))
+        shape(event, ('at', 'document', 'type'), ('fieldId', 'phase', 'build', 'timing', 'visibility', 'sequence', 'evidence', 'trace', 'decision'))
         item = dict(at=integer(event['at'], now + 60_000), document=text(event['document'], 128),
                     type=text(event['type'], 80))
         for key in ('fieldId', 'phase', 'build'):
@@ -143,6 +140,20 @@ def validate(value, now):
                 item[key] = text(event[key], 80)
         # No arbitrary detail, answer, options, HTML, command args or values.
         item.update(event_metrics(event))
+        if 'sequence' in event:
+            item['sequence'] = integer(event['sequence'], 2**53 - 1, 1)
+        if 'evidence' in event:
+            if event['type'] != 'causal_evidence':
+                raise ValueError('Evidence requires a causal event')
+            item['evidence'] = evidence(event['evidence'])
+        if 'trace' in event:
+            if event['type'] != 'fill_trace':
+                raise ValueError('Trace requires a fill trace event')
+            item['trace'] = validate_trace(event['trace'], now)
+        if 'decision' in event:
+            if event['type'] != 'answer_decision':
+                raise ValueError('Decision requires an answer decision event')
+            item['decision'] = validate_decision(event['decision'], now)
         result['events'].append(item)
     if len(encoded(result).encode()) > MAX_BYTES:
         raise ValueError('History packet is too large')
@@ -190,13 +201,18 @@ def save(c, device, items, now=None):
                 enriched = {base(v) for v in rows if 'timing' in v or 'visibility' in v}
                 rows = [v for v in rows if 'timing' in v or 'visibility' in v or base(v) not in enriched]
             item['truncated'] |= len(rows) > limit
-            item[kind] = rows[-limit:]
+            if kind == 'events':
+                while len(rows) > limit:
+                    evict_event(rows)
+                item[kind] = rows
+            else:
+                item[kind] = rows[-limit:]
         while len(encoded(item).encode()) > MAX_BYTES:
             item['truncated'] = True
             if len(item['snapshots']) > 1:
                 item['snapshots'].pop(0)
             elif item['events']:
-                item['events'].pop(0)
+                evict_event(item['events'])
             else:
                 break
         c.execute('INSERT OR REPLACE INTO browser_diagnostic_history VALUES(?,?,?,?,?,?)',
@@ -241,7 +257,7 @@ class Diagnostics:
         items = [validate(v, now) for v in sequence(payload['history'], 10)]
         with self.store.connect(True) as c:
             save(c, device, items, now)
-        return {'historyAccepted': True, 'historyEventMetrics': 1}
+        return {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1}
 
     def history(self, application_id=None):
         with self.store.connect(True) as c:
@@ -268,7 +284,7 @@ def read(c, application_id=None):
         if not row:
             raise ValueError('Diagnostic run is unknown or its retention period ended')
         return dict(id=row['id'], **redact(json.loads(row['data']), redaction_salt(c), row['id']), valuePolicy='synthetic_values_only',
-                    coverage='partial', executable=False)
+                    coverage='partial', executable=False, **explain(json.loads(row['data'])))
     stats = {}
     for row in c.execute('SELECT data FROM browser_diagnostic_history'):
         data = json.loads(row['data'])

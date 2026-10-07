@@ -264,11 +264,13 @@ test("rapid concurrent saves retain both answers and preserve existing rule meta
     await a.w.matchOriginal("Have you previously worked for Gecko?"),
     null,
   );
-  data[responseKey][0].id = "existing-cloud-id";
-  data[responseKey][0].ignore = ["remote"];
+  const original = data[responseKey].find((row) => row.question === question);
+  original.id = "existing-cloud-id";
+  original.ignore = ["remote"];
   await a.w.saveOriginal([{ question, response: "No, unwilling" }]);
-  assert.equal(data[responseKey][0].id, "existing-cloud-id");
-  assert.deepEqual(data[responseKey][0].ignore, ["remote"]);
+  const updated = data[responseKey].find((row) => row.question === question);
+  assert.equal(updated.id, "existing-cloud-id");
+  assert.deepEqual(updated.ignore, ["remote"]);
   a.dom.window.close();
 });
 
@@ -473,7 +475,7 @@ test("exact saved questions survive short or non-English labels and take precede
   a.dom.window.close();
 });
 
-test("same question drafts for two jobs survive the actual background writer without overwriting each other", async () => {
+test("same question drafts for two companies survive the actual background writer without overwriting each other", async () => {
   const data = {},
     a = setup(data, "company-a"),
     b = setup(data, "company-b");
@@ -497,6 +499,51 @@ test("same question drafts for two jobs survive the actual background writer wit
   } finally {
     a.dom.window.close();
     b.dom.window.close();
+  }
+});
+
+test("confirmed review answers refill a sibling role and update one company answer", async () => {
+  const data = {},
+    a = setup(data, "company-a"),
+    b = setup(data, "company-a"),
+    other = setup(data, "company-b");
+  b.dom.reconfigure({
+    url: "https://jobs.ashbyhq.com/company-a/second-role/application",
+  });
+  try {
+    a.doc.body.innerHTML = `<label>${question}<input></label>`;
+    const node = a.doc.querySelector("input");
+    node.value = "Confirmed answer";
+    const memory = a.memory.start(a.doc, true, a.save);
+    memory.remember(question, node, { requireReview: true, learn: true });
+    await a.settle();
+    assert.equal(
+      await b.w.matchOriginal(question),
+      null,
+      "unconfirmed answers stay private to the review",
+    );
+    memory.confirmReview([node]);
+    await a.settle();
+    assert.equal(await b.w.matchOriginal(question), "Confirmed answer");
+    assert.equal(await other.w.matchOriginal(question), null);
+    await b.w.saveOriginal([
+      {
+        question,
+        response: "Corrected answer",
+        jobKey: b.w.JobsJobMatch.key(b.w.location.href),
+      },
+    ]);
+    assert.equal(
+      data[responseKey].length,
+      1,
+      "sibling roles update the same company answer",
+    );
+    assert.equal(await a.w.matchOriginal(question), "Corrected answer");
+    assert.equal(await other.w.matchOriginal(question), null);
+  } finally {
+    a.dom.window.close();
+    b.dom.window.close();
+    other.dom.window.close();
   }
 });
 

@@ -1,3 +1,5 @@
+import { JobsDiagnostics } from "./diagnostics.js";
+import { diagnosticGuard } from "./diagnostic-evidence.js";
 import { JobsPlatformConfig } from "./platform-config.js";
 import { JobsPageActions } from "./page-actions.js";
 export var JobsQueuePage;
@@ -40,7 +42,19 @@ export function initializeQueuePage() {
       (!permission.owned || permission.allowed || navigationPermit);
     const guard = (check) => {
       const epoch = generation;
-      return () => allowed(epoch) && check();
+      return diagnosticGuard(
+        [
+          ["page_left", () => !disposed],
+          ["removed", () => !removed],
+          ["queue_changed", () => epoch === generation],
+          [
+            "queue_paused",
+            () => !permission.owned || permission.allowed || navigationPermit,
+          ],
+          ["caller_invalid", check],
+        ],
+        (value) => JobsDiagnostics?.evidence?.(null, value),
+      );
     };
     const ready = send({ type: "hello" })
       .then((data) => {

@@ -45,6 +45,7 @@ function fixture({
   w.chrome = {
     runtime: {
       sendMessage: async (message) => {
+        if (message.type === "jobs:review-present") return { ok: true };
         if (message.type === "jobs:tab-profile")
           return { data: { id: "fixture", profile } };
         requests.push(message);

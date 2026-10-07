@@ -178,7 +178,7 @@ def test_recheck_source_change_remains_pending(tmp_path):
     assert p.manage('complete',batch['id'])['status']=='complete'
 
 
-def test_daily_title_triage_skips_tiktok_and_old_faang_without_hiding_jobs(tmp_path,monkeypatch):
+def test_daily_triage_includes_changed_tiktok_and_faang_without_company_exceptions(tmp_path,monkeypatch):
     now=[1000.0];monkeypatch.setattr(time,'time',lambda:now[0])
     s=Store(tmp_path/'daily.sqlite');b=Board(s);p=ScreeningProgress(s)
     old=job('old-google','Google');tik=job('tiktok','TikTok')
@@ -197,4 +197,4 @@ def test_daily_title_triage_skips_tiktok_and_old_faang_without_hiding_jobs(tmp_p
     now[0]=3000
     s.ingest('simplify:newgrad',[{**old,'description':'Material update'}, {**tik,'description':'Material update'}, fresh],'changed')
     nxt=p.manage('begin')
-    assert [r['company'] for r in b.queue('newgrad',run_id=nxt['id'])['jobs']]==['Google']
+    assert {r['company'] for r in b.queue('newgrad',run_id=nxt['id'])['jobs']}=={'Google','TikTok'}

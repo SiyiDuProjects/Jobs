@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "develop": "node scripts/develop.mjs",
     "update": "node scripts/update-package.mjs",
     "pretest": "node scripts/generate-contracts.mjs",
     "test": "node --test --test-concurrency=4 tests/*.test.mjs",

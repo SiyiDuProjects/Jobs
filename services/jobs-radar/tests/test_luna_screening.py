@@ -6,19 +6,10 @@ import jsonschema
 import pytest
 
 from jobs_radar.board import Board
-from jobs_radar.employer_blacklist import blocked_employer
 from jobs_radar.luna_screening import ScreeningError, classify, failure_summary, run
 from jobs_radar.screening_progress import ScreeningProgress
 from jobs_radar.store import Store
 from test_store import observation
-
-
-@pytest.mark.parametrize('name,blocked',[
-    ('General Dynamics',True),('General Dynamics Mission Systems',True),('GDIT',True),
-    ('SpaceX',True),('General Motors',False),('General DynamicsResearch',False),('SpaceX Tools Independent',False),
-])
-def test_named_company_family_boundary(name,blocked):
-    assert blocked_employer(name)==blocked
 
 
 def setup_store(tmp_path):
@@ -31,6 +22,8 @@ def setup_store(tmp_path):
 
 
 def reply(rows,partial=False,bad_quote=False):
+    if rows and rows[0]['id'].startswith('company_'):
+        return {'status':'completed','output':[{'content':[{'type':'output_text','text':json.dumps({'companies':{r['id']:True for r in rows}})}]}]}
     jobs={r['id']:{'decision':'trash' if r['title']=='Firmware Engineer' else 'keep',
            'reason':'Title-based occupation decision','evidence_quote':'Invented title' if bad_quote else r['title']} for r in rows}
     if partial:jobs=dict(list(jobs.items())[:1])
@@ -73,15 +66,15 @@ def test_manual_change_during_request_stays_protected(tmp_path):
     assert any(r['title']=='Firmware Engineer' and r['status']=='submitted' and r['screening']!='trash' for r in Board(s)._rows('newgrad'))
 
 
-def test_blacklisted_employer_is_suppressed_before_luna(tmp_path):
+def test_employers_have_no_automatic_blacklist(tmp_path):
     s=Store(tmp_path/'employers.sqlite')
     s.ingest('simplify:newgrad',[{**observation(company=company,url='https://example.org/'+str(i)),
              'source_id':str(i),'source_url':'https://example.org/'+str(i)}
              for i,company in enumerate(['General Dynamics Mission Systems','SpaceX','General Motors'])],'seed',scoped_only=True)
     s.screen_titles()
-    assert [r['company'] for r in Board(s).list()['jobs']]==['General Motors']
+    assert {r['company'] for r in Board(s).list()['jobs']}=={'General Dynamics Mission Systems','SpaceX','General Motors'}
     trash=Board(s).list(view='trash')['jobs']
-    assert len(trash)==2 and all(r['review']['reason']=='employer_blacklist' for r in trash)
+    assert not trash
 
 
 @pytest.mark.parametrize('status,provider_code',[
@@ -173,6 +166,7 @@ def test_requested_schema_rejects_partial_batch_before_generation(tmp_path):
     def handler(request):
         payload=json.loads(request.content)
         rows=json.loads(payload['input'])
+        if rows[0]['id'].startswith('company_'): return httpx.Response(200,json=reply(rows))
         partial=json.loads(reply(rows,partial=True)['output'][0]['content'][0]['text'])
         schema=payload['text']['format']['schema']
         with pytest.raises(jsonschema.ValidationError): jsonschema.validate(partial,schema)
@@ -225,7 +219,9 @@ def test_one_canonical_job_in_two_kinds_keeps_each_decision_separate(tmp_path):
     ScreeningProgress(s).initialize(time.time()-10)
     calls=[]
     def handler(request):
-        payload=json.loads(request.content);rows=json.loads(payload['input']);calls.append(rows)
+        payload=json.loads(request.content);rows=json.loads(payload['input'])
+        if rows[0]['id'].startswith('company_'):return httpx.Response(200,json=reply(rows))
+        calls.append(rows)
         assert len(rows)==2 and len({r['id'] for r in rows})==2
         assert set(payload['text']['format']['schema']['properties']['jobs']['required'])=={r['id'] for r in rows}
         data=reply(rows); value=json.loads(data['output'][0]['content'][0]['text'])

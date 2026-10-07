@@ -142,7 +142,7 @@ test("option matching preserves negation, language symbols, numbers and ambiguit
   );
 });
 
-test("company-specific learned drafts cannot transfer to another job using the same question", () => {
+test("company-scoped answers reuse another role at the same employer, never another company", () => {
   const c = vm.createContext({
     URL,
     location: { href: "https://jobs.ashbyhq.com/company-b/role/application" },
@@ -172,6 +172,24 @@ test("company-specific learned drafts cannot transfer to another job using the s
   assert.equal(
     c.JobsAnswerResolver.matchSaved({ question }, [scoped]),
     rule.response,
+  );
+  c.location.href =
+    "https://jobs.ashbyhq.com/company-a/different-role/application";
+  assert.equal(
+    c.JobsAnswerResolver.matchSaved({ question }, [scoped]),
+    rule.response,
+  );
+  assert.equal(
+    c.JobsAnswerResolver.matchSaved({ question: "A different question" }, [
+      scoped,
+    ]),
+    null,
+  );
+  assert.equal(
+    c.JobsAnswerResolver.matchSaved({ question, options: ["Yes", "No"] }, [
+      scoped,
+    ]),
+    null,
   );
 });
 
