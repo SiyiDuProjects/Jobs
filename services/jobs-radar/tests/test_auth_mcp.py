@@ -110,6 +110,7 @@ def test_oauth_and_live_mcp_flow(tmp_path):
         assert result.json()['result']['instructions'] == instructions()
         assert POLICY_PATH.read_text(encoding='utf-8').strip() in result.json()['result']['instructions']
         tools = rpc(client, access, "tools/list").json()["result"]["tools"]
+        assert 'approve_browser_login' not in {t['name'] for t in tools}
         assert len(tools) == len({t['name'] for t in tools})
         assert {'list_application_states','update_application_progress','record_unmatched_recruiting_email',
                 'get_profiles','change_application_record','get_service_status'} <= {t['name'] for t in tools}
@@ -133,9 +134,11 @@ def test_oauth_and_live_mcp_flow(tmp_path):
         refresh_args = {"grant_type": "refresh_token", "client_id": client_id, "refresh_token": token["refresh_token"], "resource": ORIGIN + "/mcp"}
         refreshed = client.post("/token", data=refresh_args)
         assert refreshed.status_code == 200, refreshed.text
+        assert rpc(client, refreshed.json()["access_token"], "tools/list").status_code == 200
         assert client.post("/token", data=refresh_args).status_code == 400
         assert rpc(client, access, "tools/list").status_code == 401
-        assert rpc(client, refreshed.json()["access_token"], "tools/list").status_code == 200
+        assert rpc(client, refreshed.json()["access_token"], "tools/list").status_code == 401
+        assert client.post('/token', data={**refresh_args, 'refresh_token': refreshed.json()['refresh_token']}).status_code == 400
         revoked = client.post("/revoke", data={"token": refreshed.json()["refresh_token"], "client_id": client_id, "client_secret": "", "token_type_hint": "refresh_token"})
         assert revoked.status_code == 200
         assert rpc(client, refreshed.json()["access_token"], "tools/list").status_code == 401

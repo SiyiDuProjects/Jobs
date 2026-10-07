@@ -184,6 +184,7 @@ test("a custom month picker uses the Profile month without a model request or fa
   try {
     all(h.w);
     for (const name of [
+      "automatic-flow",
       "autofill-preferences",
       "automatic-field-policy",
       "option-match",

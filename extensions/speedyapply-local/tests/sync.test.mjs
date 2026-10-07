@@ -111,7 +111,6 @@ function harness(initial = {}, respond, privateConnection, session = {}) {
     // This suite isolates its contract; storage-upgrade.test covers the actual gate.
     JobsStorageUpgrade: { assertReady: async () => {}, peek: () => null },
     chrome,
-    JobsPrivateConnection: privateConnection,
     crypto: webcrypto,
     TextEncoder,
     Uint8Array,
@@ -877,79 +876,34 @@ test("failed tasks allow explicit retry, while disconnect during pending work st
   assert.equal(disconnect.requests.length, 1);
 });
 
-test("personal build connects directly without website messages and preserves queued receipts", async () => {
-  const config = {
-    origin,
-    extensionId: "ccohapahbamkcbgkpegidkpknoeikiko",
-    deviceId: randomUUID(),
-    token: "p".repeat(64),
-    profileToken: "q".repeat(64),
-  };
-  const h = harness(
-    { jobsSyncV1: { outbox: [{ id: "existing" }] } },
-    () => ({ ok: true, json: async () => [] }),
-    config,
-  );
+test("updates retain browser pairing, queued receipts and an explicit disconnection", async () => {
+  const initial = connected();
+  initial.jobsSyncV1.profileToken = "q".repeat(64);
+  initial.jobsSyncV1.outbox = [{ id: "existing", attempts: 4, next: 123 }];
+  const h = harness(initial, () => ({ ok: true, json: async () => [] }));
   await h.api.ready;
+  assert.deepEqual(h.state(), initial.jobsSyncV1);
   await h.api.profileRequest({
     path: "/api/extension/profiles",
     method: "GET",
   });
   assert.equal(
     h.requests[0].options.headers.Authorization,
-    "Bearer " + config.profileToken,
+    "Bearer " + initial.jobsSyncV1.profileToken,
   );
-  assert.equal(h.state().deviceId, config.deviceId);
-  assert.equal(h.state().outbox[0].id, "existing");
   const visible = await h.message({ type: "jobs:sync-status" });
   assert.equal(visible.connected, true);
-  assert(!JSON.stringify(visible).includes(config.profileToken));
-  assert(!JSON.stringify(visible).includes(config.token));
-  const disconnected = harness(
-    { jobsSyncV1: { disabled: true, outbox: [] } },
-    undefined,
-    config,
-  );
+  assert(!JSON.stringify(visible).includes(initial.jobsSyncV1.profileToken));
+  const disconnected = harness({ jobsSyncV1: { disabled: true, outbox: [] } });
   await disconnected.api.ready;
+  assert.equal(disconnected.state().disabled, true);
   assert.equal(disconnected.state().token, undefined);
-});
-
-test("a private credential rotation updates the same device and preserves later website pairing", async () => {
-  const config = {
-    origin,
-    extensionId: "ccohapahbamkcbgkpegidkpknoeikiko",
-    deviceId: randomUUID(),
-    token: "p".repeat(64),
-    profileToken: "q".repeat(64),
-  };
-  const initial = harness({}, undefined, config);
-  await initial.api.ready;
-  const old = structuredClone(initial.state());
-  old.outbox = [
-    {
-      payload: { event_id: randomUUID() },
-      attempts: 4,
-      next: Date.now() + 86400000,
-    },
-  ];
-  const updated = {
-    ...config,
-    token: "r".repeat(64),
-    profileToken: "s".repeat(64),
-  };
-  const rotated = harness({ jobsSyncV1: old }, undefined, updated);
-  await rotated.api.ready;
-  assert.equal(rotated.state().token, updated.token);
-  assert.equal(rotated.state().profileToken, updated.profileToken);
-  assert.equal(rotated.state().outbox[0].next, 0);
-  assert.equal(rotated.state().outbox[0].attempts, 4);
-  const paired = structuredClone(rotated.state());
-  paired.token = "t".repeat(64);
-  paired.profileToken = "u".repeat(64);
-  const restart = harness({ jobsSyncV1: paired }, undefined, updated);
-  await restart.api.ready;
-  assert.equal(restart.state().token, paired.token);
-  assert.equal(restart.state().profileToken, paired.profileToken);
+  const unpaired = harness({});
+  await unpaired.api.ready;
+  assert.equal(
+    (await unpaired.message({ type: "jobs:sync-status" })).connected,
+    false,
+  );
 });
 
 test("all Profile transports handle non-JSON expired auth without deleting receipt credentials or data", async () => {

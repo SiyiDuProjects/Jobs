@@ -1,6 +1,9 @@
 // Observe the site's existing definition updates, without reading bodies,
 // retaining URLs, issuing requests, or writing application answers.
-export function installWorkdayCommitObserver(view = window) {
+export function installWorkdayCommitObserver(
+  view = window,
+  { timeout = 15000 } = {},
+) {
   const attribute = "data-jobs-form-commit";
   const doc = view.document;
   if (doc.documentElement?.hasAttribute(attribute)) return;
@@ -8,11 +11,19 @@ export function installWorkdayCommitObserver(view = window) {
   if (typeof original !== "function") return;
   let pending = 0,
     revision = 0,
-    failed = false;
+    failed = false,
+    failureRevision = 0,
+    stalled = 0;
   const publish = () =>
     doc.documentElement?.setAttribute(
       attribute,
-      JSON.stringify({ pending, revision, failed }),
+      JSON.stringify({
+        pending,
+        revision,
+        failed,
+        ...(failureRevision ? { failureRevision } : {}),
+        ...(stalled ? { stalled: true } : {}),
+      }),
     );
   const nextTask = (run) => {
     const channel = new view.MessageChannel();
@@ -49,16 +60,29 @@ export function installWorkdayCommitObserver(view = window) {
     pending++;
     revision++;
     publish();
-    let finished = false;
+    let finished = false,
+      overdue = false;
+    const timer = view.setTimeout(() => {
+      if (finished) return;
+      overdue = true;
+      stalled++;
+      publish();
+    }, timeout);
     const finish = (ok) => {
       if (finished) return;
       finished = true;
+      view.clearTimeout(timer);
+      if (overdue) {
+        stalled--;
+        publish();
+      }
       // The consumer's await/json continuation republishes Workday form state.
       // Cross a task boundary before allowing another field to change it.
       nextTask(() => {
         pending--;
         failed ||= !ok;
         revision++;
+        if (!ok) failureRevision = revision;
         publish();
       });
     };
@@ -68,18 +92,37 @@ export function installWorkdayCommitObserver(view = window) {
         finish(false);
         return response;
       }
-      const json = response.json;
       try {
-        response.json = async function () {
-          try {
-            const data = await Reflect.apply(json, this, []);
-            finish(true);
-            return data;
-          } catch (error) {
-            finish(false);
-            throw error;
+        const observe = (body) => {
+          for (const name of [
+            "json",
+            "text",
+            "arrayBuffer",
+            "blob",
+            "formData",
+            "bytes",
+          ]) {
+            const read = body[name];
+            if (typeof read !== "function") continue;
+            body[name] = async function (...args) {
+              try {
+                const data = await Reflect.apply(read, this, args);
+                finish(true);
+                return data;
+              } catch (error) {
+                finish(false);
+                throw error;
+              }
+            };
           }
+          const clone = body.clone;
+          if (typeof clone === "function")
+            body.clone = function () {
+              return observe(Reflect.apply(clone, this, []));
+            };
+          return body;
         };
+        observe(response);
       } catch {
         // Instrumentation must not turn a valid site response into an error.
         finish(false);

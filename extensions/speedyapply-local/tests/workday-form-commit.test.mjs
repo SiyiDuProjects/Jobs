@@ -261,3 +261,70 @@ test("an unobservable response stays usable by the page but cannot acknowledge a
     w.close();
   }
 });
+
+test("a prior failure does not poison a later write, but this write's failure does", async () => {
+  const w = page();
+  let ok = false;
+  w.fetch = async () => ({ ok, json: async () => ({}) });
+  installWorkdayCommitObserver(w);
+  try {
+    await w.fetch(endpoint, init);
+    await w.JobsDOMWait.until(
+      () =>
+        JSON.parse(
+          w.document.documentElement.getAttribute("data-jobs-form-commit"),
+        ).pending === 0,
+      { root: w.document },
+    );
+    assert.equal(await w.JobsPageCommit.wait(w.document, { idle: true }), true);
+    const before = w.JobsPageCommit.revision(w.document);
+    assert.equal(
+      await w.JobsPageCommit.wait(w.document, { since: before }),
+      true,
+    );
+    await w.fetch(endpoint, init);
+    assert.equal(
+      await w.JobsPageCommit.wait(w.document, { since: before }),
+      false,
+    );
+    ok = true;
+    const retry = w.JobsPageCommit.revision(w.document);
+    await (await w.fetch(endpoint, init)).json();
+    assert.equal(
+      await w.JobsPageCommit.wait(w.document, { since: retry }),
+      true,
+    );
+  } finally {
+    w.close();
+  }
+});
+
+test("text and cloned responses settle once; stalled reads fail promptly then recover", async () => {
+  const w = page();
+  w.fetch = async () => new Response("{}");
+  installWorkdayCommitObserver(w, { timeout: 20 });
+  try {
+    const response = await w.fetch(endpoint, init);
+    await w.JobsDOMWait.until(
+      () =>
+        JSON.parse(
+          w.document.documentElement.getAttribute("data-jobs-form-commit"),
+        ).stalled,
+      { root: w.document, interval: 5 },
+    );
+    assert.equal(
+      await w.JobsPageCommit.wait(w.document, { idle: true }),
+      false,
+    );
+    await response.clone().text();
+    await response.json();
+    assert.equal(await w.JobsPageCommit.wait(w.document), true);
+    const state = JSON.parse(
+      w.document.documentElement.getAttribute("data-jobs-form-commit"),
+    );
+    assert.equal(state.pending, 0);
+    assert.equal(state.revision, 2);
+  } finally {
+    w.close();
+  }
+});

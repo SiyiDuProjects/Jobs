@@ -212,8 +212,14 @@ try {
     await route.fulfill({ json: value });
   });
   await board.goto("https://preview.jobs.invalid/?kind=internship");
-  await board.getByRole("link", { name: "申请 ↗", exact: true }).first().waitFor();
-  assert.equal(await board.getByRole("link", { name: "申请 ↗", exact: true }).count(), 3);
+  await board
+    .getByRole("link", { name: "申请 ↗", exact: true })
+    .first()
+    .waitFor();
+  assert.equal(
+    await board.getByRole("link", { name: "申请 ↗", exact: true }).count(),
+    3,
+  );
   const boardAccent = await board.evaluate(() =>
     getComputedStyle(document.documentElement)
       .getPropertyValue("--accent")

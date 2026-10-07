@@ -20,7 +20,7 @@ export async function buildPackage({
   development = false,
 } = {}) {
   if (development && personal)
-    throw Error("Development builds cannot embed the live connection");
+    throw Error("Development builds cannot replace the personal installation");
   if (publish)
     throw Error(
       "Use npm run update to check and update the installed extension",
@@ -43,19 +43,6 @@ export async function buildPackage({
   const stage = await fs.mkdtemp(path.join(root, ".build-"));
   try {
     const buildId = sourceHash.slice(0, 16);
-    let connection = null;
-    if (personal) {
-      connection = JSON.parse(
-        await fs.readFile(path.join(root, ".private/connection.json"), "utf8"),
-      );
-      if (
-        !/^[a-z]{32}$/.test(connection.extensionId) ||
-        connection.origin !== new URL(brand.website).origin ||
-        !/^[A-Za-z0-9_-]{64}$/.test(connection.token) ||
-        !/^[A-Za-z0-9_-]{64}$/.test(connection.profileToken)
-      )
-        throw Error("Invalid private connection configuration");
-    }
     const generated = {
       "brand.js":
         "export const JobsBrand=" +
@@ -63,18 +50,13 @@ export async function buildPackage({
         ";",
       "build-info.js":
         "export const JobsBuildInfo=" + JSON.stringify({ id: buildId }) + ";",
-      "private-connection.js":
-        "export const JobsPrivateConnection=" +
-        JSON.stringify(connection) +
-        ";export function initializePrivateConnection(){}",
     };
     const virtual = {
       name: "generated-configuration",
       setup(builder) {
         builder.onLoad(
           {
-            filter:
-              /[\\/]src[\\/]custom[\\/](?:brand|build-info|private-connection)\.js$/,
+            filter: /[\\/]src[\\/]custom[\\/](?:brand|build-info)\.js$/,
           },
           (args) => ({
             contents: generated[path.basename(args.path)],

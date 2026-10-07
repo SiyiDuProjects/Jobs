@@ -2370,8 +2370,7 @@ export function initializeControlFields() {
           return null;
         // Input-only widgets observe their own response/commit below. A timer
         // here adds a background-throttled task without confirming any state.
-        if (waitForRender || blur || beforeBlur)
-          await JobsDOMWait.task(view);
+        if (waitForRender || blur || beforeBlur) await JobsDOMWait.task(view);
         else await Promise.resolve();
         if (!node.isConnected || !JobsPageActions.live(canProceed)) return null;
         if (beforeBlur && !(await beforeBlur())) return null;
@@ -2398,8 +2397,7 @@ export function initializeControlFields() {
             );
           }
         }
-        if (waitForRender || blur)
-          await JobsDOMWait.task(view);
+        if (waitForRender || blur) await JobsDOMWait.task(view);
         if (
           !node.isConnected ||
           !JobsPageActions.live(canProceed) ||

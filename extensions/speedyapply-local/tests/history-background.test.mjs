@@ -932,7 +932,9 @@ test("rejected batches and network errors retain only a real previous acknowledg
   assert.equal((await h.api.health()).pending, 2);
   h.local.jobsDiagnosticTransportV1.lastAckAt = 123;
   await h.api.capture(report(3));
-  h.context.fetch = async () => { throw Error("synthetic network failure"); };
+  h.context.fetch = async () => {
+    throw Error("synthetic network failure");
+  };
   await assert.rejects(h.api.sync(), /synthetic network failure/);
   assert.equal((await h.api.health()).lastAckAt, 123);
   assert.equal((await h.api.health()).state, "error");

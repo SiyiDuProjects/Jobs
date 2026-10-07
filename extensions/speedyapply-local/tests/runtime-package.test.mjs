@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { readModule } from "./helpers/module-source.mjs";
 import { initializeJobMatchRules } from "../src/custom/job-match-rules.js";
 import { initializeJobMatch, JobsJobMatch } from "../src/custom/job-match.js";
+import { canReadAccount } from "../source/account-access.js";
 import { publicJobUrl } from "../src/custom/public-job-url.js";
 initializeJobMatchRules();
 initializeJobMatch();
@@ -33,6 +34,93 @@ const registration = await readModule(
   "utf8",
 );
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("account credentials are available only to a supported, same-origin top frame", async () => {
+  const h = fixture();
+  const good = "https://fixture.myworkdayjobs.com/apply";
+  try {
+    h.w.chrome.runtime.onConnect = { addListener() {} };
+    const reads = [];
+    h.w.chrome.storage = {
+      local: {
+        get: async (keys) => {
+          reads.push(keys);
+          return {
+            autofillAccount: {
+              accountEmail: "fixture@example.invalid",
+              accountPassword: "synthetic-only",
+              useProfileEmail: true,
+            },
+          };
+        },
+      },
+    };
+    h.w.JobsTabProfiles = {
+      selected: async () => null,
+      ensure: async () => ({
+        profile: { contactData: { email: "fixture@example.invalid" } },
+      }),
+    };
+    h.w.canReadAccount = canReadAccount;
+    h.w.eval(worker);
+    for (const [url, tabUrl, frameId, allowed] of [
+      [good, good, 0, true],
+      [good, good, 1, false],
+      [good, "https://other.myworkdayjobs.com/apply", 0, false],
+      [
+        "https://fixture.invalid/a.myworkdayjobs.com/",
+        "https://fixture.invalid/a.myworkdayjobs.com/",
+        0,
+        false,
+      ],
+      [
+        "https://fixture.myworkdayjobs.com.invalid/",
+        "https://fixture.myworkdayjobs.com.invalid/",
+        0,
+        false,
+      ],
+      [
+        "https://jobs.ashbyhq.com/example",
+        "https://jobs.ashbyhq.com/example",
+        0,
+        false,
+      ],
+      [
+        good.replace("https:", "http:"),
+        good.replace("https:", "http:"),
+        0,
+        false,
+      ],
+    ]) {
+      const config = await h.w.handle(
+        { type: "getAutofillConfig" },
+        { id: "jobs", tab: { id: 1, url: tabUrl }, url, frameId },
+      );
+      assert.equal(
+        config.accountSettings.accountPassword,
+        allowed ? "synthetic-only" : "",
+        url,
+      );
+      assert.equal(reads.at(-1).includes("autofillAccount"), allowed);
+    }
+    for (const host of [
+      "jobs.icims.com",
+      "jobs.successfactors.eu",
+      "recruiting.ultipro.com",
+      "careers.tiktok.com",
+      "jobs.dayforcehcm.com",
+    ]) {
+      const url = `https://${host}/`;
+      assert.equal(
+        canReadAccount({ url, tab: { url }, frameId: 0 }),
+        true,
+        host,
+      );
+    }
+  } finally {
+    h.close();
+  }
+});
 function fixture(
   url = "https://jobs.ashbyhq.com/example/job/application",
   html = "",
@@ -154,8 +242,14 @@ test("Workday account startup survives standalone login while posting status che
         local: { get: async () => ({ autofillAccount: account }) },
         session: { get: async () => ({}), set: async () => {} },
       };
+      h.w.canReadAccount = canReadAccount;
       h.w.eval(worker);
-      const sender = { id: "jobs", tab: { id: 1 }, url: scenario.url };
+      const sender = {
+        id: "jobs",
+        tab: { id: 1, url: scenario.url },
+        url: scenario.url,
+        frameId: 0,
+      };
       h.w.chrome.runtime.sendMessage = async (message) => {
         h.sent.push(message);
         try {
@@ -721,8 +815,15 @@ test("local account configuration does not bind a Profile, while Profile email s
         };
       },
     };
+    h.w.canReadAccount = canReadAccount;
     h.w.eval(worker);
-    const sender = { id: "jobs", tab: { id: 1 }, url: h.w.location.href };
+    const accountUrl = "https://fixture.myworkdayjobs.com/apply";
+    const sender = {
+      id: "jobs",
+      tab: { id: 1, url: accountUrl },
+      url: accountUrl,
+      frameId: 0,
+    };
     let result = await h.w.handle({ type: "getAutofillConfig" }, sender);
     assert.equal(binds, 0);
     assert.equal(result.accountSettings.accountEmail, "local@example.invalid");

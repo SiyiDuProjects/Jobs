@@ -22,6 +22,18 @@ export function initializeFormPipeline() {
       JobsControlFields.follow(rows, node, key);
     const holds = (row, node) =>
       row.node === node || !!row.group?.includes(node);
+    // A shadow control still belongs to the form containing its host.
+    const inScope = (root, node) => {
+      if (!root) return true;
+      for (
+        let current = node;
+        current;
+        current = current.getRootNode?.().host
+      ) {
+        if (current === root || root.contains(current)) return true;
+      }
+      return false;
+    };
     // The run's field ledger: one record per field (the scanner's canonical node).
     // A field has at most one decider, the layer whose value it holds; a layer
     // that cannot match or keep its value abstains and the next layer (AI, then
@@ -228,6 +240,8 @@ export function initializeFormPipeline() {
       } = {},
     ) {
       canProceed = act().guard(canProceed);
+      if (!inScope(root, node))
+        return { ok: false, reason: "Field is outside the active form" };
       const operation = ++diagnosticOperation;
       const evidence = (value) =>
         JobsDiagnostics?.evidence?.(node, { operation, ...value });
@@ -248,13 +262,15 @@ export function initializeFormPipeline() {
         scans = JobsControlFields.scans?.() || 0;
       let written = null,
         why = "not committed",
-        heldMs = 0;
+        heldMs = 0,
+        commitRevision;
       try {
         if (
           JobsPageCommit &&
-          !(await JobsPageCommit.wait(node, { canProceed }))
+          !(await JobsPageCommit.wait(node, { canProceed, idle: true }))
         )
           throw Error("Page definition update is not confirmed");
+        commitRevision = JobsPageCommit?.revision(node);
         if (answer.checked !== undefined) {
           // A check goes through the field's setter (a widget's own); one radio
           // of a group, or a native input the scanner does not list, is set
@@ -363,7 +379,10 @@ export function initializeFormPipeline() {
         if (
           written &&
           JobsPageCommit &&
-          !(await JobsPageCommit.wait(node, { canProceed }))
+          !(await JobsPageCommit.wait(node, {
+            canProceed,
+            since: commitRevision,
+          }))
         )
           throw Error("Page definition update is not confirmed");
         if (written && root && !(await hold(root, node, { canProceed })).kept) {
@@ -515,14 +534,23 @@ export function initializeFormPipeline() {
     // function returning the node.
     function locate(find) {
       if (typeof find === "function") return find();
-      if (!/^\(*\.?\//.test(find)) return document.querySelector(find);
-      return document.evaluate(
+      const root = active?.root || document;
+      if (!/^\(*\.?\//.test(find)) return root.querySelector(find);
+      const doc = root.ownerDocument || root;
+      const matches = doc.evaluate(
         find,
-        document,
+        root,
         null,
-        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
         null,
-      ).singleNodeValue;
+      );
+      // Absolute XPath expressions retain their document semantics. Filter all
+      // results instead of silently choosing another form's first match.
+      for (let i = 0; i < matches.snapshotLength; i++) {
+        const node = matches.snapshotItem(i);
+        if (inScope(root, node)) return node;
+      }
+      return null;
     }
     // Bindings locate a field and name its Profile fact; answers supports a
     // multi-value field (skills). after waits for fields revealed by this write.
@@ -541,7 +569,7 @@ export function initializeFormPipeline() {
         } catch {
           node = null;
         }
-        if (!node) {
+        if (!node || !inScope(active?.root, node)) {
           results.push(null);
           continue;
         }
@@ -686,7 +714,7 @@ export function initializeFormPipeline() {
         if (
           !act().allowed() ||
           !scope?.isConnected ||
-          (active && !active.root.contains(scope))
+          (active && !inScope(active.root, scope))
         )
           return false;
         JobsControlFields.beginEntry(scope);

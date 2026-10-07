@@ -114,6 +114,36 @@ const reply = (field, value) => ({
   source: "suggestion",
 });
 
+for (const question of [
+  "Have you ever been convicted of a felony?",
+  "Do you hold a security clearance?",
+  "Are you a U.S. person under ITAR?",
+  "Are you bound by a non-compete agreement?",
+])
+  test(`model provenance cannot skip review: ${question}`, async () => {
+    const h = setup(
+      `<label>${question}<select required><option value="">Select</option><option value="no">No</option></select></label>`,
+      async (message) =>
+        message.fields.map((field) => ({
+          ...reply(field, "no"),
+          source: "profile",
+          needsConfirmation: false,
+        })),
+    );
+    try {
+      assert.equal(await h.run({ action: "next", autoConfirm: true }), false);
+      assert.equal(h.w.document.querySelector("select").value, "no");
+      assert.equal(h.clicks(), 0);
+      assert.equal(
+        h.events.some(([type]) => type === "auto_review_automatic"),
+        false,
+      );
+      assert.equal(h.calls(), 1);
+    } finally {
+      h.close();
+    }
+  });
+
 for (const scenario of [
   { prior: "binding", continues: true },
   { prior: "rule", continues: true },

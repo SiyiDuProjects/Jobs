@@ -1,3 +1,4 @@
+import { createFlow } from "./automatic-flow.js";
 import { diagnosticGuard } from "./diagnostic-evidence.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsDiagnostics } from "./diagnostics.js";
@@ -13,7 +14,11 @@ import { JobsProfileAnswers } from "./profile-answers.js";
 import { JobsAnswerMemory } from "./answer-memory.js";
 import { JobsQueuePage } from "./queue-page.js";
 import { recoverReview, finishRecovery } from "./recover-review.js";
-import { automaticFillPolicy, shape } from "./automatic-field-policy.js";
+import {
+  automaticFillPolicy,
+  shape,
+  answerNeedsReview,
+} from "./automatic-field-policy.js";
 export var JobsAutomatic;
 let initialized = false;
 export function initializeAutomaticFill() {
@@ -37,72 +42,6 @@ export function initializeAutomaticFill() {
       "autofill-complete",
     ]);
     const transitionPhases = new Set(["submitting", "awaiting-transition"]);
-    const transitions = Object.freeze({
-      created: ["verifying"],
-      verifying: ["filling", "checking", "review"],
-      filling: ["scanning", "review"],
-      scanning: ["resolving", "writing", "checking", "review"],
-      resolving: ["writing", "scanning", "checking", "review"],
-      writing: ["resolving", "scanning", "checking", "review"],
-      review: ["verifying", "checking"],
-      checking: ["scanning", "review", "complete", "navigation-attempted"],
-      complete: [],
-      blocked: [],
-      cancelled: [],
-      "navigation-attempted": [],
-    });
-    function createFlow(onTransition = (_from, _to) => {}) {
-      let state = "created",
-        navigation = null;
-      const history = [];
-      const terminal = () =>
-        ["complete", "blocked", "cancelled", "navigation-attempted"].includes(
-          state,
-        );
-      function move(next) {
-        if (next === state) return;
-        if (!transitions[state]?.includes(next))
-          throw Error(`Invalid fill transition: ${state} -> ${next}`);
-        const before = state;
-        state = next;
-        history.push({ from: before, to: next });
-        if (history.length > 80) history.shift();
-        onTransition(before, next);
-      }
-      function stop(next) {
-        if (terminal()) return false;
-        const before = state;
-        state = next;
-        history.push({ from: before, to: next });
-        onTransition(before, next);
-        return true;
-      }
-      return Object.freeze({
-        move,
-        get state() {
-          return state;
-        },
-        navigate(action) {
-          if (
-            state !== "checking" ||
-            navigation ||
-            !["next", "submit"].includes(action)
-          )
-            throw Error("Navigation cannot be replayed");
-          // Journal the attempt before invoking a click. A thrown click or lost
-          // acknowledgement is uncertain; it must never reset this latch.
-          navigation = action;
-          move("navigation-attempted");
-        },
-        block: () => stop("blocked"),
-        cancel: () => stop("cancelled"),
-        snapshot: () => ({
-          state,
-          navigation,
-          history: history.map((entry) => ({ ...entry })),
-        }),
-      });
-    }
     const needsReview = () => JobsAIReview.pending();
     const supplement = (row) => JobsControlFields.needsAnswer(row.public);
     const fieldKey = (root) =>
@@ -1121,8 +1060,11 @@ export function initializeAutomaticFill() {
                 continue;
               }
             }
-            const needsConfirmation =
-              answer.needsConfirmation !== false || book.entry(row).confirm;
+            const needsConfirmation = answerNeedsReview(
+              answer,
+              row,
+              book.entry(row),
+            );
             const outcome = await operation.write(() =>
               JobsFormPipeline.write(
                 row.node,

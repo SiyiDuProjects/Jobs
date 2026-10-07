@@ -69,7 +69,7 @@ function jobsRunAdapter(script, options) {
 var jobsAdapterRoutes = [
   {
     script: workdayRunApplication,
-    pattern: RegExp(`^https?://.*\\.(myworkdayjobs|myworkdaysite)\\.com/`),
+    pattern: RegExp(`^https?://[^/?#]*\\.(myworkdayjobs|myworkdaysite)\\.com/`),
   },
   {
     script: greenhouseRunApplication,
@@ -84,12 +84,12 @@ var jobsAdapterRoutes = [
   {
     script: successfactorsRunApplication,
     pattern: RegExp(
-      `^https?://(?:.*\\.)?(?:successfactors|sapsf)\\.(?:com|eu)/.*`,
+      `^https?://(?:[^/?#]*\\.)?(?:successfactors|sapsf)\\.(?:com|eu)/.*`,
     ),
   },
   {
     script: icimsRunApplication,
-    pattern: RegExp(`^https?://.*.icims.(com|eu)/.*`),
+    pattern: RegExp(`^https?://[^/?#]+\\.icims\\.(com|eu)/.*`),
   },
   {
     script: workableRunApplication,
@@ -113,7 +113,7 @@ var jobsAdapterRoutes = [
   },
   {
     script: ashbyRunApplication,
-    pattern: RegExp(`^https://jobs.ashbyhq.com/.*`),
+    pattern: RegExp(`^https://jobs\\.ashbyhq\\.com/.*`),
   },
   {
     script: smartrecruitersRunApplication,

@@ -27,10 +27,15 @@ for (const name of [
     new URL("../src/custom/" + name + ".js", import.meta.url),
     "utf8",
   );
-const writer = code["job-match-rules"] + "\n" + code["job-match"] + "\n" + await readWithDependencies(
-  new URL("../source/saved-responses.js", import.meta.url),
-  "utf8",
-);
+const writer =
+  code["job-match-rules"] +
+  "\n" +
+  code["job-match"] +
+  "\n" +
+  (await readWithDependencies(
+    new URL("../source/saved-responses.js", import.meta.url),
+    "utf8",
+  ));
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function page(html, url = "https://jobs.ashbyhq.com/example/test/application") {
   const dom = new JSDOM(html, {

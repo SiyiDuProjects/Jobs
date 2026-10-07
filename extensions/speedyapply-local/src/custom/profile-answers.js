@@ -1894,7 +1894,7 @@ export function initializeProfileAnswers() {
                 /^(?:are you (?:currently )?(?:(?:legally|lawfully) )?(?:authori[sz]ed|eligible|permitted) to work(?: (?:in|within) .+)?|do you (?:currently )?have (?:the )?(?:legal )?(?:right|authorization) to work(?: in .+)?)[?.]?$/.test(
                   q,
                 ) &&
-                !/\b(?:without|restriction|unrestricted|unlimited|permanent|proof|documentation|citizen|clearance|and|or|but|unless|provided|if)\b/.test(
+                !/\b(?:without|full[ -]time|part[ -]time|hours|restriction|unrestricted|unlimited|permanent|proof|documentation|citizen|clearance|and|or|but|unless|provided|if)\b/.test(
                   q,
                 )
               )
@@ -2184,7 +2184,7 @@ export function initializeProfileAnswers() {
             match(question, context) {
               const q = questionText(question);
               if (
-                /^(?:are you hispanic or latin[ox]|hispanic or latin[ox]|hispanic \/ latin[ox])[?.:]?$/.test(
+                /^(?:(?:are you|do you identify as) hispanic(?: or |\s*\/\s*)latin[ox]|hispanic(?: or |\s*\/\s*)latin[ox])[?.:]?$/.test(
                   q,
                 )
               )
@@ -4244,7 +4244,12 @@ export function initializeProfileAnswers() {
             /\s+(?:now|currently|in the future|now (?:or|and) in the future)(?:\s+for (?:this|the) (?:job|position|role))?$/,
             "",
           )
-          .replace(/\s+for any (?:employer|company)$/, "");
+          .replace(/\s+for any (?:employer|company)$/, "")
+          // Jurisdiction parsing only: classification retains these conditions.
+          .replace(
+            /\s+(?:for (?:this|the) (?:job|position|role)|without (?:visa |immigration |employer )?sponsorship|on a (?:full|part)[ -]time basis)$/,
+            "",
+          );
         if (
           !location ||
           /^(?:country (?:(?:where|in which) (?:the |this )?(?:job|position|role) (?:(?:is|will be) )?(?:located|based)|for which you are applying|you are applying to work in)|country of (?:employment|the (?:job|position))|this country|your country|(?:this|the) (?:job|position|role)|employment)$/.test(

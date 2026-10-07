@@ -34,6 +34,58 @@ const profile = {
   ],
 };
 
+test("country suffixes preserve separate sponsorship and working-hours requirements", async () => {
+  for (const suffix of [
+    "without sponsorship",
+    "on a full-time basis",
+    "for this role",
+  ]) {
+    const question = `Are you legally authorized to work in the U.S. ${suffix}?`;
+    assert.equal(
+      c.JobsProfileAnswers.requestedCountry(question, {}, "US"),
+      "US",
+    );
+    const result = await resolve(
+      [{ question, required: true, options: ["Yes", "No"] }],
+      profile,
+    );
+    if (suffix === "for this role") assert.equal(result[0]?.answer, "Yes");
+    else
+      assert.notEqual(
+        result[0]?.answer,
+        "Yes",
+        "US authorization alone cannot establish this condition",
+      );
+  }
+});
+
+test("Hispanic wording uses an explicit ethnicity fact and never infers it from race", async () => {
+  for (const question of [
+    "Do you identify as Hispanic or Latino?",
+    "Are you Hispanic/Latino?",
+  ]) {
+    const fields = [{ question, required: true, options: ["Yes", "No"] }];
+    assert.equal(
+      (
+        await resolve(fields, {
+          ...profile,
+          employmentData: { hispanicOrLatino: false },
+        })
+      )[0]?.answer,
+      "No",
+    );
+    assert.equal(
+      (
+        await resolve(fields, {
+          ...profile,
+          employmentData: { ethnicity: "Asian" },
+        })
+      ).length,
+      0,
+    );
+  }
+});
+
 test("observed cross-platform factual wording resolves without supplemental AI", async () => {
   const cases = [
     ["Please state your full legal name:✱", "Alex Example"],

@@ -5,7 +5,6 @@ import { JobsStorageUpgrade } from "./storage-upgrade.js";
 import { JobsMigrationMaintenance } from "./migration-maintenance.js";
 import { JobsStorageMigrationPolicy } from "./storage-migration-policy.js";
 import { publicJobUrl } from "./public-job-url.js";
-import { JobsPrivateConnection } from "./private-connection.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsAvailabilityRules } from "./availability-rules.js";
 import { JobsManagementSync } from "./management-sync.js";
@@ -38,46 +37,8 @@ export function initializeSync() {
         }
       );
     const write = (state) => chrome.storage.local.set({ [KEY]: state });
-    const ready = serial(async () => {
-      const config = JobsPrivateConnection;
-      if (!config) return;
-      if (
-        config.extensionId !== chrome.runtime.id ||
-        config.origin !== ORIGIN ||
-        !/^[A-Za-z0-9_-]{64}$/.test(config.token) ||
-        !/^[A-Za-z0-9_-]{64}$/.test(config.profileToken)
-      )
-        throw Error("Invalid private connection");
-      const state = await read();
-      if (state.disabled) return;
-      // A new private build may rotate credentials without changing its device
-      // ID. Keep only a digest for versioning; a website-paired newer token is
-      // left alone on subsequent restarts of the same build.
-      const bytes = await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(config.token + ":" + config.profileToken),
-      );
-      const version = Array.from(new Uint8Array(bytes), (byte) =>
-        byte.toString(16).padStart(2, "0"),
-      ).join("");
-      if (
-        state.privateDeviceId === config.deviceId &&
-        state.privateConnectionVersion === version
-      )
-        return;
-      Object.assign(state, {
-        deviceId: config.deviceId,
-        privateDeviceId: config.deviceId,
-        privateConnectionVersion: version,
-        token: config.token,
-        profileToken: config.profileToken,
-        error: "",
-      });
-      state.outbox.forEach((item) => {
-        item.next = 0;
-      });
-      await write(state);
-    });
+    // Connections survive updates in browser storage; packages carry no credentials.
+    const ready = Promise.resolve();
     const siteSender = (sender) => {
       try {
         return !!sender.tab && new URL(sender.url).origin === ORIGIN;

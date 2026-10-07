@@ -31,6 +31,67 @@ function page(t, html) {
 const firstName =
   '<div data-automation-id="formField-legalName--firstName"><label for="first">First Name*</label><input id="first" data-automation-id="legalNameSection_firstName" required></div>';
 
+test("bindings and direct writes stay inside the active form, including shadow hosts", async (t) => {
+  const { w, root } = page(
+    t,
+    '<label>Inside<input name="name"></label><div id="host"></div>',
+  );
+  const other = w.document.createElement("form");
+  other.innerHTML = '<label>Outside<input name="name"></label>';
+  root.before(other);
+  const outside = other.querySelector("input"),
+    inside = root.querySelector("input");
+  const book = w.JobsFormPipeline.ledger(root);
+  await w.JobsFormPipeline.within(
+    { root, ledger: book, canProceed: () => true },
+    async () => {
+      await w.JobsFormPipeline.bind([
+        { name: "css", find: 'input[name="name"]', answer: "Inside" },
+      ]);
+      assert.equal(inside.value, "Inside");
+      assert.equal(outside.value, "");
+      await w.JobsFormPipeline.bind([
+        { name: "callback", find: () => outside, answer: "Wrong" },
+      ]);
+      assert.equal(
+        (
+          await w.JobsFormPipeline.write(
+            outside,
+            { value: "Wrong" },
+            { decider: "ai" },
+          )
+        ).ok,
+        false,
+      );
+      assert.equal(outside.value, "");
+      const shadow = root.querySelector("#host").attachShadow({ mode: "open" });
+      shadow.innerHTML = '<input type="checkbox">';
+      const result = await w.JobsFormPipeline.write(
+        shadow.querySelector("input"),
+        { checked: true },
+        { decider: "binding:shadow" },
+      );
+      assert.notEqual(result.reason, "Field is outside the active form");
+    },
+  );
+});
+
+test("an absolute XPath selects an in-scope result instead of the first form", async (t) => {
+  const { w, root } = page(t, '<label>Name<input name="name"></label>');
+  const outside = w.document.createElement("input");
+  outside.name = "name";
+  root.before(outside);
+  await w.JobsFormPipeline.within(
+    { root, ledger: w.JobsFormPipeline.ledger(root) },
+    () =>
+      w.JobsFormPipeline.bind([
+        { name: "name", find: '//input[@name="name"]', answer: "Inside" },
+      ]),
+  );
+  assert.equal(root.querySelector("input").value, "Inside");
+  assert.equal(outside.value, "");
+});
+
 test("a field the page replaces keeps its record: one decider, excluded from saved answers, a second automatic write refused", async (t) => {
   const { w, root } = page(t, firstName),
     old = w.document.getElementById("first"),

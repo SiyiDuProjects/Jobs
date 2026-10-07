@@ -115,8 +115,8 @@ export function SiteApp({ Board }: { Board: ComponentType }) {
           <section className="login">
             <h1>连接你的 jobs</h1>
             <p className="text-muted">
-              把连接码发给已连接 {brand.name}{" "}
-              的助手，批准这个浏览器。岗位、投递记录和个人资料共用这次登录。
+              把连接码发给有服务器访问权限的助手，批准这次浏览器登录。
+              岗位、投递记录和个人资料共用这次登录。
             </p>
             <code>{session.request_id || "正在连接…"}</code>
             <div className="flex gap-2">

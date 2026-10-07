@@ -134,13 +134,15 @@ export function extractJob(doc = document) {
     json?.description ||
     doc.querySelector(descriptionSelector)?.innerHTML ||
     "";
-  const detached = doc.createElement("div");
+  // Template contents are inert and never attach loading images/iframes to the
+  // active document. Only plain text is returned to the background.
+  const detached = doc.createElement("template");
   detached.innerHTML = source;
   return {
     title,
     observedTitle,
     identityUrl: typeof json?.url === "string" ? json.url : "",
-    description: detached.textContent
+    description: detached.content.textContent
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 18000),

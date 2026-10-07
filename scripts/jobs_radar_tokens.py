@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output')
     parser.add_argument('--compare')
-    parser.add_argument('--session', default='01a0859f-4b42-7653-8c52-91ebb7b4733b')
+    parser.add_argument('--session', required=True, help='Codex session ID to inspect')
     parser.add_argument('--sessions-dir', type=Path,
                         default=Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'sessions')
     args = parser.parse_args()

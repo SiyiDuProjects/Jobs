@@ -551,7 +551,11 @@ export function initializeHistoryBackground() {
           accepted(item);
           await acknowledge([batch.ack[i]], epoch);
           await setHealth(
-            { state: "uploading", checkedAt: Date.now(), lastAckAt: Date.now() },
+            {
+              state: "uploading",
+              checkedAt: Date.now(),
+              lastAckAt: Date.now(),
+            },
             epoch,
           );
         }

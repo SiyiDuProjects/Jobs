@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { generateContracts } from "./generate-contracts.mjs";
 import { buildPackage } from "./build.mjs";
 import { publishPackage } from "./publish-package.mjs";
+import { acquireUpdateLock } from "./update-lock.mjs";
 import {
   sourceFingerprint,
   installedFingerprint,
@@ -68,7 +69,18 @@ async function check(name) {
       "--project",
       "jsconfig.json",
     ]);
-  else await run(["scripts/check-source-size.mjs"]);
+  else if (name === "format:check")
+    await run([
+      "node_modules/prettier/bin/prettier.cjs",
+      "--check",
+      "source",
+      "src/custom",
+      "scripts",
+      "tests",
+    ]);
+  else if (name === "check:structure")
+    await run(["scripts/check-source-size.mjs"]);
+  else throw Error(`Unknown check: ${name}`);
 }
 
 // Injectable operations let tests exercise failures without touching real dist.
@@ -81,18 +93,9 @@ export async function updateInstalled(options = {}) {
   const publish = options.publish || publishPackage;
   await primary(directory);
   const lockPath = path.join(directory, ".build-update.lock");
-  const lock = await fs.open(lockPath, "wx").catch((error) => {
-    if (error.code === "EEXIST")
-      throw Error(
-        "Another update is running. Wait for its result; do not remove its lock",
-      );
-    throw error;
-  });
+  const lock = await acquireUpdateLock(lockPath);
   let candidate;
   try {
-    await lock.writeFile(
-      JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }),
-    );
     await generate();
     const sourceHash = await sourceFingerprint(directory);
     const baseHash = await installedFingerprint(directory);

@@ -2,6 +2,16 @@
   "established": "2026-09-26 closeout",
   "note": "No opening size threshold was recorded. These reviewed limits prevent future expansion and do not claim retrospective process compliance.",
   "files": {
+    "src/custom/profile-answers.js": {
+      "maxLines": 4670,
+      "functions": {
+        "classify": { "maxLines": 20, "maxOwnLines": 20 },
+        "requestedCountry": { "maxLines": 60, "maxOwnLines": 60 },
+        "resolveProfileRule": { "maxLines": 20, "maxOwnLines": 15 },
+        "resolveAdditional": { "maxLines": 40, "maxOwnLines": 25 },
+        "selectAdditional": { "maxLines": 170, "maxOwnLines": 65 }
+      }
+    },
     "src/custom/automatic-fill.js": {
       "maxLines": 1350,
       "functions": {

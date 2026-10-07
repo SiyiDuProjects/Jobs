@@ -124,7 +124,8 @@ def checked_answers(body,fields,profile=None):
                 state, value, reason = 'needs_input', None, date_error
         if state=='needs_input':source='unknown'
         result={'fieldId':row['fieldId'],'state':state,'value':value,'reason':reason,'source':source,
-                'needsConfirmation':needs_confirmation(state, source, row.get('needsConfirmation'))}
+                'needsConfirmation':needs_confirmation(state, source, row.get('needsConfirmation'),
+                    field['question'] + ' ' + field.get('description', ''))}
         # Display metadata must never invalidate a usable form answer. Older
         # clients/providers can omit it; the card then shows the actual text.
         for key,limit in [('questionZh',200),('answerZh',1000)]:

@@ -1,5 +1,6 @@
 """Same-origin private browser access; no application data on public routes."""
 import hashlib
+import ipaddress
 import os
 import secrets
 import time
@@ -36,6 +37,25 @@ class WebAccess:
         self.store, self.origin = store, origin.rstrip('/')
         with store.connect() as c:
             c.execute('CREATE TABLE IF NOT EXISTS web_sessions(hash TEXT PRIMARY KEY,request_id TEXT UNIQUE,created REAL,expires REAL,approved INTEGER DEFAULT 0)')
+            c.execute('CREATE TABLE IF NOT EXISTS web_session_limits(client TEXT PRIMARY KEY,started REAL,count INTEGER)')
+
+    def allow_new_session(self, request, connection, now):
+        peer = request.client.host if request.client else 'unknown'
+        # Enabled only for the loopback-published deployment behind Cloudflare
+        # Tunnel; public callers cannot reach this listener directly.
+        if os.environ.get('JOBS_TRUST_SESSION_PROXY') == '1':
+            forwarded = request.headers.get('cf-connecting-ip', '').strip()
+            try:
+                peer = str(ipaddress.ip_address(forwarded))
+            except ValueError:
+                pass
+        key = hashlib.sha256(peer.encode()).hexdigest()
+        connection.execute('DELETE FROM web_session_limits WHERE started<=?', (now - 900,))
+        row = connection.execute('SELECT count FROM web_session_limits WHERE client=?', (key,)).fetchone()
+        if row and row['count'] >= 20:
+            return False
+        connection.execute('INSERT INTO web_session_limits VALUES(?,?,1) ON CONFLICT(client) DO UPDATE SET count=count+1', (key, now))
+        return True
 
     def session(self, request):
         token=request.cookies.get(COOKIE,'')
@@ -152,7 +172,7 @@ def attach_web(server, store, origin):
         now=time.time()
         with store.connect(True) as c:
             c.execute('DELETE FROM web_sessions WHERE expires<?',(now,))
-            if c.execute('SELECT count(*) FROM web_sessions WHERE created>?',(now-3600,)).fetchone()[0]>=100:
+            if not access.allow_new_session(request, c, now):
                 return response({'error':'Too many sign-in requests; try again later'},429)
             token, rid = secrets.token_urlsafe(40), secrets.token_hex(12)
             c.execute('INSERT INTO web_sessions VALUES(?,?,?,?,0)',(hashlib.sha256(token.encode()).hexdigest(),rid,now,now+900))

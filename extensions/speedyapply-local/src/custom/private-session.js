@@ -158,7 +158,9 @@ export const JobsPrivateSession = Object.freeze({
           const history = Array.isArray(saved) ? saved.slice(-19) : [];
           history.push({ at: Date.now(), reason });
           await chrome.storage.local.set({ [key]: history });
-        } catch { /* Diagnostics cannot prevent identity invalidation. */ }
+        } catch {
+          /* Diagnostics cannot prevent identity invalidation. */
+        }
       }
       try {
         // Invalidate every frame before clearing storage, so its pending captures

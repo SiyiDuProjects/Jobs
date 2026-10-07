@@ -136,6 +136,20 @@ def test_a_subjective_suggestion_cannot_skip_review_even_if_the_model_marks_it_c
     assert result['value']=='120000'
     assert result['needsConfirmation'] is True
 
+@pytest.mark.parametrize('question', [
+    'Have you ever been convicted of a felony?', 'Do you hold a security clearance?',
+    'Are you a U.S. person under ITAR?', 'Are you bound by a non-compete agreement?',
+    'I certify that this application is accurate.',
+])
+def test_high_impact_answers_require_review_despite_claimed_profile_source(question):
+    from jobs_radar.field_answers import checked_answers
+    field = {'fieldId': 'fact', 'question': question, 'type': 'select-one', 'required': True,
+             'options': [{'value': 'no', 'label': 'No'}]}
+    answer = {'fieldId': 'fact', 'state': 'answer', 'value': 'no', 'reason': 'Claimed fact',
+              'source': 'profile', 'needsConfirmation': False}
+    result = checked_answers({'answers': [answer]}, [field], {})[0]
+    assert result['value'] == 'no' and result['needsConfirmation'] is True
+
 def test_real_world_duplicate_options_and_long_school_lists_are_valid_without_ambiguous_values():
     from jobs_radar.field_answers import fields_input
     def field(options):

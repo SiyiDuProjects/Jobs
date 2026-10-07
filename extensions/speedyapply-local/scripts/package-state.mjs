@@ -3,7 +3,12 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 
 export const receiptName = ".build-receipt.json";
-export const requiredChecks = ["test", "typecheck", "check:structure"];
+export const requiredChecks = [
+  "test",
+  "typecheck",
+  "check:structure",
+  "format:check",
+];
 // Include generators and their authoritative inputs, not only emitted JS.
 export const sourceInputs = [
   "source",

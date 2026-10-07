@@ -3,15 +3,36 @@ import assert from "node:assert/strict";
 import { popupPage, until } from "./helpers/popup-page.mjs";
 
 test("unbound pages display the default without claiming an active binding", async () => {
-  const h = popupPage(async (msg) => msg.type === "jobs:popup-profile" ? {
-    data: { available: true, bound: false, kind: "intern", profileName: "Intern", source: "manual", choices: { intern: true, newgrad: true } },
-  } : { error: "当前页面无法识别岗位" });
+  const h = popupPage(async (msg) =>
+    msg.type === "jobs:popup-profile"
+      ? {
+          data: {
+            available: true,
+            bound: false,
+            kind: "intern",
+            profileName: "Intern",
+            source: "manual",
+            choices: { intern: true, newgrad: true },
+          },
+        }
+      : { error: "当前页面无法识别岗位" },
+  );
   try {
-    await until(() => h.w.document.getElementById("jobs-profile-source")?.textContent === "默认选择");
+    await until(
+      () =>
+        h.w.document.getElementById("jobs-profile-source")?.textContent ===
+        "默认选择",
+    );
     assert(h.w.document.body.textContent.includes("默认档案"));
-    assert(h.w.document.getElementById("jobs-profile-hint").textContent.includes("此页面尚未绑定档案"));
+    assert(
+      h.w.document
+        .getElementById("jobs-profile-hint")
+        .textContent.includes("此页面尚未绑定档案"),
+    );
     assert(!h.w.document.body.textContent.includes("当前选择"));
-  } finally { h.close(); }
+  } finally {
+    h.close();
+  }
 });
 
 test("HeroUI popup reflects tab Profile changes and manual selection", async () => {

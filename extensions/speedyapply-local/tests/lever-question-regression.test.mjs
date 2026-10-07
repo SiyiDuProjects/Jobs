@@ -74,6 +74,7 @@ function fixture() {
       sendMessage: async (message) => {
         if (message.type === "jobs:tab-profile")
           return { data: { id: "fixture", profile } };
+        if (message.type === "jobs:review-present") return { ok: true };
         requests.push(message);
         assert.equal(message.type, "jobs:auto-answers");
         return {
@@ -199,7 +200,7 @@ test("the Lever run answers the current degree and source and cannot reuse Type/
   }
 });
 
-test("supplement sends only required essay and acknowledgment to AI; optional survey stays blank", async () => {
+test("supplement drafts required essay and export acknowledgment for review; optional survey stays blank", async () => {
   const h = fixture();
   try {
     assert.equal(
@@ -209,8 +210,9 @@ test("supplement sends only required essay and acknowledgment to AI; optional su
         action: "fill",
         resolveAnswers: h.resolve,
       }),
-      true,
+      false,
     );
+    assert.equal(h.w.JobsAIReview.pending(), true);
     assert.equal(h.requests.length, 1);
     const sent = h.requests[0].fields;
     assert.equal(sent.length, 2);

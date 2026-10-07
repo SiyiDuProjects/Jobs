@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { acquireUpdateLock } from "./update-lock.mjs";
 import {
   sourceFingerprint,
   installedFingerprint,
@@ -22,7 +23,7 @@ export async function publishPackage(root, staging, io = fs) {
     artifacts = path.join(root, "artifacts"),
     backup = path.join(artifacts, "previous-dist");
   const lockPath = path.join(root, ".build-publish.lock");
-  const lock = await io.open(lockPath, "wx");
+  const lock = await acquireUpdateLock(lockPath, io);
   let moved = false;
   try {
     const next = JSON.parse(

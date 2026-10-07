@@ -7,6 +7,7 @@ import { readModule } from "./module-source.mjs";
 // Manifest ordering has its own contract test.
 const custom = new URL("../../src/custom/", import.meta.url);
 const dependencies = {
+  "automatic-field-policy.js": ["answer-policy.js"],
   "form-pipeline.js": ["page-actions.js", "dom-wait.js", "page-commit.js"],
   "manual-answer.js": ["form-pipeline.js"],
   "history-background.js": [
@@ -52,6 +53,7 @@ const dependencies = {
     "form-pipeline.js",
   ],
   "automatic-fill.js": [
+    "automatic-flow.js",
     "autofill-preferences.js",
     "automatic-field-policy.js",
     "recover-review.js",

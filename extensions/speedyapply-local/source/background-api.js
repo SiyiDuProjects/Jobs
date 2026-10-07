@@ -8,6 +8,7 @@ import { JobsAnswerContext } from "../src/custom/automatic-background.js";
 import { reportJobTitle } from "./job-title-background.js";
 import { recordAppliedStatus } from "./applied-status-background.js";
 import { readAutofillPreferences } from "../src/custom/autofill-preferences.js";
+import { canReadAccount } from "./account-access.js";
 const defaults = {
   saveApplications: true,
   saveResponses: true,
@@ -29,19 +30,21 @@ export async function handle(message, sender) {
   if (message.type === "jobs:job-title-observed")
     return reportJobTitle(message, sender);
   if (message.type === "getAutofillConfig") {
+    const accountAllowed = canReadAccount(sender);
+    const stored = await chrome.storage.local.get([
+      "settings",
+      ...(accountAllowed ? ["autofillAccount"] : []),
+      "autofillEnabled",
+    ]);
     const data =
       /** @type {{settings?:{autofillSettings?:Partial<typeof defaults>},autofillAccount?:{accountEmail?:string,accountPassword?:string,useProfileEmail?:boolean},autofillEnabled?:boolean}} */ (
-        await chrome.storage.local.get([
-          "settings",
-          "autofillAccount",
-          "autofillEnabled",
-        ])
+        stored
       );
     const account = {
       accountEmail: "",
       accountPassword: "",
       useProfileEmail: false,
-      ...data.autofillAccount,
+      ...(accountAllowed ? data.autofillAccount : {}),
     };
     // Reading local settings must not prepare and synchronize a filling run.
     // Only Profile-derived account email needs resolution before account entry.

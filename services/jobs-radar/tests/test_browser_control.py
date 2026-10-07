@@ -262,6 +262,7 @@ def test_enabled_tools_require_existing_owner_scopes(subject, monkeypatch):
     assert CONTROL_TOOLS <= tools.keys()
     assert tools['get_browser_pages'].annotations.read_only_hint is True
     assert tools['command_browser_page'].annotations.open_world_hint is True
+    assert tools['command_browser_page'].annotations.destructive_hint is True
     assert 'idempotency_key' in tools['command_browser_page'].input_schema['required']
     # FastMCP invokes the registered function through the same auth guard as other tools.
     function = server._tool_manager.get_tool('get_browser_pages').fn

@@ -37,6 +37,7 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
                 expires REAL,approved INTEGER DEFAULT 0,browser_hash TEXT,csrf_hash TEXT);
             CREATE TABLE IF NOT EXISTS oauth_codes(hash TEXT PRIMARY KEY,payload TEXT,expires REAL);
             CREATE TABLE IF NOT EXISTS oauth_tokens(hash TEXT PRIMARY KEY,kind TEXT,payload TEXT,expires REAL,family TEXT);
+            CREATE TABLE IF NOT EXISTS oauth_spent_refresh(hash TEXT PRIMARY KEY,client_id TEXT,family TEXT,expires REAL);
             """)
 
     async def get_client(self, client_id):
@@ -170,7 +171,17 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
 
     async def load_refresh_token(self, client, refresh_token):
         model = self._load_token(refresh_token, "refresh", RefreshToken)
+        if model is None:
+            with self.store.connect(True) as c:
+                self._revoke_replayed(c, client.client_id, refresh_token)
         return model if model and model.client_id == client.client_id else None
+
+    def _revoke_replayed(self, c, client_id, token):
+        c.execute('DELETE FROM oauth_spent_refresh WHERE expires<=?', (time.time(),))
+        row = c.execute('SELECT family FROM oauth_spent_refresh WHERE hash=? AND client_id=?',
+                        (digest(token), client_id)).fetchone()
+        if row:
+            c.execute('DELETE FROM oauth_tokens WHERE family=?', (row['family'],))
 
     def _load_token(self, token, kind, model_class):
         with self.store.connect() as c:
@@ -188,10 +199,16 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
     async def exchange_refresh_token(self, client, refresh_token, scopes):
         with self.store.connect(True) as c:
             row = c.execute("SELECT * FROM oauth_tokens WHERE hash=? AND kind='refresh' AND expires>?", (digest(refresh_token.token), time.time())).fetchone()
-            if not row or json.loads(row["payload"])["client_id"] != client.client_id or not set(scopes) <= set(refresh_token.scopes):
-                raise TokenError("invalid_grant", "Invalid, expired or consumed refresh token")
-            c.execute("DELETE FROM oauth_tokens WHERE family=?", (row["family"],))
-            return self._issue(c, client.client_id, scopes, row["family"])
+            if not row:
+                # Commit replay revocation before raising, including a race
+                # where two refresh requests loaded the same valid token.
+                self._revoke_replayed(c, client.client_id, refresh_token.token)
+            elif json.loads(row["payload"])["client_id"] == client.client_id and set(scopes) <= set(refresh_token.scopes):
+                c.execute('INSERT INTO oauth_spent_refresh VALUES(?,?,?,?)',
+                          (row['hash'], client.client_id, row['family'], row['expires']))
+                c.execute("DELETE FROM oauth_tokens WHERE family=?", (row["family"],))
+                return self._issue(c, client.client_id, scopes, row["family"])
+        raise TokenError("invalid_grant", "Invalid, expired or consumed refresh token")
 
     async def revoke_token(self, token):
         with self.store.connect(True) as c:

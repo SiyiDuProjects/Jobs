@@ -24,7 +24,7 @@ Redacted diagnostics upload independently from remote observation. Ordinary hist
 
 OAuth supports dynamic client registration, authorization code with PKCE S256, resource-bound tokens, refresh rotation and revocation. Tools independently enforce `jobs:read` and `applications:write`. New clients require approval of the exact pending request, redirect and scopes. Never print credentials or tokens or place them in source, Profiles or diagnostics.
 
-The private website uses its own approved session. Production binds to `127.0.0.1:8796` behind the existing Cloudflare Tunnel. Public health and discovery expose no owner records.
+The private website uses its own approved session. Approve a browser request using the server-only `jobs-radar approve-web <request_id>` command after matching the code from the owner's browser; MCP tools cannot grant browser access. Production binds to `127.0.0.1:8796` behind the existing Cloudflare Tunnel. Public health and discovery expose no owner records. New browser requests are limited per client for 15 minutes; existing sessions are unaffected. Only this loopback-only deployment enables `JOBS_TRUST_SESSION_PROXY=1` to read Cloudflare's [visitor IP header](https://developers.cloudflare.com/fundamentals/reference/http-headers/). Other deployments ignore forwarded headers.
 
 ## Build, validate and release
 
@@ -57,4 +57,4 @@ for compatibility and recovery behavior.
 
 Database backups stay on the existing server under its current rotation policy. Explicit migration snapshots are outside that rotation. `deploy/verify_restore.py` checks SQLite integrity, every table fingerprint and embedded attachments in an isolated restore. `deploy/restore_release.py` requires a maintenance boundary. Never overwrite an active SQLite database or discard post-release writes to restore an old image.
 
-Workspace originals and complete Git history require a separately verified, credential-free controlled backup before personal-data cleanup. Database backup does not cover originals not yet stored on the server. Private GitHub code backup follows personal-data and secret checks of all pushed history.
+Workspace originals and complete Git history require a separately verified, credential-free controlled backup before personal-data cleanup. Database backup does not cover originals not yet stored on the server. The GitHub code repository is public; check all pushed history for personal data and secrets. Local extension packages contain no pairing credentials; pairing is stored in the existing browser installation.

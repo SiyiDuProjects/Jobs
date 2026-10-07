@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { updateInstalled } from "../scripts/update-package.mjs";
 import { requiredChecks, receiptName } from "../scripts/package-state.mjs";
 import { packageFixture } from "./helpers/package-fixture.mjs";
@@ -16,6 +17,29 @@ function options(f, extra = {}) {
     ...extra,
   };
 }
+
+test("a completed process's stale lock is recovered, while unknown locks are retained", async () => {
+  const f = await packageFixture();
+  const lockPath = path.join(f.root, ".build-update.lock");
+  try {
+    const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+    await new Promise((resolve, reject) => {
+      child.on("exit", resolve);
+      child.on("error", reject);
+    });
+    await fs.writeFile(
+      lockPath,
+      JSON.stringify({ pid: child.pid, startedAt: "2020-01-01" }),
+    );
+    await updateInstalled(options(f));
+    assert.equal(await f.code("dist"), "combined");
+    await fs.writeFile(lockPath, "unknown owner");
+    await assert.rejects(updateInstalled(options(f)));
+    assert.equal(await fs.readFile(lockPath, "utf8"), "unknown owner");
+  } finally {
+    await f.close();
+  }
+});
 test("one update checks the combined source then installs and reports reload required", async () => {
   const f = await packageFixture(),
     checks = [];

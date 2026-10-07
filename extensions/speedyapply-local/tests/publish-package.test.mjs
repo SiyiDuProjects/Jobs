@@ -64,7 +64,10 @@ test("concurrent publishing is rejected before changing either package", async (
       path.join(f.root, ".build-publish.lock"),
       "other publisher",
     );
-    await assert.rejects(publishPackage(f.root, f.staging), { code: "EEXIST" });
+    await assert.rejects(
+      publishPackage(f.root, f.staging),
+      /Invalid update lock/,
+    );
     assert.equal(await f.code("dist"), "old");
     assert.equal(await f.code(".build-next"), "new");
   } finally {

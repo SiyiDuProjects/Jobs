@@ -41,7 +41,12 @@ export async function readModule(file, encoding) {
           edits.push({
             start: ref.node.start,
             end: ref.node.end,
-            text: "globalThis." + name,
+            text:
+              (ref.parentPath.isObjectProperty() && ref.parent.shorthand
+                ? name + ": "
+                : "") +
+              "globalThis." +
+              name,
           });
       }
       edits.push({ start: p.node.start, end: p.node.end, text: "" });
