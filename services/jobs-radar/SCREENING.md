@@ -75,7 +75,10 @@ SpaceX can be selected while a specific job is excluded on explicit source facts
 Known company choices stay cached; changing this prompt does not reclassify them.
 The owner's requested review is a separate version-fenced preference update.
 
-Luna uses existing model knowledge with no browsing tools. Unknown employers
+Luna provides a name-only first pass using existing knowledge, with no browsing
+tools. It should retain reasonably credible matches in the target market without
+demanding current salary/funding evidence. The owner requests later Codex reviews
+to research borderline cases; this is not a scheduled daily override. Unknown employers
 are conservatively not selected; selection is a preference heuristic, not a
 verified employer rating. Source FAANG+ labels and received OAs are not selection
 criteria. Explicit owner exclusions in the UI remain separate saved preferences.
