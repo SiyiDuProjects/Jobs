@@ -1272,3 +1272,41 @@ test("three Ashby open-ended questions receive AI drafts through the saved-contr
     h.close();
   }
 });
+
+test("required controls revealed during review return to the same answer pipeline and stay visible", async () => {
+  const h = setup(
+    "<label>Preference<input required></label>",
+    async (message) =>
+      message.fields.map((field) =>
+        field.question === "Follow-up*"
+          ? {
+              fieldId: field.fieldId,
+              state: "needs_input",
+              value: null,
+              source: "unknown",
+              reason: "Missing fact",
+            }
+          : reply(field, "Draft"),
+      ),
+  );
+  try {
+    await h.run({ action: "next" });
+    assert.equal(h.calls(), 1);
+    h.w.document
+      .querySelector("form")
+      .insertAdjacentHTML(
+        "beforeend",
+        "<label>Follow-up*<input required></label>",
+      );
+    await h.w.JobsAIReview.confirm();
+    assert.equal(h.calls(), 2);
+    assert.equal(h.clicks(), 0);
+    assert.equal(h.w.JobsAIReview.pending(), true);
+    assert.match(
+      h.w.document.querySelector("#jobs-ai-review").shadowRoot.textContent,
+      /Follow-up/,
+    );
+  } finally {
+    h.close();
+  }
+});
