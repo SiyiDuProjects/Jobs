@@ -138,6 +138,7 @@ function fixture(
     perform: (operation, target, run) => run(),
   };
   for (const code of [...scripts, ...shared]) w.eval(code);
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   w.eval(adapter);
   installAnswerResolver(w, saved);
   const answerers = inspectAnswerers(w);

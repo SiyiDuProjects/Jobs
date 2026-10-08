@@ -664,8 +664,8 @@ test("actual shared matcher retains Saved Answer fallback when newly added optio
   vm.runInContext(code, context);
   vm.runInContext(
     resolverWith(`[
-  {question:'Preferred interview programming language',response:'Rust',keywords:['interview','language'],appearances:2},
-  {question:'When can you start working?',response:'2027-07-01',keywords:['start','working'],appearances:2}
+  {origin:'person',question:'Preferred interview programming language',response:'Rust',keywords:['interview','language'],appearances:2},
+  {origin:'person',question:'When can you start working?',response:'2027-07-01',keywords:['start','working'],appearances:2}
  ]`),
     context,
   );
@@ -761,7 +761,7 @@ test("unrecognized sponsorship wording requires exact memory for every Profile v
   const question = "Will this role require sponsorship from our company?";
   vm.runInContext(
     resolverWith(
-      `[{question:${JSON.stringify(question)},response:'Yes',keywords:['require','sponsorship'],appearances:2}]`,
+      `[{origin:"person",question:${JSON.stringify(question)},response:'Yes',keywords:['require','sponsorship'],appearances:2}]`,
     ),
     context,
   );

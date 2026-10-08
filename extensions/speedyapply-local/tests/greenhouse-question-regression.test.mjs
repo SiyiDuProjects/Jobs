@@ -88,6 +88,7 @@ function fixture(
     },
   };
   scripts.forEach((code) => w.eval(code));
+  w.JobsOperator.update({ mode: "person", epoch: "fixture", since: 1 });
   w.eval(domControls);
   w.eval(adapter);
   installAnswerResolver(w, saved);
@@ -242,14 +243,21 @@ test("group keeps actual validation errors and existing selections; unrelated si
 });
 const memories = [
   {
+    origin: "person",
     question: other,
     keywords: ["other"],
     appearances: 1,
     response: "Source Portal",
     fromAutofill: true,
   },
-  { keywords: ["other"], appearances: 1, response: "Source Portal" },
   {
+    origin: "person",
+    keywords: ["other"],
+    appearances: 1,
+    response: "Source Portal",
+  },
+  {
+    origin: "person",
     question: source + " — " + explain,
     keywords: ["how did you hear", "other"],
     appearances: 2,
@@ -277,6 +285,7 @@ test("active internship Other cannot reuse generic/source memory; exact contextu
   assert.equal(f.doc.getElementById(id.other).value, "");
   const scoped = internship + " — " + firm + " — " + other;
   f.w.fixtureSavedResponses.push({
+    origin: "person",
     question: scoped,
     keywords: ["firm"],
     appearances: 1,
@@ -302,6 +311,7 @@ test("same first pass rechecks conditions after answering parent, and preserves 
     saved: [
       ...memories,
       {
+        origin: "person",
         question: internship,
         response: "No",
         keywords: ["internship"],
@@ -381,6 +391,7 @@ test("manual/generated answer capture also saves contextual keys and refuses an 
   const f = fixture(t, conditional("Yes", "Other")),
     saved = [];
   f.w.JobsJobMatch = {
+    companyFromKey: () => "fixture-company",
     key: () => JSON.stringify(["greenhouse", "fixture", "1"]),
   };
   const session = f.w.JobsAnswerMemory.start(f.root, true, async (records) => {

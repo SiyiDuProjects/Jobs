@@ -82,6 +82,7 @@ function setup() {
     },
   };
   Object.values(codes).forEach((code) => w.eval(code));
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   mountReviewPanel(w);
   function close(button) {
     w.document.getElementById(button.getAttribute("aria-controls"))?.remove();

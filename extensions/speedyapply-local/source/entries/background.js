@@ -24,8 +24,10 @@ import { initializeDiagnosticsBackground } from "../../src/custom/diagnostics-ba
 import { initializeRemovalBackground } from "../../src/custom/removal-background.js";
 import { initializeSubmissionBackground } from "../../src/custom/submission-background.js";
 import "../../source/background-api.js";
+import { initializeOperatorBackground } from "../../src/custom/operator-background.js";
 import "../../source/runtime-registration.js";
 import "../../src/custom/runtime-version.js";
+initializeOperatorBackground();
 initializeOptionMatch();
 initializeProfileAnswers();
 

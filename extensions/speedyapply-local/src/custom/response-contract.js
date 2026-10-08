@@ -1,7 +1,7 @@
 // One Saved Response contract for content, worker, the legacy editor and website.
 // The generated copies embed the server-owned declarative field contract.
 export const JobsResponseContract = (() => {
-  const rules = {"version":1,"keywordNormalization":"NFKC","keywordCategoryPrefixes":["L","N"],"keywordCharacters":"_","keywordWhitespace":true,"fields":{"keywords":{"type":"keywords","required":true,"minItems":1},"ignore":{"type":"strings"},"key":{"type":"string","required":true,"nonempty":true},"appearances":{"type":"integer","required":true,"minimum":1},"response":{"type":"string","required":true,"trim":true,"nonempty":true},"fromAutofill":{"type":"boolean","default":false},"question":{"type":"string"},"id":{"type":"string"},"jobKey":{"type":"string","nonempty":true}},"appearancesCannotExceedKeywords":true,"questionKeywords":{"categories":["L","N"],"characters":"_","stopWords":["am","an","as","at","be","by","co","do","eg","et","ex","go","he","hi","ie","if","in","is","it","me","mr","my","nd","of","oh","ok","on","or","qv","rd","re","so","th","to","un","up","us","vs","we"],"minimumLetters":2}};
+  const rules = {"version":2,"keywordNormalization":"NFKC","keywordCategoryPrefixes":["L","N"],"keywordCharacters":"_","keywordWhitespace":true,"fields":{"keywords":{"type":"keywords","required":true,"minItems":1},"ignore":{"type":"strings"},"key":{"type":"string","required":true,"nonempty":true},"appearances":{"type":"integer","required":true,"minimum":1},"response":{"type":"string","required":true,"trim":true,"nonempty":true},"fromAutofill":{"type":"boolean","default":false},"question":{"type":"string"},"id":{"type":"string"},"jobKey":{"type":"string","nonempty":true},"origin":{"type":"string","enum":["person","agent","page-tool","legacy"]},"ruleVersion":{"type":"integer","minimum":1},"context":{"type":"object","fields":{"jobKey":{"type":"string","maxLength":3000},"companyKey":{"type":"string","maxLength":3000},"country":{"type":"string","maxLength":100},"capturedAt":{"type":"string","maxLength":100}}}},"appearancesCannotExceedKeywords":true,"questionKeywords":{"categories":["L","N"],"characters":"_","stopWords":["am","an","as","at","be","by","co","do","eg","et","ex","go","he","hi","ie","if","in","is","it","me","mr","my","nd","of","oh","ok","on","or","qv","rd","re","so","th","to","un","up","us","vs","we"],"minimumLetters":2}};
   const cleanPattern = new RegExp(
     "[^" +
       rules.keywordCategoryPrefixes
@@ -75,7 +75,15 @@ export const JobsResponseContract = (() => {
       return value;
     }
     if (typeof value !== rule.type) throw Error("Invalid " + name);
+    if (rule.enum && !rule.enum.includes(value)) throw Error("Invalid " + name);
+    if (rule.type === "object") {
+      if (!value || Array.isArray(value) || Object.keys(value).some((key) => !(key in rule.fields)))
+        throw Error("Invalid " + name);
+      return Object.fromEntries(Object.entries(value).map(([key, item]) =>
+        [key, normalizeField(item, rule.fields[key], name + "." + key)]));
+    }
     const result = rule.trim ? value.trim() : value;
+    if (rule.maxLength && result.length > rule.maxLength) throw Error("Invalid " + name);
     if (rule.nonempty && !result.trim()) throw Error(name + " cannot be empty");
     return result;
   }
@@ -154,6 +162,10 @@ export const JobsResponseContract = (() => {
           field = field.transform((value) => [...new Set(value)]);
       } else if (rule.type === "integer")
         field = z.number().int().min(rule.minimum);
+      else if (rule.type === "object")
+        field = z.object(Object.fromEntries(Object.entries(rule.fields).map(([key, item]) =>
+          [key, z.string().max(item.maxLength).optional()]))).strict();
+      else if (rule.enum) field = z.enum(rule.enum);
       else field = z[rule.type]();
       if (rule.trim) field = field.trim();
       if (rule.nonempty)

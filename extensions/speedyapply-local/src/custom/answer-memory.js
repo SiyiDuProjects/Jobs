@@ -5,6 +5,7 @@ import { JobsResponseContract } from "./response-contract.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsPageSession } from "./control-content.js";
 import { JobsProfileAnswers } from "./profile-answers.js";
+import { JobsOperator } from "./operator-state.js";
 export var JobsAnswerMemory;
 let initialized = false;
 export function initializeAnswerMemory() {
@@ -51,7 +52,9 @@ export function initializeAnswerMemory() {
         for (const timer of timers.values()) view.clearTimeout(timer);
         timers.clear();
         let entries = [...pending.entries()].filter(
-          ([, item]) => !inFlight.has(item),
+          ([, item]) =>
+            !inFlight.has(item) &&
+            JobsOperator?.canLearn(item.record.operatorEpoch),
         );
         if (!entries.length) return;
         const profile = JobsPageSession?.profile?.();
@@ -95,18 +98,22 @@ export function initializeAnswerMemory() {
           },
         );
       }
-      function queue(record, node, immediate = false) {
+      function queue(
+        record,
+        node,
+        immediate = false,
+        operator = JobsOperator?.read(),
+      ) {
         if (
           !active ||
           !record ||
+          operator?.mode !== "person" ||
+          !JobsOperator?.canLearn(operator.epoch) ||
           record.question.length > 4000 ||
           record.response.length > 4000
         )
           return;
-        if (
-          !record.jobKey &&
-          JobsResponseContract?.jobSpecific(record.question)
-        ) {
+        if (!record.jobKey) {
           const jobKey = JobsJobMatch?.key(doc.location.href);
           if (!jobKey || JSON.parse(jobKey)[1] === "exact") {
             note("memory_job_scope_unavailable", node);
@@ -114,6 +121,17 @@ export function initializeAnswerMemory() {
           }
           record = { ...record, jobKey };
         }
+        record = {
+          ...record,
+          origin: "person",
+          operatorEpoch: operator.epoch,
+          ruleVersion: 2,
+          context: {
+            jobKey: record.jobKey,
+            companyKey: JobsJobMatch?.companyFromKey(record.jobKey) || "",
+            capturedAt: new Date().toISOString(),
+          },
+        };
         const scopeRoot = scope();
         if (JobsFormPipeline?.answered(scopeRoot)?.has(node)) {
           pending.delete(key(record));
@@ -154,12 +172,12 @@ export function initializeAnswerMemory() {
         lastRows = reader.scan();
         return lastRows.filter(matches);
       }
-      function capture(rows, immediate) {
+      function capture(rows, immediate, operator = JobsOperator?.read()) {
         for (const row of rows) {
           // Even a user correction of an AI draft waits for the same confirmation.
           if (review.has(row.node)) continue;
           const record = reader.response(row);
-          if (record) queue(record, row.node, immediate);
+          if (record) queue(record, row.node, immediate, operator);
           else {
             own.cancel(row.node);
             note("memory_not_captured", row.node);
@@ -168,6 +186,8 @@ export function initializeAnswerMemory() {
       }
       function interaction(event) {
         if (!active || !event.isTrusted || event.isComposing) return;
+        const operator = JobsOperator?.read();
+        if (operator?.mode !== "person") return;
         const target = event.composedPath?.()[0] || event.target;
         if (event.type === "pointerdown" || event.type === "keydown") {
           for (const row of rowsFor(target))
@@ -220,6 +240,7 @@ export function initializeAnswerMemory() {
                       candidates.some((before) => before.node === row.node),
                     ),
                   true,
+                  operator,
                 );
             });
             for (const row of candidates)
@@ -246,6 +267,7 @@ export function initializeAnswerMemory() {
                     candidates.some((before) => before.node === row.node),
                   ),
                 true,
+                operator,
               );
               for (const row of candidates) userChoices.delete(row.node);
             }
@@ -283,9 +305,22 @@ export function initializeAnswerMemory() {
           active = false;
           for (const dispose of disposers) dispose();
         },
-        remember(question, node, { requireReview = false, learn = true } = {}) {
+        remember(
+          question,
+          node,
+          {
+            requireReview = false,
+            learn = true,
+            origin = JobsOperator?.read().mode,
+          } = {},
+        ) {
+          learn = learn && origin === "person" && JobsOperator?.canLearn();
           if (requireReview && active && question && node?.isConnected) {
-            review.set(node, { question, learn });
+            review.set(node, {
+              question,
+              learn,
+              operatorEpoch: JobsOperator?.read().epoch,
+            });
             note(
               learn
                 ? "memory_awaiting_review"
@@ -339,7 +374,8 @@ export function initializeAnswerMemory() {
           for (const node of nodes)
             if (review.has(node)) {
               const item = review.get(node);
-              if (item.learn) own.remember(item.question, node);
+              if (item.learn && JobsOperator?.canLearn(item.operatorEpoch))
+                own.remember(item.question, node);
               review.delete(node);
             }
         },

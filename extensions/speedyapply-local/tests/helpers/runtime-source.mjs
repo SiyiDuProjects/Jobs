@@ -12,6 +12,11 @@ const dependencies = {
     "job-match.js",
     "page-actions.js",
   ],
+  "answer-memory.js": [
+    "operator-state.js",
+    "job-match-rules.js",
+    "job-match.js",
+  ],
   "automatic-field-policy.js": ["answer-policy.js"],
   "form-pipeline.js": ["page-actions.js", "dom-wait.js", "page-commit.js"],
   "manual-answer.js": ["form-pipeline.js"],
@@ -67,7 +72,7 @@ const dependencies = {
     "profile-answers.js",
     "form-pipeline.js",
   ],
-  "ai-review.js": ["page-actions.js", "form-pipeline.js"],
+  "ai-review.js": ["operator-state.js", "page-actions.js", "form-pipeline.js"],
   "control-content.js": [
     "autofill-preferences.js",
     "automatic-field-policy.js",
@@ -86,6 +91,8 @@ export async function readWithDependencies(path, encoding, ancestors = []) {
   const name = String(path)
     .replaceAll("\\", "/")
     .match(/\/src\/custom\/([^/]+)$/)?.[1];
+  if (name === "operator-state.js")
+    return "if (!globalThis.JobsOperator) {" + value + "}";
   if (!name || name === "page-actions.js") return value;
   if (ancestors.includes(name)) return "";
   const needed = [

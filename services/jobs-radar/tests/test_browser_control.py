@@ -494,7 +494,7 @@ def test_actual_extension_snapshot_and_command_result_match_server(subject):
       w.JobsControlConfig = { enabled: true };
       w.Date.now = () => 1800000000000;
       w.crypto.randomUUID = () => '00000000-0000-4000-8000-000000000001';
-      w.chrome = { runtime: { id: 'test-extension', sendMessage: async message => message.type === 'jobs:tab-profile'
+      w.chrome = { runtime: { id: 'test-extension', sendMessage: async message => message.type === 'jobs:operator-set' ? {state:{mode:message.mode,epoch:'agent-fixture',since:1}} : message.type === 'jobs:tab-profile'
         ? { data: { id: 'newgrad-profile', profile: { profileName: 'Newgrad' } } } : { ok: true },
         onMessage: { addListener: listener => listeners.push(listener) } } };
       for (const name of ['job-match-rules', 'job-match', 'control-fields', 'operation-context', 'control-content'])

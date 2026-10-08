@@ -43,6 +43,7 @@ test("typing reuses discovery but reads current values, validity, labels and rep
     on(type, fn, ...args);
   };
   w.eval(code);
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   w.JobsPageSession = { profile: () => ({}) };
   const memory = w.JobsAnswerMemory.start(root, true, async (rows) =>
     saved.push(...rows),
@@ -101,6 +102,7 @@ test("narrow reads preserve native radio grouping and current property-only sele
   try {
     const w = dom.window;
     w.eval(code);
+    w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
     const reader = w.JobsControlFields.create(w.document);
     const row = reader.scan()[0];
     w.document.querySelectorAll("input")[1].checked = true;

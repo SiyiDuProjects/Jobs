@@ -47,6 +47,8 @@ export type Response = {
   response: string;
   appearances: number;
   fromAutofill: boolean;
+  origin?: "person" | "agent" | "page-tool" | "legacy";
+  ruleVersion?: number;
   question?: string;
   id?: string;
 };

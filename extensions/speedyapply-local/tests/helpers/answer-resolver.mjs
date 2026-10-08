@@ -10,7 +10,7 @@ export const resolverSource = await readModule(
 export const resolverWith = (saved) =>
   resolverSource +
   `
-;(()=>{const resolver=globalThis.JobsAnswerResolver,read=async()=>(${saved});
+;(()=>{const resolver=globalThis.JobsAnswerResolver,read=async()=>(await (${saved})).map(row=>({origin:"person", ...(row.fromAutofill && !row.jobKey ? {jobKey:globalThis.JobsJobMatch?.key(globalThis.location?.href)} : {}),...row}));
 globalThis.JobsAnswerResolver=Object.freeze({...resolver,readSaved:read,resolve:async(questions,profile,options={})=>resolver.resolve(questions,profile,{saved:await read(),...options})});})();`;
 // Install it in a window or vm context with fixture saved responses.
 export function installAnswerResolver(target, saved = []) {

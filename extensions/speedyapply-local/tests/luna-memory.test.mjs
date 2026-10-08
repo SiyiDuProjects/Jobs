@@ -64,6 +64,7 @@ function setup(enabled = true) {
     },
   };
   w.eval(memoryCode);
+  w.JobsOperator.update({ mode: "person", epoch: "fixture" });
   w.JobsAnswerMemory.start(w.document, enabled, (rows) => saved.push(...rows));
   w.testNode = node;
   w.setState = (state) => states.push(state);

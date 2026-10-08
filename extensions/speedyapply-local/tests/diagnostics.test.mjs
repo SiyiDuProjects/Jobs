@@ -771,6 +771,7 @@ test("Luna completion uses ordinary saveResponses, respects disabled saving and 
   w.eval(modules["job-match-rules"]);
   w.eval(modules["job-match"]);
   w.eval(modules["answer-memory"]);
+  w.JobsOperator.update({ mode: "person", epoch: "fixture", since: 1 });
   const node = w.document.querySelector("textarea"),
     memory = w.JobsAnswerMemory;
   const flush = () => {

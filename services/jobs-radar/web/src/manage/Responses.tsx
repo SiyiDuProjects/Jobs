@@ -259,6 +259,8 @@ function ResponseEditor({
           );
         const value = savedResponses.normalizeRecord({
           ...draft,
+          origin: "person",
+          ruleVersion: 2,
           key:
             row?.key ||
             [...draft.keywords]

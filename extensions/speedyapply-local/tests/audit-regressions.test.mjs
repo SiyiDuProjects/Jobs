@@ -74,6 +74,7 @@ function page(html, url = "https://jobs.ashbyhq.com/example/test/application") {
     "ashby-controls",
   ])
     w.eval(code[name]);
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   const invoke = (m) =>
     new Promise((resolve) =>
       listeners.forEach((f) => f(m, { id: "audit" }, resolve)),
@@ -270,10 +271,12 @@ test("full question identity preserves reversed-direction answers", async () => 
   const responseKey = "jobsResponses:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
     data = { [responseKey]: [] };
   const c = vm.createContext({
+    readOperator: async () => ({ mode: "person", epoch: "fixture" }),
     // This suite isolates its contract; storage-upgrade.test covers the actual gate.
     JobsStorageUpgrade: { assertReady: async () => {}, peek: () => null },
     structuredClone,
     chrome: {
+      runtime: { id: "audit" },
       storage: {
         local: { get: async () => ({}), set: async () => {} },
         session: {
@@ -292,10 +295,23 @@ test("full question identity preserves reversed-direction answers", async () => 
     code["response-contract"] + "\n" + code["document-store"] + "\n" + writer,
     c,
   );
-  await c.saveResponses([
-    { question: "Relocate from Canada to Australia?", response: "Yes" },
-    { question: "Relocate from Australia to Canada?", response: "No" },
-  ]);
+  await c.saveResponses(
+    [
+      {
+        origin: "person",
+        operatorEpoch: "fixture",
+        question: "Relocate from Canada to Australia?",
+        response: "Yes",
+      },
+      {
+        origin: "person",
+        operatorEpoch: "fixture",
+        question: "Relocate from Australia to Canada?",
+        response: "No",
+      },
+    ],
+    { id: "audit", tab: { id: 1 } },
+  );
   assert.equal(data[responseKey].length, 2);
   assert.equal(new Set(data[responseKey].map((row) => row.key)).size, 2);
 });
@@ -303,6 +319,7 @@ test("a save arriving during final sync commit queues behind it and cannot be lo
   const id = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
     key = "jobsResponses:" + id;
   const initial = {
+    origin: "person",
     question: "Initial question",
     response: "A",
     keywords: ["initial"],
@@ -310,6 +327,7 @@ test("a save arriving during final sync commit queues behind it and cannot be lo
     appearances: 1,
   };
   const remoteAdded = {
+    origin: "person",
     question: "Remote question",
     response: "B",
     keywords: ["remote"],
@@ -346,6 +364,7 @@ test("a save arriving during final sync commit queues behind it and cannot be lo
     },
   };
   const c = vm.createContext({
+    readOperator: async () => ({ mode: "person", epoch: "fixture" }),
     // This suite isolates its contract; storage-upgrade.test covers the actual gate.
     JobsStorageUpgrade: { assertReady: async () => {}, peek: () => null },
     chrome: {
@@ -391,9 +410,17 @@ test("a save arriving during final sync commit queues behind it and cannot be lo
       );
     }),
   ]);
-  const save = c.saveResponses([
-    { question: "New local response", response: "C" },
-  ]);
+  const save = c.saveResponses(
+    [
+      {
+        origin: "person",
+        operatorEpoch: "fixture",
+        question: "New local response",
+        response: "C",
+      },
+    ],
+    { id: "audit", tab: { id: 1 } },
+  );
   release();
   await Promise.all([sync, save]);
   assert.deepEqual(
