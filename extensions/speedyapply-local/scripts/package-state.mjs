@@ -26,6 +26,7 @@ export const sourceInputs = [
   ...[
     "profile.schema",
     "answer-policy",
+    "answer-vocabulary",
     "saved_response_contract",
     "job_match_rules",
   ].map((name) => `../../services/jobs-radar/jobs_radar/${name}.json`),
