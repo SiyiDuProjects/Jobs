@@ -9,6 +9,7 @@ COPY scripts /build/scripts
 COPY jobs_radar/saved_response_contract.json /build/jobs_radar/saved_response_contract.json
 COPY jobs_radar/profile.schema.json /build/jobs_radar/profile.schema.json
 COPY jobs_radar/answer-policy.json /build/jobs_radar/answer-policy.json
+COPY jobs_radar/answer-vocabulary.json /build/jobs_radar/answer-vocabulary.json
 COPY jobs_radar/application-stages.json /build/jobs_radar/application-stages.json
 COPY web ./
 RUN npm run build
