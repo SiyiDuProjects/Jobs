@@ -487,6 +487,21 @@ export function initializeAutomaticFill() {
       latest = record;
       return task;
     }
+    // What a field's one decision offers its option reader later (before AI):
+    // the spec (search terms, the rule that picks), the answer, several answers.
+    const hint = (result) => {
+      const value = result.profileAnswer,
+        optionSpec = result.optionSpec || value?.optionSpec,
+        answer = result.answer ?? value?.answer,
+        answers = value?.answers;
+      return {
+        ...(optionSpec ? { optionSpec } : {}),
+        ...(typeof answer === "string" && answer
+          ? { answer: optionSpec?.query ?? answer }
+          : {}),
+        ...(Array.isArray(answers) ? { answers } : {}),
+      };
+    };
     async function run({
       root,
       profile,
@@ -526,21 +541,6 @@ export function initializeAutomaticFill() {
       const book = JobsFormPipeline.ledger(root);
       const literal = (answer) =>
         JobsProfileAnswers.literalSpec("known-answer", answer);
-      // What a field's one decision offers its option reader later (before AI):
-      // the spec (search terms, the rule that picks), the answer, several answers.
-      const hint = (result) => {
-        const value = result.profileAnswer,
-          optionSpec = result.optionSpec || value?.optionSpec,
-          answer = result.answer ?? value?.answer,
-          answers = value?.answers;
-        return {
-          ...(optionSpec ? { optionSpec } : {}),
-          ...(typeof answer === "string" && answer
-            ? { answer: optionSpec?.query ?? answer }
-            : {}),
-          ...(Array.isArray(answers) ? { answers } : {}),
-        };
-      };
       const isCheckbox = (row) =>
         ["checkbox", "custom-checkbox"].includes(row.public.type);
       // A fill step can report what it could not complete (an upload never
@@ -691,6 +691,7 @@ export function initializeAutomaticFill() {
           throw Error("Navigation cancelled before click");
         return true; // Attempt only. The original ATS success observer owns receipts.
       }
+      let resumeFields;
       async function approve(
         nodes,
         release,
@@ -752,6 +753,23 @@ export function initializeAutomaticFill() {
             return false;
           }
           try {
+            // Review edits can expose more required fields. Resolve them in
+            // this run before testing readiness or starting another review.
+            await JobsFormPipeline.settled(root, { canProceed: current });
+            const discovered = reader
+              .scan()
+              .some(
+                (row) =>
+                  row.public.required &&
+                  canFill(row.node) &&
+                  supplement(row) &&
+                  !book.peek(row.node)?.card &&
+                  !book.peek(row.node)?.aiTried,
+              );
+            if (discovered && resumeFields) {
+              flow.move("checking");
+              return await resumeFields();
+            }
             return await finish(undefined, canProceed);
           } catch (error) {
             flow.block();
@@ -762,9 +780,22 @@ export function initializeAutomaticFill() {
         } finally {
           if (needsReview()) {
             if (flow.state === "verifying") flow.move("review");
-            operation.pause();
+            attachReview();
           } else operation.release();
         }
+      }
+      function attachReview() {
+        operation.pause();
+        JobsAIReview.ready(approve, action, {
+          validate: async () => {
+            operation.resume();
+            try {
+              await binding();
+            } finally {
+              operation.pause();
+            }
+          },
+        });
       }
       try {
         flow.move("verifying");
@@ -1133,94 +1164,97 @@ export function initializeAutomaticFill() {
           await JobsFormPipeline.quiet(root);
           assertCurrent();
         }
-        // Bounded dependency waves; large forms may need several batches but
-        // known Profile answers do not consume the provider's 30-field limit.
-        for (let round = 0; round < 10; round++) {
-          // An optional Profile answer can reveal a required conditional field.
-          // Keep it inside the same settle/scan wave so that field is resolved
-          // before this step can navigate.
-          flow.move("scanning");
-          assertCurrent();
-          const written = await fillByRules();
-          assertCurrent();
-          flow.move("scanning");
-          if (written) continue;
-          const rows = reader.scan();
-          const pending = (row) => {
-            const record = book.peek(row.node);
-            return (
-              canFill(row.node) &&
-              row.public.required &&
-              supplement(row) &&
-              !record?.aiTried &&
-              !record?.card &&
-              record?.state !== "omitted"
-            );
-          };
-          note(
-            "auto_fields_scanned",
-            null,
-            JSON.stringify({
-              fields: rows.length,
-              candidates: rows.filter(pending).length,
-              round,
-            }),
-          );
-          if (needsReview() && !rows.some(pending)) break;
-          const settled = await reader.settle({
-            review,
-            next: action === "next",
-            selector: action === "fill" ? undefined : selector,
-            target: action === "fill" ? undefined : target,
-            canProceed: current,
-            pending,
-            beforeReady,
-          });
-          if (!settled) {
+        resumeFields = async () => {
+          // Bounded dependency waves; large forms may need several batches but
+          // known Profile answers do not consume the provider's 30-field limit.
+          for (let round = 0; round < 10; round++) {
+            // An optional Profile answer can reveal a required conditional field.
+            // Keep it inside the same settle/scan wave so that field is resolved
+            // before this step can navigate.
+            flow.move("scanning");
             assertCurrent();
-            // Show unsettled gaps without writing answers or weakening navigation.
-            for (const row of reader.scan().filter(pending))
-              leave(row, "Form readiness timed out before supplementation");
-            if (needsReview()) break;
-            throw Error("页面尚未就绪，请检查校验提示和继续按钮");
-          }
-          if (!settled.pending) {
-            prepared = settled;
-            break;
-          }
-          const candidates = settled.state.rows.filter(pending);
-          if (resolveAnswers && candidates.some(unruled)) {
-            note("auto_fields_discovered", null, String(candidates.length));
-            continue;
-          }
-          if (!rows.some(pending))
-            note("auto_fields_discovered", null, String(candidates.length));
-          for (const row of candidates)
-            note("auto_gap_stable", row.node, row.public.type);
-          const submitted = await prepareSupplement(candidates);
-          if (!submitted.length) continue;
-          await applySupplement(submitted);
-        }
-        if (needsReview()) {
-          flow.move("review");
-          if (autoConfirm && ready() && JobsAIReview.canAutoConfirm(root)) {
-            setMessage("checking");
-            note("auto_review_automatic", null, "Complete answers validated");
-            return await approve(
-              book.carded().map((record) => record.node),
-              () => JobsAIReview.release(root),
-              { automatic: true },
+            const written = await fillByRules();
+            assertCurrent();
+            flow.move("scanning");
+            if (written) continue;
+            const rows = reader.scan();
+            const pending = (row) => {
+              const record = book.peek(row.node);
+              return (
+                canFill(row.node) &&
+                row.public.required &&
+                supplement(row) &&
+                !record?.aiTried &&
+                !record?.card &&
+                record?.state !== "omitted"
+              );
+            };
+            note(
+              "auto_fields_scanned",
+              null,
+              JSON.stringify({
+                fields: rows.length,
+                candidates: rows.filter(pending).length,
+                round,
+              }),
             );
+            if (needsReview() && !rows.some(pending)) break;
+            const settled = await reader.settle({
+              review,
+              next: action === "next",
+              selector: action === "fill" ? undefined : selector,
+              target: action === "fill" ? undefined : target,
+              canProceed: current,
+              pending,
+              beforeReady,
+            });
+            if (!settled) {
+              assertCurrent();
+              // Show unsettled gaps without writing answers or weakening navigation.
+              for (const row of reader.scan().filter(pending))
+                leave(row, "Form readiness timed out before supplementation");
+              if (needsReview()) break;
+              throw Error("页面尚未就绪，请检查校验提示和继续按钮");
+            }
+            if (!settled.pending) {
+              prepared = settled;
+              break;
+            }
+            const candidates = settled.state.rows.filter(pending);
+            if (resolveAnswers && candidates.some(unruled)) {
+              note("auto_fields_discovered", null, String(candidates.length));
+              continue;
+            }
+            if (!rows.some(pending))
+              note("auto_fields_discovered", null, String(candidates.length));
+            for (const row of candidates)
+              note("auto_gap_stable", row.node, row.public.type);
+            const submitted = await prepareSupplement(candidates);
+            if (!submitted.length) continue;
+            await applySupplement(submitted);
           }
-          setMessage("ai-review");
-          note(
-            "auto_awaiting_review",
-            null,
-            "Unresolved answers require attention",
-          );
-          return false;
-        }
-        return await finish(prepared);
+          if (needsReview()) {
+            flow.move("review");
+            if (autoConfirm && ready() && JobsAIReview.canAutoConfirm(root)) {
+              setMessage("checking");
+              note("auto_review_automatic", null, "Complete answers validated");
+              return await approve(
+                book.carded().map((record) => record.node),
+                () => JobsAIReview.release(root),
+                { automatic: true },
+              );
+            }
+            setMessage("ai-review");
+            note(
+              "auto_awaiting_review",
+              null,
+              "Unresolved answers require attention",
+            );
+            return false;
+          }
+          return await finish(prepared);
+        };
+        return await resumeFields();
       } finally {
         // One timing record per run: where its time went.
         note(
@@ -1246,17 +1280,7 @@ export function initializeAutomaticFill() {
             ].includes(flow.state)
           )
             flow.move("review");
-          operation.pause();
-          JobsAIReview.ready(approve, action, {
-            validate: async () => {
-              operation.resume();
-              try {
-                await binding();
-              } finally {
-                operation.pause();
-              }
-            },
-          });
+          attachReview();
         } else operation.release();
       }
     }
