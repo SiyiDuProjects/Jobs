@@ -13,7 +13,7 @@ const read = (name) =>
 const sources = await Promise.all(
   ["dom-wait", "option-match", "control-fields", "aria-controls"].map(read),
 );
-const fieldsSource = await readModule(
+const fieldsSource = await fs.readFile(
   new URL("../src/custom/control-fields.js", import.meta.url),
   "utf8",
 );

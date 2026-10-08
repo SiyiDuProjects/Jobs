@@ -100,7 +100,7 @@ export async function readWithDependencies(path, encoding, ancestors = []) {
   if (ancestors.includes(name)) return "";
   const needed = [
     ...(dependencies[name] || []),
-    ...(value.includes("globalThis.JobsPageActions") && !dependencies[name]
+    ...(value.includes("JobsPageActions") && !dependencies[name]
       ? ["page-actions.js"]
       : []),
   ];
