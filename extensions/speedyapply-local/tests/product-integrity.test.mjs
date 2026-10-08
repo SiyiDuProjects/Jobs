@@ -72,9 +72,14 @@ test("an attempt is recorded before fast close, without waiting for unload or co
 });
 
 test("a learned answer never becomes a keyword rule for a different question", () => {
-  const c = vm.createContext({});
-  vm.runInContext(answers, c);
+  const c = vm.createContext({
+    URL,
+    location: { href: "https://jobs.ashbyhq.com/example/role/application" },
+  });
+  vm.runInContext(matching + "\n" + answers, c);
   const rule = {
+    origin: "person",
+    jobKey: c.JobsJobMatch.key(c.location.href),
     question: "Have you used Java?",
     keywords: ["have", "you", "used", "java"],
     appearances: 4,
@@ -117,7 +122,12 @@ test("option matching preserves negation, language symbols, numbers and ambiguit
     ["1-2 years", ["12 years", "2 years"]],
     ["Research", ["Research engineering", "Research analysis"]],
   ]) {
-    const rule = { keywords: ["preference"], appearances: 1, response };
+    const rule = {
+      origin: "person",
+      keywords: ["preference"],
+      appearances: 1,
+      response,
+    };
     assert.equal(
       c.JobsAnswerResolver.matchSaved(
         { question: "Your preference?", options },
@@ -128,6 +138,7 @@ test("option matching preserves negation, language symbols, numbers and ambiguit
     );
   }
   const exact = {
+    origin: "person",
     question: "Language?",
     keywords: ["language"],
     appearances: 1,
@@ -150,6 +161,7 @@ test("company-scoped answers reuse another role at the same employer, never anot
   vm.runInContext(matching + "\n" + answers, c);
   const question = "Why this team?",
     rule = {
+      origin: "person",
       question,
       response: "I am excited by Company A",
       keywords: ["why", "team"],
@@ -193,7 +205,7 @@ test("company-scoped answers reuse another role at the same employer, never anot
   );
 });
 
-test("why questions about personal history remain reusable without weakening employer scope", () => {
+test("captured answers without their context never become global personal facts", () => {
   const c = vm.createContext({
     URL,
     location: { href: "https://jobs.ashbyhq.com/company-b/role/application" },
@@ -204,6 +216,7 @@ test("why questions about personal history remain reusable without weakening emp
     "Why did you choose Physics?",
   ]) {
     const rule = {
+      origin: "person",
       question,
       response: "Previously confirmed personal answer",
       keywords: ["why"],
@@ -213,7 +226,7 @@ test("why questions about personal history remain reusable without weakening emp
     assert.equal(c.JobsResponseContract.jobSpecific(question), false, question);
     assert.equal(
       c.JobsAnswerResolver.matchSaved({ question }, [rule]),
-      rule.response,
+      null,
       question,
     );
   }
@@ -226,6 +239,7 @@ test("why questions about personal history remain reusable without weakening emp
     "Why are you interested in working for us?",
   ]) {
     const rule = {
+      origin: "person",
       question,
       response: "Company A motivation",
       keywords: ["why"],

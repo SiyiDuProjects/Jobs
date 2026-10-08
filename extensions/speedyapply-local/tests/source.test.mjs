@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { nativePackage } from "./helpers/native-package.mjs";
 test("native package preserves the installed public identity and contains only maintained code plus npm modules", async () => {
@@ -46,7 +48,19 @@ test("native package preserves the installed public identity and contains only m
       await fs.readFile(result.stage + "/" + entry + "-modules.json", "utf8"),
     )) {
       assert(
-        /^(source\/|src\/custom\/|node_modules\/date-fns\/)/.test(input),
+        /^(source\/|src\/custom\/)/.test(input) ||
+          (
+            await fs.realpath(
+              path.resolve(
+                fileURLToPath(new URL("..", import.meta.url)),
+                input,
+              ),
+            )
+          ).startsWith(
+            (await fs.realpath(
+              new URL("../node_modules/date-fns", import.meta.url),
+            )) + path.sep,
+          ),
         input,
       );
       assert(!/vendor|runtime\.template|src\/chunks/.test(input));

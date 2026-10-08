@@ -58,7 +58,9 @@ function setup(data, company = "example", kind = "radio") {
     storageKey: async () => responseKey,
     read: () => w.readSaved(),
   };
+  w.readOperator = async () => ({ mode: "person", epoch: "fixture" });
   w.chrome = {
+    runtime: { id: "fixture" },
     storage: {
       local: {
         async get() {
@@ -81,7 +83,10 @@ function setup(data, company = "example", kind = "radio") {
     },
   };
   w.eval(responseContract + "\n" + storeCode);
-  w.eval(writer + "\nwindow.saveOriginal=entries=>saveResponses(entries,{});");
+  w.eval(
+    writer +
+      "\nwindow.saveOriginal=entries=>saveResponses(entries.map(entry=>({origin:'person',operatorEpoch:'fixture',jobKey:JobsJobMatch.key(location.href),...entry})),{id:'fixture',tab:{id:1}});",
+  );
   w.eval(
     matcher +
       "\nwindow.matchOriginal = async question => JobsAnswerResolver.matchSaved({question}, await window.readSaved());",
@@ -111,6 +116,7 @@ function setup(data, company = "example", kind = "radio") {
     return add(type, listener, ...args);
   };
   w.eval(captureCode);
+  w.JobsOperator.update({ mode: "person", epoch: "fixture" });
   let pending = Promise.resolve();
   const save = (records) => (pending = w.saveOriginal(records));
   return {
@@ -126,7 +132,7 @@ function setup(data, company = "example", kind = "radio") {
     },
   };
 }
-test("radio selection enters original responseList and matches across company pages", async () => {
+test("radio selection records its company and does not silently expand across employers", async () => {
   const data = {};
   const a = setup(data);
   a.memory.start(a.doc, true, a.save);
@@ -148,12 +154,12 @@ test("radio selection enters original responseList and matches across company pa
   );
   assert.equal(data[responseKey][0].fromAutofill, true);
   const b = setup(data, "another-company");
-  assert.equal(await b.w.matchOriginal(question), "Yes, willing");
+  assert.equal(await b.w.matchOriginal(question), null);
   assert.deepEqual(Object.keys(data), [responseKey]);
   a.dom.window.close();
   b.dom.window.close();
 });
-test("manual personal why answers remain reusable across jobs while employer motivation stays scoped", async () => {
+test("manual answers retain capture context without guessing cross-company scope", async () => {
   const data = {},
     a = setup(data, "company-a"),
     b = setup(data, "company-b");
@@ -178,9 +184,9 @@ test("manual personal why answers remain reusable across jobs while employer mot
       const question = nodes[index].closest("label").textContent;
       assert.equal(
         data[responseKey].find((row) => row.question === question).jobKey,
-        undefined,
+        a.w.JobsJobMatch.key(a.w.location.href),
       );
-      assert.equal(await b.w.matchOriginal(question), values[index]);
+      assert.equal(await b.w.matchOriginal(question), null);
     }
     const motivation = "Why do you want to work here?";
     assert.equal(
@@ -243,7 +249,9 @@ test("manual correction updates the same Saved Response instead of creating a du
 test("Saved Responses edits and deletions are effective immediately without a private cache", async () => {
   const data = {};
   const a = setup(data);
-  await a.w.saveOriginal([{ question, response: "Yes, willing" }]);
+  await a.w.saveOriginal([
+    { origin: "person", question, response: "Yes, willing" },
+  ]);
   data[responseKey][0].response = "No, unwilling";
   assert.equal(await a.w.matchOriginal(question), "No, unwilling");
   data[responseKey] = [];
@@ -254,9 +262,15 @@ test("rapid concurrent saves retain both answers and preserve existing rule meta
   const data = {};
   const a = setup(data);
   await Promise.all([
-    a.w.saveOriginal([{ question, response: "Yes, willing" }]),
     a.w.saveOriginal([
-      { question: "Have you previously worked for Rivian?", response: "No" },
+      { origin: "person", question, response: "Yes, willing" },
+    ]),
+    a.w.saveOriginal([
+      {
+        origin: "person",
+        question: "Have you previously worked for Rivian?",
+        response: "No",
+      },
     ]),
   ]);
   assert.equal(data[responseKey].length, 2);
@@ -267,7 +281,9 @@ test("rapid concurrent saves retain both answers and preserve existing rule meta
   const original = data[responseKey].find((row) => row.question === question);
   original.id = "existing-cloud-id";
   original.ignore = ["remote"];
-  await a.w.saveOriginal([{ question, response: "No, unwilling" }]);
+  await a.w.saveOriginal([
+    { origin: "person", question, response: "No, unwilling" },
+  ]);
   const updated = data[responseKey].find((row) => row.question === question);
   assert.equal(updated.id, "existing-cloud-id");
   assert.deepEqual(updated.ignore, ["remote"]);
@@ -452,7 +468,12 @@ test("failed saving stays diagnosable and retries on the next flush, then avoids
   await a.settle();
   assert(events.includes("memory_saved"));
   const result = await a.w.saveOriginal([
-    { question: "Custom answer", response: "Answer" },
+    {
+      origin: "person",
+      question: "Custom answer",
+      response: "Answer",
+      jobKey: data[responseKey][0].jobKey,
+    },
   ]);
   assert.equal(result.ok, true);
   assert.equal(result.saved, 0);
@@ -463,8 +484,12 @@ test("exact saved questions survive short or non-English labels and take precede
   const data = {};
   const a = setup(data);
   await a.w.saveOriginal([
-    { question: "工作地点？", response: "上海" },
-    { question: "Are you authorized to work?", response: "No" },
+    { origin: "person", question: "工作地点？", response: "上海" },
+    {
+      origin: "person",
+      question: "Are you authorized to work?",
+      response: "No",
+    },
   ]);
   assert.equal(await a.w.matchOriginal("工作地点？"), "上海");
   a.w.eval(
@@ -484,13 +509,18 @@ test("same question drafts for two companies survive the actual background write
     keyB = b.w.JobsJobMatch.key(b.w.location.href);
   try {
     await a.w.saveOriginal([
-      { question, response: "Company A draft", jobKey: keyA },
+      { origin: "person", question, response: "Company A draft", jobKey: keyA },
     ]);
     await b.w.saveOriginal([
-      { question, response: "Company B draft", jobKey: keyB },
+      { origin: "person", question, response: "Company B draft", jobKey: keyB },
     ]);
     await a.w.saveOriginal([
-      { question, response: "Company A corrected", jobKey: keyA },
+      {
+        origin: "person",
+        question,
+        response: "Company A corrected",
+        jobKey: keyA,
+      },
     ]);
     assert.equal(data[responseKey].length, 2);
     assert.equal(await a.w.matchOriginal(question), "Company A corrected");
@@ -528,6 +558,7 @@ test("confirmed review answers refill a sibling role and update one company answ
     assert.equal(await other.w.matchOriginal(question), null);
     await b.w.saveOriginal([
       {
+        origin: "person",
         question,
         response: "Corrected answer",
         jobKey: b.w.JobsJobMatch.key(b.w.location.href),
@@ -561,14 +592,15 @@ test("saved text, select, checkbox and custom radio refill a fresh Ashby form wi
     '<div class="ashby-application-form-field-entry"><label class="ashby-application-form-question-title">Why this team?</label><textarea></textarea></div><div class="ashby-application-form-field-entry"><label class="ashby-application-form-question-title">Source?</label><select><option value="">Choose</option><option value="ref">Referral</option></select></div><fieldset class="ashby-application-form-field-entry"><legend class="ashby-application-form-question-title">Available days</legend><label>Monday<input type="checkbox"></label><label>Tuesday<input type="checkbox"></label></fieldset><div class="ashby-application-form-field-entry"><label class="ashby-application-form-question-title">Remote preference</label><div role="radiogroup" aria-label="Remote preference"><button role="radio" aria-checked="false">Yes</button><button role="radio" aria-checked="false">No</button></div></div>';
   await a.w.saveOriginal([
     {
+      origin: "person",
       question: "Why this team?",
       response: "Specific motivation",
       jobKey: a.w.JobsJobMatch.key(a.w.location.href),
     },
-    { question: "Source?", response: "Referral" },
-    { question: "Available days — Monday", response: "Yes" },
-    { question: "Available days — Tuesday", response: "No" },
-    { question: "Remote preference", response: "No" },
+    { origin: "person", question: "Source?", response: "Referral" },
+    { origin: "person", question: "Available days — Monday", response: "Yes" },
+    { origin: "person", question: "Available days — Tuesday", response: "No" },
+    { origin: "person", question: "Remote preference", response: "No" },
   ]);
   let learned = 0;
   a.memory.start(a.doc, true, () => {
@@ -604,4 +636,56 @@ test("saved text, select, checkbox and custom radio refill a fresh Ashby form wi
   assert.equal(a.doc.querySelector('[aria-checked="true"]').textContent, "No");
   assert.equal(learned, 0);
   a.dom.window.close();
+});
+
+for (const mode of ["agent", "page-tool", "unknown"])
+  test(`${mode} input never becomes a reusable personal answer`, async () => {
+    const data = {},
+      h = setup(data);
+    if (mode === "unknown") h.w.JobsOperator = h.w.createOperatorState();
+    else h.w.JobsOperator.update({ mode, epoch: "not-person" });
+    h.memory.start(h.doc, true, h.save);
+    const node = h.doc.getElementById("yes");
+    node.checked = true;
+    h.handlers.change({ type: "change", isTrusted: true, target: node });
+    h.memory.flush();
+    await h.settle();
+    assert.equal(data[responseKey]?.length || 0, 0);
+    h.dom.window.close();
+  });
+
+test("hand-back cannot relabel queued input from an earlier operator epoch", async () => {
+  const data = {},
+    h = setup(data);
+  h.memory.start(h.doc, true, h.save);
+  const node = h.doc.getElementById("yes");
+  node.checked = true;
+  h.handlers.change({ type: "change", isTrusted: true, target: node });
+  h.w.JobsOperator.update({ mode: "agent", epoch: "agent-2" });
+  h.memory.flush();
+  await h.settle();
+  h.w.JobsOperator.update({ mode: "person", epoch: "person-3" });
+  h.memory.flush();
+  await h.settle();
+  assert.equal(data[responseKey]?.length || 0, 0);
+  h.dom.window.close();
+});
+
+test("saving a person answer preserves an unknown legacy record without promoting it", async () => {
+  const data = {},
+    h = setup(data);
+  await h.w.saveOriginal([
+    { question: "A synthetic question", response: "Confirmed" },
+  ]);
+  const prior = data[responseKey][0];
+  delete prior.origin;
+  prior.response = "Legacy";
+  await h.w.saveOriginal([
+    { question: "A synthetic question", response: "Confirmed" },
+  ]);
+  assert.equal(data[responseKey].length, 2);
+  assert.equal(data[responseKey][0].origin, undefined);
+  assert.equal(data[responseKey][0].response, "Legacy");
+  assert.equal(data[responseKey][1].origin, "person");
+  h.dom.window.close();
 });

@@ -55,3 +55,34 @@ console.log(JSON.stringify(JSON.parse(fs.readFileSync(0,'utf8')).map(JobsRespons
     result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).resolve().parents[1],
                             input=json.dumps(questions), text=True, encoding='utf8', capture_output=True, check=True)
     assert json.loads(result.stdout) == [question_keywords(question) for question in questions]
+
+
+@pytest.mark.parametrize('origin', ['person', 'agent', 'page-tool', 'legacy'])
+def test_provenance_roundtrips_through_both_browser_contracts_and_storage(tmp_path, origin):
+    import subprocess
+    key = 'jobsResponses:' + str(uuid.uuid4())
+    row = {**EXAMPLES[0]['input'], 'origin': origin, 'ruleVersion': 2,
+           'context': {'jobKey': 'synthetic-job', 'companyKey': 'synthetic-company',
+                       'country': 'US', 'capturedAt': '2026-10-07T00:00:00Z'}}
+    root = Path(__file__).resolve().parents[3]
+    script = """
+import fs from 'node:fs';
+import {JobsResponseContract as extension} from './extensions/speedyapply-local/src/custom/response-contract.js';
+import {JobsResponseContract as website} from './services/jobs-radar/web/src/manage/saved-response-contract.js';
+const row=JSON.parse(fs.readFileSync(0,'utf8'));
+console.log(JSON.stringify([extension.parseList([row])[0], website.parseList([row])[0]]));
+"""
+    result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=root,
+                            input=json.dumps(row), text=True, capture_output=True, check=True)
+    expected = normalize_record(row)
+    assert json.loads(result.stdout) == [expected, expected]
+    store = Store(tmp_path / 'provenance.sqlite'); Profiles(store)
+    management = Management(store)
+    management.write([{'key': key, 'revision': 0, 'value': [expected]}])
+    assert management.snapshot()[key]['value'] == [expected]
+
+
+def test_legacy_origin_stays_unknown_and_invalid_provenance_is_rejected():
+    assert 'origin' not in normalize_record(EXAMPLES[0]['input'])
+    for extra in [{'origin': 'human-ish'}, {'context': {'credential': 'never'}}, {'ruleVersion': 0}]:
+        with pytest.raises(ValueError): normalize_record({**EXAMPLES[0]['input'], **extra})

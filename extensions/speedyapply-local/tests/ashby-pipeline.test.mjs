@@ -102,6 +102,7 @@ function fixture(t, saved = []) {
     perform: (operation, target, run) => run(),
   };
   for (const code of [...scripts, ...shared]) w.eval(code);
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   w.eval(adapter);
   installAnswerResolver(w, saved);
   const answerers = inspectAnswerers(w);
@@ -161,7 +162,13 @@ function fixture(t, saved = []) {
 const onsite = "Will you be able to work onsite?";
 test("an Ashby form fills in one pipeline run: bindings, rule answers with the Yes/No policy, then AI for the gap", async (t) => {
   const f = fixture(t, [
-    { question: onsite, response: "Yes", keywords: ["onsite"], appearances: 1 },
+    {
+      origin: "person",
+      question: onsite,
+      response: "Yes",
+      keywords: ["onsite"],
+      appearances: 1,
+    },
   ]);
   await f.run(false);
   await f.until(
@@ -195,7 +202,13 @@ test("an Ashby form fills in one pipeline run: bindings, rule answers with the Y
 
 test("with Auto-Submit the Ashby run submits once, without the old fixed delay", async (t) => {
   const f = fixture(t, [
-    { question: onsite, response: "Yes", keywords: ["onsite"], appearances: 1 },
+    {
+      origin: "person",
+      question: onsite,
+      response: "Yes",
+      keywords: ["onsite"],
+      appearances: 1,
+    },
   ]);
   const start = Date.now();
   await f.run(true);
@@ -212,9 +225,21 @@ test("with Auto-Submit the Ashby run submits once, without the old fixed delay",
 
 test("Ashby optional keyword memory stays blank while the exact saved question fills", async (t) => {
   const f = fixture(t, [
-    { question: onsite, response: "Yes", keywords: ["onsite"], appearances: 1 },
-    { keywords: ["favorite"], response: "Python", appearances: 1 },
     {
+      origin: "person",
+      question: onsite,
+      response: "Yes",
+      keywords: ["onsite"],
+      appearances: 1,
+    },
+    {
+      origin: "person",
+      keywords: ["favorite"],
+      response: "Python",
+      appearances: 1,
+    },
+    {
+      origin: "person",
       question: "Preferred team",
       keywords: ["team"],
       response: "Platform",
@@ -242,7 +267,13 @@ test("Ashby optional keyword memory stays blank while the exact saved question f
 
 test("manual Ashby refill uses the same single run without submitting", async (t) => {
   const f = fixture(t, [
-    { question: onsite, response: "Yes", keywords: ["onsite"], appearances: 1 },
+    {
+      origin: "person",
+      question: onsite,
+      response: "Yes",
+      keywords: ["onsite"],
+      appearances: 1,
+    },
   ]);
   let refill;
   f.w.JobsPageSession = {

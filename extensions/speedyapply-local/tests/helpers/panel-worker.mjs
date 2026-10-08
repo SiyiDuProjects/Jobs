@@ -1,5 +1,6 @@
 import { build } from "esbuild";
 import vm from "node:vm";
+import { webcrypto } from "node:crypto";
 const code = (
   await build({
     stdin: {
@@ -69,6 +70,10 @@ export function panelWorker({
     },
     scripting: { executeScript: inject },
     storage: {
+      local: {
+        get: async () => ({}),
+        set: async () => {},
+      },
       session: {
         get: async (key) => ({ [key]: structuredClone(storage[key]) }),
         set: async (value) => {
@@ -91,7 +96,7 @@ export function panelWorker({
   };
   function restart() {
     listeners = [];
-    vm.runInNewContext(code, { chrome, console });
+    vm.runInNewContext(code, { crypto: webcrypto, chrome, console });
   }
   restart();
   const panel = { id: "jobs", url: chrome.runtime.getURL("popup.html") };

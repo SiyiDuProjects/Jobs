@@ -27,6 +27,17 @@ export function createPanelController(api, changed) {
           (result?.review ? "等待你确认答案" : "当前页面暂无投递进度"),
         status: result?.status,
         review: result?.review,
+        operator: result?.operator,
+        setOperator: async (mode) => {
+          if (disposed || tab !== owner) return;
+          const reply = await api.runtime.sendMessage({
+            type: "jobs:operator-set",
+            tabId: owner.id,
+            mode,
+          });
+          if (reply?.error) throw Error(reply.error);
+          if (!disposed && tab === owner) await refresh();
+        },
         act: async (action, itemId, payload) => {
           if (disposed || tab !== owner || !result.review)
             return { error: "页面已切换，请检查当前岗位。" };

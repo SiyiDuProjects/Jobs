@@ -27,9 +27,11 @@ import { initializeApplicationQueue } from "../../src/custom/application-queue.j
 import { initializeQueueBackground } from "../../src/custom/queue-background.js";
 import { initializeSubmissionBackground } from "../../src/custom/submission-background.js";
 import "../../source/background-api.js";
+import { initializeOperatorBackground } from "../../src/custom/operator-background.js";
 import "../../source/runtime-registration.js";
 import "../../src/custom/runtime-version.js";
 initializeStorageUpgrade();
+initializeOperatorBackground();
 initializeOptionMatch();
 initializeProfileAnswers();
 

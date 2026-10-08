@@ -47,9 +47,15 @@ def normalize_record(value):
             if type(field) is not int or field < rule['minimum']: raise ValueError('Invalid ' + name)
         elif kind == 'string':
             if not isinstance(field, str): raise ValueError('Invalid ' + name)
+            if rule.get('enum') and field not in rule['enum']: raise ValueError('Invalid ' + name)
             if rule.get('trim'): field = field.strip()
             if rule.get('nonempty') and not field.strip(): raise ValueError(name + ' cannot be empty')
         elif kind == 'boolean' and type(field) is not bool: raise ValueError('Invalid ' + name)
+        elif kind == 'object':
+            if not isinstance(field, dict) or set(field) - set(rule['fields']): raise ValueError('Invalid ' + name)
+            for key, item in field.items():
+                if not isinstance(item, str) or len(item) > rule['fields'][key]['maxLength']:
+                    raise ValueError('Invalid ' + name + '.' + key)
         result[name] = field
     if RULES['appearancesCannotExceedKeywords'] and result['appearances'] > len(result['keywords']): raise ValueError('Appearances exceed distinct keywords')
     return result

@@ -72,6 +72,7 @@ function setup(html, url = "https://fixture.myworkdayjobs.com/apply") {
     },
   };
   codes.forEach((code) => w.eval(code));
+  w.JobsOperator.update({ mode: "person", epoch: "fixture" });
   mountReviewPanel(w);
   w.document.querySelector("#next").onclick = () => clicks++;
   return {

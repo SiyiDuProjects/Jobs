@@ -76,6 +76,7 @@ function setup(html, answer) {
     },
   };
   codes.forEach((code) => w.eval(code));
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   mountReviewPanel(w);
   w.document.querySelector("#submit").onclick = () => clicks++;
   const run = (options = {}) =>

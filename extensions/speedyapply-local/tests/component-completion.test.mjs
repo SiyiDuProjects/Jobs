@@ -51,6 +51,10 @@ async function fixture(mode) {
       getManifest: () => ({ version_name: "fixture" }),
       onMessage: { addListener: (listener) => listeners.push(listener) },
       sendMessage: async (message) => {
+        if (message.type === "jobs:operator-set")
+          return {
+            state: { mode: message.mode, epoch: "fixture-agent", since: 1 },
+          };
         if (message.type === "jobs:tab-profile")
           return { data: { id: "fixture", profile } };
         if (message.type === "jobs:auto-answers") {
@@ -264,6 +268,10 @@ for (const entry of ["ai", "known-answer", "remote"])
         getManifest: () => ({ version_name: "fixture" }),
         onMessage: { addListener: (listener) => listeners.push(listener) },
         sendMessage: async (message) => {
+          if (message.type === "jobs:operator-set")
+            return {
+              state: { mode: message.mode, epoch: "fixture-agent", since: 1 },
+            };
           if (message.type === "jobs:tab-profile")
             return { data: { id: "fixture", profile } };
           if (message.type === "jobs:auto-answers") {

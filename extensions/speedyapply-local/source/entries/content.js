@@ -39,8 +39,10 @@ import { initializeReviewPresenter } from "../../src/custom/review-presenter.js"
 import { initializeAiReview } from "../../src/custom/ai-review.js";
 import { initializeAutomaticFill } from "../../src/custom/automatic-fill.js";
 import { watchPage } from "../content/shell.js";
+import { connectOperator } from "../../src/custom/operator-state.js";
 if (!globalThis.__jobsNativePage) {
   globalThis.__jobsNativePage = true;
+  void connectOperator();
   initializeQueuePage();
   initializePageActions();
   initializeJobMatchRules();

@@ -1,3 +1,4 @@
+import { signatureAnswer } from "./signature-answer.js";
 import { JobsOptionMatch } from "./option-match.js";
 import { JobsAnswerPolicy } from "./answer-policy.js";
 export var JobsProfileAnswers;
@@ -2703,6 +2704,13 @@ export function initializeProfileAnswers() {
       return null;
     }
     function resolve(question, profile, context = {}) {
+      const signed = signatureAnswer(
+        questionText(question),
+        profile,
+        context,
+        today(),
+      );
+      if (signed) return signed;
       const rule = classify(question, context);
       if (!rule) return null;
       return topicRegistry[rule.theme].resolve(

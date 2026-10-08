@@ -5,6 +5,7 @@ import { JobsControlFields } from "./control-fields.js";
 import { JobsAnswerMemory } from "./answer-memory.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsAIReview } from "./ai-review.js";
+import { claimAgentOperator } from "./operator-state.js";
 import { JobsOperationContext } from "./operation-context.js";
 import { JobsFormPipeline } from "./form-pipeline.js";
 import { JobsQueuePage } from "./queue-page.js";
@@ -274,6 +275,7 @@ export function initializeControlContent() {
         let data;
         if (command.action === "inspect") data = outcome("inspect");
         else {
+          await claimAgentOperator();
           const owner = adapter;
           const reviewAction = ["answer_review", "confirm_review"].includes(
             command.action,
