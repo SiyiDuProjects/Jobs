@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { transform } from "esbuild";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse } from "@babel/parser";
@@ -15,73 +16,42 @@ export function functionBlock(source, name) {
     },
   });
   if (!found) throw new Error("Missing function " + name);
-  return source.slice(found.start, found.end);
+  const namespaces = new Set();
+  traverse(parse(source, { sourceType: "unambiguous" }), {
+    VariableDeclarator(p) {
+      if (
+        p.node.id.type === "Identifier" &&
+        p.node.init?.type === "CallExpression" &&
+        p.node.init.callee.name === "require"
+      )
+        namespaces.add(p.node.id.name);
+    },
+  });
+  return (
+    [...namespaces].map((name) => "var " + name + "=globalThis;").join("\n") +
+    "\n" +
+    source.slice(found.start, found.end)
+  );
 }
-// Unit tests install explicit dependencies/stubs in their isolated world.
-// Strip only ES linkage, retaining the exact maintained function bodies.
+// Isolated DOM fixtures execute standard module output. Dependencies are explicit
+// test doubles or previously loaded modules, linked through their real exports.
+// No function bodies or imported references are rewritten by the test harness.
 export async function readModule(file, encoding) {
   const source = await fs.readFile(file, encoding);
   const fileURL =
     file instanceof URL ? file : pathToFileURL(path.resolve(file));
   if (encoding !== "utf8" || !/^import |^export /m.test(source)) return source;
-  const ast = parse(source, { sourceType: "module" }),
-    edits = [],
-    exports = [],
-    initializers = [];
-  let asyncModule = false;
-  traverse(ast, {
-    AwaitExpression(p) {
-      if (!p.getFunctionParent()) asyncModule = true;
-    },
-    ImportDeclaration(p) {
-      for (const specifier of p.node.specifiers) {
-        const name = specifier.local.name,
-          binding = p.scope.getBinding(name);
-        for (const ref of binding?.referencePaths || [])
-          edits.push({
-            start: ref.node.start,
-            end: ref.node.end,
-            text:
-              (ref.parentPath.isObjectProperty() && ref.parent.shorthand
-                ? name + ": "
-                : "") +
-              "globalThis." +
-              name,
-          });
-      }
-      edits.push({ start: p.node.start, end: p.node.end, text: "" });
-    },
-    ExportNamedDeclaration(p) {
-      const node = p.node;
-      if (node.declaration) {
-        edits.push({
-          start: node.start,
-          end: node.declaration.start,
-          text: "",
-        });
-        if (node.declaration.type === "VariableDeclaration")
-          for (const d of node.declaration.declarations)
-            exports.push(d.id.name);
-        if (node.declaration.type === "FunctionDeclaration") {
-          const name = node.declaration.id.name;
-          if (name.startsWith("initialize")) initializers.push(name);
-          else exports.push(name);
-        }
-      } else {
-        for (const specifier of node.specifiers)
-          exports.push(specifier.local.name);
-        edits.push({ start: node.start, end: node.end, text: "" });
-      }
-    },
-  });
-  let output = source;
-  for (const edit of edits.sort((a, b) => b.start - a.start))
-    output = output.slice(0, edit.start) + edit.text + output.slice(edit.end);
+  const ast = parse(source, { sourceType: "module" });
+  // This standalone viewer has no imports or exported values; preserve its
+  // top-level-await completion in the JSDOM realm.
+  if (fileURL.pathname.endsWith("/diagnostics-ui.js"))
+    return "(async()=>{" + source.replace("export {};", "") + "})()";
+  const compiled = await transform(source, { format: "cjs", target: "es2023" });
   const pure = [];
   for (const node of ast.program.body)
     if (
       node.type === "ImportDeclaration" &&
-      /\/(answer-vocabulary|answer-proof|signature-answer|migration-maintenance|migration-context-fields|storage-migration-policy|diagnostic-evidence)\.js$/.test(
+      /\/(answer-vocabulary|answer-proof|run-state|automatic-flow|signature-answer|migration-maintenance|migration-context-fields|storage-migration-policy|diagnostic-evidence)\.js$/.test(
         node.source.value,
       )
     )
@@ -127,15 +97,10 @@ export async function readModule(file, encoding) {
     }
   return (
     pure.join("\n") +
-    "\n" +
-    "(" +
-    (asyncModule ? "async " : "") +
-    "()=>{\n" +
-    output +
-    "\n" +
-    initializers.map((name) => name + "();").join("\n") +
-    "\n" +
-    exports.map((name) => "globalThis." + name + "=" + name + ";").join("\n") +
-    "\n})();"
+    "\n(()=>{const module={exports:{}};const exports=module.exports;" +
+    "const require=()=>new Proxy({}, {get:(_target,key)=>globalThis[key]});\n" +
+    compiled.code +
+    "\nfor(const [name,value] of Object.entries(module.exports)) if(name.startsWith('initialize')&&typeof value==='function') value();" +
+    "\nObject.assign(globalThis,module.exports);})();"
   );
 }

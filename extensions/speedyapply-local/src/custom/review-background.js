@@ -1,3 +1,4 @@
+import { readOperator } from "./operator-background.js";
 import { isPanel, readPanelRecord, storePanelRecord } from "./panel-state.js";
 // Relay the review within one browser tab. Never submit or choose an answer here.
 async function presentReview(tabId, message) {
@@ -21,7 +22,13 @@ async function presentReview(tabId, message) {
   return chrome.tabs.sendMessage(tabId, message, { documentId });
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (!["jobs:review-present", "jobs:review-action"].includes(message?.type))
+  if (
+    ![
+      "jobs:review-present",
+      "jobs:review-action",
+      "jobs:review-page-action",
+    ].includes(message?.type)
+  )
     return;
   const run = async () => {
     if (sender.id !== chrome.runtime.id || typeof message.id !== "string")
@@ -67,8 +74,21 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         sourceDocumentId: sender.documentId,
       });
     }
+    const pageAction = message.type === "jobs:review-page-action";
+    if (pageAction) {
+      if (
+        !sender.tab?.id ||
+        sender.frameId !== 0 ||
+        !sender.documentId ||
+        !["agent", "page-tool"].includes(
+          (await readOperator(sender.tab.id)).mode,
+        )
+      )
+        throw Error("AI page operator required");
+      message = { ...message, tabId: sender.tab.id };
+    }
     if (
-      !isPanel(sender) ||
+      (!pageAction && !isPanel(sender)) ||
       !Number.isInteger(message.tabId) ||
       !["confirm", "locate", "answer"].includes(message.action) ||
       typeof message.documentId !== "string"

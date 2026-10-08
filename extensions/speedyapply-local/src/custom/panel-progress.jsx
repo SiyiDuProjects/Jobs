@@ -65,6 +65,15 @@ export function PanelProgress() {
           <p id="jobs-panel-status" role="status" className="popup-detail">
             {state.text}
           </p>
+          {state.status?.canFill && !state.review && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onPress={() => void act("draft")}
+            >
+              准备本页回答
+            </Button>
+          )}
           {state.status?.dismissible && (
             <div className="panel-actions">
               {state.status.canRestore && (

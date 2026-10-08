@@ -761,8 +761,34 @@ export function initializeControlContent() {
         setMessage: pipelineOptions.setMessage,
       });
     }
+    // Both local surfaces prepare only the current form. Never click a step
+    // button here; review confirmation owns continuation and submission guards.
+    async function prepareAnswers() {
+      if (busy || phaseBusy.has(phase) || submitted || JobsAIReview?.pending())
+        throw Error("当前填写或审核尚未结束，请先检查当前状态。");
+      const scope = root(),
+        owner = adapter;
+      if (!scope || !profile || !owner || !pipelineOptions)
+        throw Error("当前没有可填写的申请表单。");
+      busy = true;
+      try {
+        const ok = await JobsAutomatic.advance({
+          root: scope,
+          profile,
+          action: "fill",
+          review: true,
+          canProceed: () => adapter === owner && !submitted,
+          setMessage: pipelineOptions.setMessage,
+        });
+        return { ok, phase, pendingReview: !!JobsAIReview?.pending() };
+      } finally {
+        busy = false;
+      }
+    }
     JobsPageSession = {
       run,
+      draft: prepareAnswers,
+      refill: prepareAnswers,
       get state() {
         return pageState;
       },

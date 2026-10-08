@@ -1,7 +1,7 @@
 import { calendarDate } from "./calendar-date.js";
-// Mounted only by the extension side panel. The editor keeps the existing
+// Shared by the side panel and the in-page AI surface. The editor keeps the existing
 // versioned write/confirm contract and uses the bundled HeroUI CSS components.
-export function createReviewView() {
+export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
   let slot, view, last;
   function removeView() {
     if (!view) return;
@@ -231,7 +231,8 @@ export function createReviewView() {
       host.id = "jobs-ai-review";
       host.style.cssText = "display:block;width:100%;min-width:0";
       const shadow = host.attachShadow({ mode: "open" });
-      shadow.innerHTML = `<link rel="stylesheet" href="custom/popup.css"><section class="card card--secondary review-card" aria-label="AI 补填确认"><header class="review-heading"><h2>AI 补填</h2><button id="toggle" class="button button--ghost button--sm" type="button" aria-expanded="true" aria-controls="body">收起</button></header><div id="body"><div id="list"><section class="review-group" data-group="pending" aria-labelledby="pending-heading"><h3 id="pending-heading"></h3><div class="group-items"></div></section><details class="review-group" data-group="ready"><summary></summary><div class="group-items"></div></details></div><footer><p id="status" role="status"></p><button id="confirm" class="button button--primary button--full-width" type="button" disabled>确认这些答案</button></footer></div></section>`;
+      shadow.innerHTML = `<link rel="stylesheet"><section class="card card--secondary review-card" aria-label="AI 补填确认"><header class="review-heading"><h2>AI 补填</h2><button id="toggle" class="button button--ghost button--sm" type="button" aria-expanded="true" aria-controls="body">收起</button></header><div id="body"><div id="list"><section class="review-group" data-group="pending" aria-labelledby="pending-heading"><h3 id="pending-heading"></h3><div class="group-items"></div></section><details class="review-group" data-group="ready"><summary></summary><div class="group-items"></div></details></div><footer><p id="status" role="status"></p><button id="confirm" class="button button--primary button--full-width" type="button" disabled>确认这些答案</button></footer></div></section>`;
+      shadow.querySelector("link").href = stylesheetHref;
       view = { id: data.id, host, shadow, hidden: [], items: new Map(), act };
       if (slot)
         for (const node of slot.container.children) {

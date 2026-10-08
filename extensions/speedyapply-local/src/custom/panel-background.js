@@ -39,6 +39,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       "jobs:panel-status",
       "jobs:panel-read",
       "jobs:panel-status-action",
+      "jobs:page-status-action",
     ].includes(message?.type)
   )
     return;
@@ -58,21 +59,55 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         documentId: sender.documentId,
         url: sender.tab.url,
         text: message.text,
+        canFill: message.canFill === true,
         canRestore: message.canRestore === true,
         dismissible: message.dismissible === true,
       });
+      // Top-page AI surface observes the same status as the side panel.
+      await chrome.tabs
+        .sendMessage(
+          sender.tab.id,
+          {
+            type: "jobs:page-status",
+            data: {
+              id: message.id,
+              text: message.text,
+              canFill: message.canFill === true,
+              documentId: sender.documentId,
+            },
+          },
+          { frameId: 0 },
+        )
+        .catch(() => {});
       return { ok: true };
     }
-    if (!isPanel(sender) || !Number.isInteger(message.tabId))
+    const pageAction = message.type === "jobs:page-status-action";
+    if (pageAction) {
+      if (
+        sender.id !== chrome.runtime.id ||
+        !sender.tab?.id ||
+        sender.frameId !== 0 ||
+        !sender.documentId ||
+        !["agent", "page-tool"].includes(
+          (await readOperator(sender.tab.id)).mode,
+        )
+      )
+        throw Error("AI page operator required");
+      message = { ...message, tabId: sender.tab.id };
+    }
+    if ((!pageAction && !isPanel(sender)) || !Number.isInteger(message.tabId))
       throw Error("Side panel required");
     const tab = await chrome.tabs.get(message.tabId);
     const status = await readPanelRecord(tab.id, "status");
-    if (message.type === "jobs:panel-status-action") {
+    if (message.type === "jobs:panel-status-action" || pageAction) {
       if (
         !status ||
         status.url !== tab.url ||
         status.id !== message.id ||
-        !["restore", "dismiss"].includes(message.action)
+        !["restore", "dismiss", "draft", "refill"].includes(message.action) ||
+        (pageAction &&
+          (!["draft", "refill"].includes(message.action) ||
+            status.documentId !== message.documentId))
       )
         throw Error("页面已变化，请检查当前岗位。");
       return chrome.tabs.sendMessage(

@@ -125,6 +125,9 @@ export async function buildPackage({
       action: { default_title: brand.name },
       side_panel: { default_path: "popup.html" },
       minimum_chrome_version: "120",
+      web_accessible_resources: [
+        { resources: ["custom/popup.css"], matches: ["https://*/*"] },
+      ],
       content_scripts: [
         {
           matches: [

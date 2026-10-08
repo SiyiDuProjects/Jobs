@@ -1,3 +1,4 @@
+import { createRunState } from "./run-state.js";
 import { createFlow } from "./automatic-flow.js";
 import { diagnosticGuard } from "./diagnostic-evidence.js";
 import { JobsPageActions } from "./page-actions.js";
@@ -112,7 +113,7 @@ export function initializeAutomaticFill() {
               active &&
               lastRun === record &&
               !record.current() &&
-              !record.manual &&
+              record.controller.signal.reason !== "manual_navigation" &&
               ["in-progress", "ai-thinking", "ai-filling", "checking"].includes(
                 page.phase,
               )
@@ -135,7 +136,7 @@ export function initializeAutomaticFill() {
           event.composedPath?.()[0] || event.target,
         );
         if (!event.isTrusted || !button || needsReview()) return;
-        if (lastRun) lastRun.manual = true;
+        if (lastRun) lastRun.controller.abort("manual_navigation");
         ownedRun = null;
         publish(
           /submit/i.test(button.textContent)
@@ -302,6 +303,15 @@ export function initializeAutomaticFill() {
       owners.set(wrapped.setMessage, owner);
       return wrapped;
     }
+    function canReportProfileFailure(record) {
+      const { controller, root, url, owner } = record;
+      return (
+        controller.signal.aborted &&
+        root.isConnected &&
+        location.href === url &&
+        (!owner || (owner.current() && owner.owns(record)))
+      );
+    }
     function advance(options) {
       if (JobsPlatformConfig.appliedStatus(document)) {
         note("auto_blocked", null, "already_applied");
@@ -346,7 +356,7 @@ export function initializeAutomaticFill() {
           // start the step's complete run once it has ended.
           if (options.fill && !record.fill) {
             record.superseded = true;
-            record.flow.cancel();
+            record.controller.abort("cancelled");
             JobsAIReview.release?.(record.root);
             note("auto_run_superseded", null, record.action);
             return record.task.then(() => advance(options));
@@ -387,10 +397,11 @@ export function initializeAutomaticFill() {
       const url = location.href,
         canProceed = options.canProceed || (() => true);
       const visibility = JobsControlFields.create(document, () => root);
-      const flow = createFlow((from, to) =>
+      const { flow, controller } = createRunState(root, (from, to) =>
         note("auto_state_transition", null, JSON.stringify({ from, to })),
       );
       const record = {
+        controller,
         root,
         key,
         url,
@@ -403,8 +414,7 @@ export function initializeAutomaticFill() {
         hasIncompleteReview: /** @type {(() => boolean) | null} */ (null),
         current: diagnosticGuard(
           [
-            ["manual", () => !record.manual],
-            ["cancelled", () => flow.state !== "cancelled"],
+            ["cancelled", () => !controller.signal.aborted],
             ["form_hidden", () => visibility.visible(root)],
             ["url_changed", () => location.href === url],
             [
@@ -417,7 +427,10 @@ export function initializeAutomaticFill() {
         ),
       };
       const setMessage = (message) => {
-        if (record.current()) {
+        if (
+          record.current() ||
+          (message === "profile-unavailable" && canReportProfileFailure(record))
+        ) {
           record.phase = message;
           (owner ? owner.publish : options.setMessage)?.(message);
         }
@@ -438,6 +451,7 @@ export function initializeAutomaticFill() {
             ...options,
             root,
             flow,
+            controller,
             canProceed: record.current,
             setMessage,
             navigation: () => record.navigation,
@@ -451,7 +465,7 @@ export function initializeAutomaticFill() {
           }),
         )
         .catch((error) => {
-          if (!record.current()) flow.cancel();
+          if (!record.current()) controller.abort("invalidated");
           else if (!needsReview()) flow.block();
           note("auto_blocked", null, error.message || String(error));
           setMessage(
@@ -492,6 +506,7 @@ export function initializeAutomaticFill() {
       root,
       profile,
       flow,
+      controller,
       selector,
       target,
       action = "submit",
@@ -513,6 +528,7 @@ export function initializeAutomaticFill() {
       const operation = JobsOperationContext.create({
         root,
         profile,
+        controller,
         canProceed,
       });
       const { current, assertCurrent, stamp } = operation;
@@ -737,9 +753,8 @@ export function initializeAutomaticFill() {
             return false;
           }
           try {
-            // An answer edited during review may reveal new required controls.
-            // Settle those dependencies and reuse this run's ledger/answerer
-            // before testing navigation readiness or requesting another review.
+            // Review edits can expose more required fields. Resolve them in
+            // this run before testing readiness or starting another review.
             await JobsFormPipeline.settled(root, { canProceed: current });
             const discovered = reader
               .scan()
@@ -1312,12 +1327,12 @@ export function initializeAutomaticFill() {
             record.root.contains(root) ||
             root?.contains(record.root)
           ) {
-            record.flow.cancel();
+            record.controller.abort("cancelled");
             JobsAIReview.release?.(record.root);
           }
         const record = runs.get(root);
         if (record) {
-          record.flow.cancel();
+          record.controller.abort("cancelled");
           JobsAIReview.release?.(root);
         }
       },
