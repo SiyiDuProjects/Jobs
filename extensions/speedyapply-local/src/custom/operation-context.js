@@ -24,18 +24,19 @@ export function initializeOperationContext() {
       profileId,
       expiresAt = Infinity,
       canProceed = () => true,
+      controller,
     }) {
       canProceed = JobsPageActions.guard(canProceed);
       const doc = root?.ownerDocument || document,
         win = doc.defaultView;
+      controller ||= new win.AbortController();
+      const signal = controller.signal;
       const url = doc.location.href,
         parent = root?.parentNode,
         stamp = signature(profile);
       let boundId = profileId,
         boundTabId,
         boundResumeRef,
-        stopped = false,
-        touched = false,
         watching = false,
         writing = 0,
         failure = "";
@@ -43,13 +44,12 @@ export function initializeOperationContext() {
       const checks = { count: 0, fresh: 0, ms: 0, reused: 0 };
       let verified, pending;
       const cancel = (reason) => {
-        stopped = true;
         failure = reason || "页面或用户输入已变化，停止继续";
+        controller.abort(failure);
       };
       const current = diagnosticGuard(
         [
-          ["cancelled", () => !stopped],
-          ["user_input", () => !touched],
+          ["cancelled", () => !signal.aborted],
           ["expired", () => Date.now() < expiresAt],
           ["detached", () => root?.isConnected],
           [
@@ -58,7 +58,7 @@ export function initializeOperationContext() {
           ],
           ["url_changed", () => doc.location.href === url],
           ["caller_invalid", canProceed],
-          ["queue_paused", () => JobsPageActions.allowed()],
+          ["page_removed", () => JobsPageActions.allowed()],
         ],
         (value) => JobsDiagnostics?.evidence?.(null, value),
       );
@@ -80,7 +80,7 @@ export function initializeOperationContext() {
           ) ||
             JobsControlFields?.component(target))
         )
-          touched = true;
+          cancel("填写时用户输入已变化，停止继续");
       };
       const listen = (enabled) => {
         if (watching === enabled) return;
@@ -188,6 +188,7 @@ export function initializeOperationContext() {
         }
       };
       return Object.freeze({
+        signal,
         current,
         assertCurrent,
         verify,
@@ -198,7 +199,7 @@ export function initializeOperationContext() {
         checks: () => ({ ...checks }),
         pause: () => listen(false),
         resume: () => {
-          touched = false;
+          assertCurrent();
           listen(true);
         },
       });
