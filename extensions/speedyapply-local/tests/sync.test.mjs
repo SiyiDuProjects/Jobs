@@ -329,8 +329,8 @@ test("offline title reports do not create submission work or hold the sync queue
   assert.deepEqual(h.local(), before);
 });
 
-test("explicit recovery pause stops pages from Profile, answer, job, title and migration requests, retaining pending answers and durable guards", async () => {
-  for (const entry of ["profile", "answer", "resolve", "title", "migration"]) {
+test("explicit recovery pause stops pages from Profile, answer, job, title requests, retaining pending answers and durable guards", async () => {
+  for (const entry of ["profile", "answer", "resolve", "title"]) {
     const initial = connected();
     initial.jobsSyncV1.profileToken = "b".repeat(64);
     initial.jobsSyncV1.outbox = [
@@ -366,8 +366,6 @@ test("explicit recovery pause stops pages from Profile, answer, job, title and m
         }),
       resolve: () => h.api.resolveJob(url),
       title: () => h.api.reportJobTitle(url, "Software Engineer"),
-      migration: () =>
-        h.api.migrationRequest("/api/extension/storage-migrations"),
     }[entry];
     await assert.rejects(call(), { code: "recovery_application_pause" });
     assert.equal(
@@ -420,7 +418,6 @@ for (const entry of [
   "answer",
   "resolve",
   "title",
-  "migration",
   "reconnect",
   "receipt",
 ])
@@ -471,8 +468,6 @@ for (const entry of [
           }),
         resolve: () => h.api.resolveJob(url),
         title: () => h.api.reportJobTitle(url, "Software Engineer"),
-        migration: () =>
-          h.api.migrationRequest("/api/extension/storage-migrations"),
         reconnect: async () => {
           const result = await h.message({
             type: "jobs:sync-connect",
@@ -593,30 +588,6 @@ test("receipt recovery pause retains the same outbox event and unknown submissio
     ),
     true,
   );
-});
-
-test("explicit migration transport accepts escaped issued choices and rejects unrelated URLs", async () => {
-  const initial = connected();
-  initial.jobsSyncV1.profileToken = "b".repeat(64);
-  const h = harness(initial, () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({ rows: [], complete: false }),
-  }));
-  const path =
-    "/api/extension/storage-migrations/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/conflicts/abc/preview?choiceId=source%3A0&cursor=next_1";
-  await h.api.migrationRequest(path);
-  assert.equal(h.requests[0].path, origin + path);
-  assert.equal(h.requests[0].options.headers["X-Jobs-Protocol"], "2");
-  for (const bad of [
-    path + "&host=external",
-    path.replace("source%3A0", "../profiles"),
-    "/api/extension/profiles",
-  ])
-    await assert.rejects(
-      h.api.migrationRequest(bad),
-      /Invalid migration endpoint/,
-    );
 });
 
 test("disconnect and changed grants clear private session facts while retaining submission protection and reject old replies", async () => {

@@ -57,6 +57,10 @@ async function setup(entry, { complete = false } = {}) {
       id: "fixture",
       onMessage: { addListener: (fn) => listeners.push(fn) },
       sendMessage: async (message) => {
+        if (message.type === "jobs:operator-set")
+          return {
+            state: { mode: message.mode, epoch: "fixture-agent", since: 1 },
+          };
         if (message.type === "jobs:tab-profile") {
           checks.push(message.verify === true);
           await hook(message);

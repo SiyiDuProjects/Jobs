@@ -214,7 +214,7 @@ for (const [name, queue, run] of [
     );
     let removals = 0;
     w.document.querySelector("button").onclick = () => removals++;
-    w.JobsQueuePage = { allowed: () => queue, guard: (check) => check };
+    w.JobsSubmissionGuard = { allowed: () => queue, guard: (check) => check };
     Object.assign(w, {
       jobsFormatFullName: () => "Ada",
       jobsFormatToday: () => "2026-09",

@@ -549,6 +549,7 @@ test("Saved Response clicks the complete dropdown option and commits React state
     root.querySelector("button").addEventListener("click", () => opens++);
     window.testResponses = [
       {
+        origin: "person",
         question: referral,
         keywords: ["hear about"],
         appearances: 1,
@@ -596,6 +597,7 @@ test("partial or loosely similar Saved Response never selects a different answer
   await fixture(h(Dropdown), async (root) => {
     window.testResponses = [
       {
+        origin: "person",
         question: referral,
         keywords: ["hear about"],
         appearances: 1,
@@ -627,6 +629,7 @@ test("preserves already selected buttons, dropdowns and typed text", async () =>
       await act(() => root.querySelector('[data-option="no"]').click());
       window.testResponses = [
         {
+          origin: "person",
           question: referral,
           keywords: ["hear about"],
           appearances: 1,
@@ -688,6 +691,7 @@ test("only the combobox-owned listbox is eligible; never a stray matching popup 
         .addEventListener("click", () => submits++);
       window.testResponses = [
         {
+          origin: "person",
           question: referral,
           keywords: ["hear about"],
           appearances: 1,
@@ -749,6 +753,7 @@ test("saved Yes selects the unique long Yes option; multiple Yes variants remain
       async (root) => {
         window.testResponses = [
           {
+            origin: "person",
             question: "Office willingness",
             keywords: ["office"],
             appearances: 1,
@@ -794,6 +799,7 @@ test("US profile does not answer Canadian eligibility or its adjacent sponsorshi
 test("explicit Canada Saved Response answers only its question; missing country stays unresolved", async () => {
   window.testResponses = [
     {
+      origin: "person",
       keywords: ["authorized to work", "Canada"],
       appearances: 2,
       response: "No",

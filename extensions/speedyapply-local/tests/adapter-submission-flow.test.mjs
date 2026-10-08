@@ -7,12 +7,16 @@ import { readModule } from "./helpers/module-source.mjs";
 import { installPageLifecycle } from "./helpers/page-lifecycle.mjs";
 
 const scripts = await Promise.all(
-  ["job-match-rules", "job-match", "submission-background", "queue-page"].map(
-    (name) =>
-      readWithDependencies(
-        new URL(`../src/custom/${name}.js`, import.meta.url),
-        "utf8",
-      ),
+  [
+    "job-match-rules",
+    "job-match",
+    "submission-background",
+    "submission-guard",
+  ].map((name) =>
+    readWithDependencies(
+      new URL(`../src/custom/${name}.js`, import.meta.url),
+      "utf8",
+    ),
   ),
 );
 const runtimeMessages = await readModule(
@@ -76,8 +80,8 @@ async function page(
   };
   w.chrome.runtime.sendMessage = async (message) => {
     messages.push(structuredClone(message));
-    if (message.type === "jobs:queue-page")
-      return { data: { owned: false, allowed: true } };
+    if (message.type === "jobs:removal-check")
+      return { data: { removed: false } };
     if (message.type.startsWith("jobs:submission-"))
       return new Promise((resolve, reject) => {
         const sender = {
@@ -93,7 +97,6 @@ async function page(
   };
   for (const script of scripts) w.eval(script);
   w.eval(runtimeMessages);
-  await w.JobsQueuePage.ready;
   return {
     ...h,
     storage,

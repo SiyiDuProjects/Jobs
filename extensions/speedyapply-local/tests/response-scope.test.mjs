@@ -36,7 +36,13 @@ function setup(local = {}, session = {}) {
   });
   const c = vm.createContext({
     console,
+    location: { href: "https://jobs.ashbyhq.com/example/role/application" },
+    JobsJobMatch: {
+      key: () => "fixture-job",
+      companyFromKey: () => "fixture-company",
+    },
     structuredClone,
+    readOperator: async () => ({ mode: "person", epoch: "fixture" }),
     chrome: {
       storage: { local: area(local), session: area(session) },
       runtime: {
@@ -59,7 +65,18 @@ function setup(local = {}, session = {}) {
     bound,
     scope: c.JobsResponseScope,
     save: (response, tab = 1) =>
-      c.saveResponses([{ question, response }], { tab: { id: tab } }),
+      c.saveResponses(
+        [
+          {
+            question,
+            response,
+            jobKey: "fixture-job",
+            origin: "person",
+            operatorEpoch: "fixture",
+          },
+        ],
+        { id: "extension", tab: { id: tab } },
+      ),
     sendAs: (value) => (sender = value),
     answer: async () =>
       c.JobsAnswerResolver.matchSaved(
@@ -114,4 +131,26 @@ test("concurrent saves in separate Profiles do not overwrite each other and fore
     h.c.JobsAnswerResolver.readSaved(),
     /Invalid response caller/,
   );
+});
+
+test("operator changes while a save waits for its Profile cannot promote stale input", async () => {
+  const h = setup(),
+    reached = Promise.withResolvers(),
+    release = Promise.withResolvers();
+  const original = h.c.JobsResponseScope;
+  h.c.JobsResponseScope = {
+    ...original,
+    storageKey: async (...args) => {
+      reached.resolve();
+      await release.promise;
+      return original.storageKey(...args);
+    },
+  };
+  const pending = h.save("Stale input");
+  await reached.promise;
+  h.c.readOperator = async () => ({ mode: "agent", epoch: "changed" });
+  release.resolve();
+  const result = await pending;
+  assert.equal(result.saved, 0);
+  assert.equal(h.session["jobsResponses:" + A], undefined);
 });

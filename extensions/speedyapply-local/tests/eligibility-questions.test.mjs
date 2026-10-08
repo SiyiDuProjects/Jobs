@@ -127,8 +127,16 @@ test("Tesla legal questions stay blank without facts and take exact saved answer
     "Example Applicant",
   );
   const saved = [
-    { question: "What is your notice period?", response: "One month" },
-    ...questions.map(([, question]) => ({ question, response: "No" })),
+    {
+      origin: "person",
+      question: "What is your notice period?",
+      response: "One month",
+    },
+    ...questions.map(([, question]) => ({
+      origin: "person",
+      question,
+      response: "No",
+    })),
   ];
   const known = await adapterPage(t, {
     site: "tesla",

@@ -65,6 +65,10 @@ function fixture(entry = "reader") {
       id: "test",
       onMessage: { addListener: (listener) => listeners.push(listener) },
       sendMessage: async (message) => {
+        if (message.type === "jobs:operator-set")
+          return {
+            state: { mode: message.mode, epoch: "fixture-agent", since: 1 },
+          };
         if (message.type === "jobs:tab-profile")
           return { data: { id: "fixture", profile } };
         if (message.type === "jobs:auto-answers") {

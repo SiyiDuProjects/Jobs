@@ -21,8 +21,18 @@ const profile = {
 
 test("Intel legal questions cannot inherit generic acknowledgement or government keyword answers", async () => {
   const c = fixture([
-    { keywords: ["response"], appearances: 1, response: "Yes, I agree" },
-    { keywords: ["employee"], appearances: 1, response: "Yes" },
+    {
+      origin: "person",
+      keywords: ["response"],
+      appearances: 1,
+      response: "Yes, I agree",
+    },
+    {
+      origin: "person",
+      keywords: ["employee"],
+      appearances: 1,
+      response: "Yes",
+    },
   ]);
   const questions = [
     {
@@ -101,6 +111,7 @@ test("explicit Arts maps Upbound degree labels deterministically; generic bachel
 test("one decision contract distinguishes answers, unrecognized questions and unavailable facts", async () => {
   const c = fixture([
     {
+      origin: "person",
       question: "How did you find this job?",
       keywords: ["find"],
       appearances: 1,
@@ -140,6 +151,7 @@ test("one decision contract distinguishes answers, unrecognized questions and un
 test("matching priority and original option matching are preserved while their source is observable", async () => {
   const c = fixture([
       {
+        origin: "person",
         id: "fixture-source-rule",
         keywords: ["hear about"],
         appearances: 1,
@@ -190,9 +202,24 @@ test("Persistent Systems experience and percentage questions cannot reuse a save
     "What percentage of your time is currently spent doing direct coding?*",
   ];
   for (const saved of [
-    [{ keywords: ["you"], appearances: 1, response: "Example Applicant" }],
-    [{ keywords: [], appearances: 0, response: "Example Applicant" }],
+    [
+      {
+        origin: "person",
+        keywords: ["you"],
+        appearances: 1,
+        response: "Example Applicant",
+      },
+    ],
+    [
+      {
+        origin: "person",
+        keywords: [],
+        appearances: 0,
+        response: "Example Applicant",
+      },
+    ],
     questions.map((question) => ({
+      origin: "person",
       question,
       keywords: ["experience"],
       appearances: 1,
@@ -211,6 +238,7 @@ test("Persistent Systems experience and percentage questions cannot reuse a save
   }
   const c = fixture([
     {
+      origin: "person",
       question: questions[0],
       keywords: ["programming"],
       appearances: 1,
@@ -255,6 +283,7 @@ test("empty and zero-threshold keyword rules cannot match unrelated questions", 
   assert.equal(
     c.JobsAnswerResolver.matchSaved({ question: "Specific question" }, [
       {
+        origin: "person",
         question: "Specific question",
         keywords: [],
         appearances: 0,
@@ -293,6 +322,7 @@ test("every caller of the shared counter ignores blank, invalid and duplicate ke
   assert.equal(
     c.JobsAnswerResolver.matchSaved({ question }, [
       {
+        origin: "person",
         keywords: ["coding", "coding"],
         appearances: 2,
         response: "Wrong answer",
@@ -306,6 +336,7 @@ test("Chinese answer options retain their identity and cannot compare as equal e
   const c = fixture();
   for (const question of ["Eligibility", "Other question"]) {
     const rule = {
+      origin: "person",
       question: "Eligibility",
       keywords: ["other"],
       appearances: 1,
@@ -336,6 +367,7 @@ test("the production saved-response schema preserves Chinese keywords rather tha
   assert.deepEqual(
     responseContract.JobsResponseContract.parseList([
       {
+        origin: "person",
         key: "full-name",
         keywords: ["全名"],
         appearances: 1,
@@ -351,13 +383,25 @@ test("the production saved-response schema preserves Chinese keywords rather tha
         question:
           "How many years of experience do you have programming in C or C++?",
       },
-      [{ keywords: ["全名"], appearances: 1, response: "Example Applicant" }],
+      [
+        {
+          origin: "person",
+          keywords: ["全名"],
+          appearances: 1,
+          response: "Example Applicant",
+        },
+      ],
     ),
     null,
   );
   assert.equal(
     c.JobsAnswerResolver.matchSaved({ question: "全名" }, [
-      { keywords: ["全名"], appearances: 1, response: "Example Applicant" },
+      {
+        origin: "person",
+        keywords: ["全名"],
+        appearances: 1,
+        response: "Example Applicant",
+      },
     ]),
     "Example Applicant",
   );
@@ -371,7 +415,12 @@ test("relocation funding needs its own confirmed answer even when relocation and
   const question =
     "Are you able to work in New York City without relocation assistance?*";
   const c = fixture([
-      { keywords: ["relocation"], appearances: 1, response: "Yes" },
+      {
+        origin: "person",
+        keywords: ["relocation"],
+        appearances: 1,
+        response: "Yes",
+      },
     ]),
     decisions = [];
   assert.equal(
@@ -397,7 +446,13 @@ test("relocation funding needs its own confirmed answer even when relocation and
     "Yes",
   );
   const explicit = fixture([
-    { question, keywords: ["relocation"], appearances: 1, response: "No" },
+    {
+      origin: "person",
+      question,
+      keywords: ["relocation"],
+      appearances: 1,
+      response: "No",
+    },
   ]);
   assert.equal(
     (

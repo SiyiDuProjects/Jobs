@@ -309,7 +309,7 @@ test("navigation authorization cannot strand a completed step when the site chan
     const h = setup('<label>Answer<input required value="Ready"></label>');
     try {
       let authorizations = 0;
-      h.w.JobsQueuePage = {
+      h.w.JobsSubmissionGuard = {
         guard: (fn) => fn,
         allowed: () => true,
         verify: async () => {},
@@ -369,7 +369,7 @@ test("final readiness still stops for persistent errors, changed Profile or manu
         if (type === "keydown") manual = handler;
         return add(type, handler, ...rest);
       };
-      h.w.JobsQueuePage = {
+      h.w.JobsSubmissionGuard = {
         guard: (fn) => fn,
         allowed: () => true,
         verify: async () => {},

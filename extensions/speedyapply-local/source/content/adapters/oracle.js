@@ -7,7 +7,7 @@ import { JobsDOMWait } from "../../../src/custom/dom-wait.js";
 import { JobsDiagnostics } from "../../../src/custom/diagnostics.js";
 import { JobsAutomatic } from "../../../src/custom/automatic-fill.js";
 import { JobsPageSession } from "../../../src/custom/control-content.js";
-import { JobsQueuePage } from "../../../src/custom/queue-page.js";
+import { JobsSubmissionGuard } from "../../../src/custom/submission-guard.js";
 import { jobsUploadResume } from "../shared/dom-controls.js";
 // Oracle Recruiting Candidate Experience. The host route deliberately excludes
 // Taleo, job descriptions, sign-in and candidate self-service pages.
@@ -455,7 +455,7 @@ async function oracleRunApplication({
     { root: document, timeout: 10000 },
   );
   if (!root) return;
-  JobsQueuePage?.trackManualSubmit(
+  JobsSubmissionGuard?.trackManualSubmit(
     root,
     JobsPlatformConfig.structure.oracle.manualSubmitText,
   );

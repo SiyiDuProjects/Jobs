@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Button, Card, Chip } from "@heroui/react";
+import { Button, Card, Chip, Switch } from "@heroui/react";
 import { createPanelController } from "./panel-controller.js";
 import { createReviewView } from "./review-view.js";
 
@@ -40,6 +40,28 @@ export function PanelProgress() {
           )}
         </Card.Header>
         <Card.Content>
+          {state.operator && (
+            <Switch
+              isSelected={state.operator.mode !== "person"}
+              onChange={(selected) =>
+                void state
+                  .setOperator(selected ? "agent" : "person")
+                  .catch((error) => setError(error.message))
+              }
+            >
+              <Switch.Content>
+                AI 操作中
+                <Switch.Control>
+                  <Switch.Thumb />
+                </Switch.Control>
+              </Switch.Content>
+            </Switch>
+          )}
+          {state.operator?.mode !== "person" && state.operator && (
+            <p className="popup-detail">
+              AI 填写的内容不会记为你的回答。亲自接手时关闭此开关。
+            </p>
+          )}
           <p id="jobs-panel-status" role="status" className="popup-detail">
             {state.text}
           </p>

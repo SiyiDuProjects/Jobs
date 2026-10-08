@@ -61,7 +61,11 @@ export function initializeAnswerResolver() {
                 ...personal.literalSpec("saved-answer", decision.answer),
                 select: (labels) =>
                   matchSaved({ ...question, options: labels }, [
-                    { question: question.question, response: decision.answer },
+                    {
+                      origin: "person",
+                      question: question.question,
+                      response: decision.answer,
+                    },
                   ]),
               };
         onDecision?.(decision);
@@ -263,17 +267,17 @@ export function initializeAnswerResolver() {
       const companyKey = JobsJobMatch?.companyFromKey(jobKey);
       responseRules = responseRules.filter(
         (rule) =>
-          !rule.jobKey ||
-          rule.jobKey === jobKey ||
-          (companyKey &&
-            JobsJobMatch.companyFromKey(rule.jobKey) === companyKey),
+          rule.origin === "person" &&
+          (!rule.jobKey ||
+            rule.jobKey === jobKey ||
+            (companyKey &&
+              JobsJobMatch.companyFromKey(rule.jobKey) === companyKey)),
       );
       // Old captured drafts have no job identity. Never treat an employer/role
       // answer as universal merely because another company uses the same prompt.
-      if (JobsResponseContract?.jobSpecific(question.question))
-        responseRules = responseRules.filter(
-          (rule) => !rule.fromAutofill || !!rule.jobKey,
-        );
+      responseRules = responseRules.filter(
+        (rule) => !rule.fromAutofill || !!rule.jobKey,
+      );
       function normalizeOptionText(optionText) {
         return optionText
           .normalize("NFKC")

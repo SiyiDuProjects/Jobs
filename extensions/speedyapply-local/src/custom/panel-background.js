@@ -5,6 +5,7 @@ import {
   storePanelRecord,
   notifyPanel,
 } from "./panel-state.js";
+import { readOperator } from "./operator-background.js";
 
 void chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
@@ -93,7 +94,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
           review = { ...route, data: result.data };
       } catch {}
     }
-    return { status: status?.url === tab.url ? status : null, review };
+    return {
+      status: status?.url === tab.url ? status : null,
+      review,
+      operator: await readOperator(tab.id),
+    };
   };
   run().then(reply, (error) =>
     reply({ error: error.message || "无法读取投递状态" }),

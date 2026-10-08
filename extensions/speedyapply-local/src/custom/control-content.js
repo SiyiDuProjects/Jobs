@@ -5,9 +5,10 @@ import { JobsControlFields } from "./control-fields.js";
 import { JobsAnswerMemory } from "./answer-memory.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsAIReview } from "./ai-review.js";
+import { claimAgentOperator } from "./operator-state.js";
 import { JobsOperationContext } from "./operation-context.js";
 import { JobsFormPipeline } from "./form-pipeline.js";
-import { JobsQueuePage } from "./queue-page.js";
+import { JobsSubmissionGuard } from "./submission-guard.js";
 import { JobsProfileAnswers } from "./profile-answers.js";
 import { JobsPlatformConfig } from "./platform-config.js";
 export var JobsPageSession;
@@ -65,7 +66,6 @@ export function initializeControlContent() {
     let transition;
     let nextWasRejected = false;
     let pipelineOptions;
-    let pendingQueueStart;
     let releaseSession;
     let generation = 0;
     // A platform's declared root wins; otherwise the root its adapter's run
@@ -99,7 +99,7 @@ export function initializeControlContent() {
         (state.errors.length || rows.some((row) => row.public.invalid))
       ) {
         phase = "submission-error";
-        JobsQueuePage?.validationError?.();
+        JobsSubmissionGuard?.validationError?.();
       }
       if (transition) {
         const identity = JSON.stringify(
@@ -274,6 +274,7 @@ export function initializeControlContent() {
         let data;
         if (command.action === "inspect") data = outcome("inspect");
         else {
+          await claimAgentOperator();
           const owner = adapter;
           const reviewAction = ["answer_review", "confirm_review"].includes(
             command.action,
@@ -486,23 +487,7 @@ export function initializeControlContent() {
       return record.result;
     }
     function run(script, options) {
-      const current = generation;
-      return JobsQueuePage
-        ? JobsQueuePage.configure(options).then(
-            (next) => {
-              if (current !== generation) return;
-              pendingQueueStart = null;
-              return start(script, next);
-            },
-            () => {
-              if (current !== generation) return;
-              // An owned document may load while paused or after browser recovery.
-              // Preserve its adapter entry without starting it or refreshing the form.
-              pendingQueueStart = () => run(script, options);
-              phase = "queue-paused";
-            },
-          )
-        : start(script, options);
+      return start(script, options);
     }
     function start(script, options) {
       const owner = { ats: options.jobsAdapterId || script.name };
@@ -620,11 +605,10 @@ export function initializeControlContent() {
         phase = message || (submitted ? phase : "idle");
         options.setMessage(message);
         JobsDiagnostics?.phase(phase);
-        JobsQueuePage?.phase();
       };
       const getProfile = async () => {
         await registration;
-        await JobsQueuePage?.verify();
+        await JobsSubmissionGuard?.verify();
         if (stopped)
           throw Error("Extension context invalidated; refresh this page");
         if (profileVersion) JobsDiagnostics?.finishRun();
@@ -723,7 +707,6 @@ export function initializeControlContent() {
       }
       if (message.type === "jobs:private-session-invalidated") {
         generation++;
-        pendingQueueStart = null;
         releaseSession?.();
         reply({ ok: true });
         return;
@@ -778,113 +761,6 @@ export function initializeControlContent() {
         setMessage: pipelineOptions.setMessage,
       });
     }
-    function queueState() {
-      if (JobsPlatformConfig.appliedStatus(document))
-        return { phase: "confirmed", active: !!adapter, finalReady: false };
-      const scope = root(),
-        state = fields.state(),
-        review = !!scope?.querySelector(
-          '[data-automation-id="reviewJobApplicationPage"],[data-automation-id="applyFlowReviewPage"]',
-        );
-      const buttons = scope
-        ? [
-            ...scope.querySelectorAll(
-              'button,input[type="submit"],[role="button"]',
-            ),
-          ].filter(
-            (node) =>
-              fields.visible(node) && JobsControlFields.continuation(node),
-          )
-        : [];
-      const submit = buttons.filter(
-        (node) =>
-          review ||
-          /^(?:submit|send application|apply)(?:\s|$)/i.test(
-            (node.value || node.textContent).trim(),
-          ),
-      );
-      return {
-        phase,
-        active: !!adapter && !!profile && !!scope,
-        finalReady:
-          !!profile &&
-          !busy &&
-          ["ready-submit", "page-complete", "autofill-complete"].includes(
-            phase,
-          ) &&
-          !JobsAIReview?.pending() &&
-          state.ready &&
-          (phase === "ready-submit" || submit.length === 1),
-      };
-    }
-    async function resumeQueue() {
-      if (pendingQueueStart) {
-        await pendingQueueStart();
-        return;
-      }
-      if (!pipelineOptions || !root() || JobsAIReview?.pending()) return;
-      try {
-        const current = await pipelineOptions.getProfile();
-        const configured = await JobsQueuePage.configure(pipelineOptions),
-          scope = root();
-        const buttons = [
-          ...scope.querySelectorAll(
-            'button,input[type="submit"],[role="button"]',
-          ),
-        ].filter(
-          (node) =>
-            fields.visible(node) &&
-            !node.disabled &&
-            node.getAttribute("aria-disabled") !== "true",
-        );
-        const next =
-          button("next") ||
-          buttons
-            .filter((node) =>
-              /^(?:next|continue|save (?:and|&) continue)$/i.test(
-                (node.value || node.textContent).trim(),
-              ),
-            )
-            .filter(
-              () =>
-                !scope.querySelector(
-                  '[data-automation-id="reviewJobApplicationPage"],[data-automation-id="applyFlowReviewPage"]',
-                ),
-            );
-        const target = Array.isArray(next)
-          ? next.length === 1
-            ? next[0]
-            : null
-          : next;
-        const submit = configured.autofillSettings.autoSubmit
-          ? button("submit") ||
-            buttons.filter((node) =>
-              /^(?:submit|submit application)$/i.test(
-                (node.value || node.textContent).trim(),
-              ),
-            )
-          : null;
-        const final = Array.isArray(submit)
-          ? submit.length === 1
-            ? submit[0]
-            : null
-          : submit;
-        await JobsAutomatic.advance({
-          root: scope,
-          profile: current,
-          action: target ? "next" : final ? "submit" : "fill",
-          target: target || final || undefined,
-          retry: true,
-          setMessage: pipelineOptions.setMessage,
-        });
-      } catch (error) {
-        JobsDiagnostics?.note(
-          "auto_queue_resume_failed",
-          null,
-          String(error.message || error),
-        );
-      }
-    }
     JobsPageSession = {
       run,
       get state() {
@@ -895,8 +771,6 @@ export function initializeControlContent() {
       },
       root,
       advance,
-      queueState,
-      resumeQueue,
       profile: () => profile,
       setAutofill: (callback) => {
         refill = callback;
@@ -904,18 +778,10 @@ export function initializeControlContent() {
       confirmed: () => {
         submitted = true;
         phase = "confirmed";
-        void JobsQueuePage?.confirmed();
       },
     };
-    JobsQueuePage?.attach({
-      get ats() {
-        return adapter?.ats;
-      },
-      state: queueState,
-      scan: (scope) => JobsControlFields.create(document, () => scope).scan(),
-      pending: () => JobsAIReview?.pending(),
+    JobsSubmissionGuard?.attach({
       cancel: () => JobsAutomatic?.cancel(root()),
-      resume: resumeQueue,
     });
   })();
 }

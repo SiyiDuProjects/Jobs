@@ -58,6 +58,10 @@ function harness(
     runtime: {
       id: "test-extension",
       sendMessage: async (message) => {
+        if (message.type === "jobs:operator-set")
+          return {
+            state: { mode: message.mode, epoch: "fixture-agent", since: 1 },
+          };
         sent.push(copy(message));
         return message.type === "jobs:tab-profile"
           ? { data: { id: "ng", profile: { profileName: "Newgrad" } } }
@@ -261,9 +265,12 @@ test("remote review rejects unrelated fields, changed answers, expired commands,
       ).error,
       /expired/,
     );
-    h.w.chrome.runtime.sendMessage = async () => ({
-      data: { id: "ng", profile: { profileName: "Changed" } },
-    });
+    h.w.chrome.runtime.sendMessage = async (message) =>
+      message.type === "jobs:operator-set"
+        ? { state: { mode: "agent", epoch: "fixture-agent", since: 1 } }
+        : {
+            data: { id: "ng", profile: { profileName: "Changed" } },
+          };
     assert.match(
       (await h.execute(await h.command("confirm_review"))).error,
       /Profile/,

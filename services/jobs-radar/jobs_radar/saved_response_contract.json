@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "keywordNormalization": "NFKC",
   "keywordCategoryPrefixes": [
     "L",
@@ -45,6 +45,40 @@
     "jobKey": {
       "type": "string",
       "nonempty": true
+    },
+    "origin": {
+      "type": "string",
+      "enum": [
+        "person",
+        "agent",
+        "page-tool",
+        "legacy"
+      ]
+    },
+    "ruleVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "context": {
+      "type": "object",
+      "fields": {
+        "jobKey": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "companyKey": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "country": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "capturedAt": {
+          "type": "string",
+          "maxLength": 100
+        }
+      }
     }
   },
   "appearancesCannotExceedKeywords": true,

@@ -3,6 +3,7 @@ import { JobsReviewPresenter } from "./review-presenter.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsFormPipeline } from "./form-pipeline.js";
 import { JobsAnswerMemory } from "./answer-memory.js";
+import { JobsOperator } from "./operator-state.js";
 export var JobsAIReview;
 let initialized = false;
 export function initializeAiReview() {
@@ -216,17 +217,21 @@ export function initializeAiReview() {
                   ? "无需填写"
                   : "待补充"
                 : "控件已变化，请检查",
-            source: item.userAnswered
-              ? "你的回答"
-              : response && !unchanged
-                ? "已手动修改"
-                : basis,
+            source:
+              item.answerOrigin === "agent" || item.answerOrigin === "page-tool"
+                ? "AI 补答"
+                : item.userAnswered
+                  ? "你的回答"
+                  : response && !unchanged
+                    ? "已手动修改"
+                    : basis,
             reviewState:
               !row ||
               row.public.invalid ||
               item.error ||
               (!record && !(item.omitted && !row.public.required)) ||
-              (!item.userAnswered && (item.needsConfirmation || !unchanged))
+              (!(item.reviewed || item.userAnswered) &&
+                (item.needsConfirmation || !unchanged))
                 ? "pending"
                 : "ready",
             editor,
@@ -397,6 +402,8 @@ export function initializeAiReview() {
       if (!own || !entry || own.busy || !own.onConfirm)
         return { error: "当前不能修改，请稍候。" };
       const [node, item] = entry;
+      const origin =
+        source === "remote" ? "agent" : JobsOperator?.read().mode || "unknown";
       let row = rows.find((row) => row.node === node);
       const current = () =>
         canProceed() &&
@@ -428,6 +435,11 @@ export function initializeAiReview() {
         if (payload.acceptCurrent === true) {
           if (row.public.invalid || !own.reader.response(row))
             throw Error("网页当前答案仍需检查，请先完成该题。");
+          item.reviewed = true;
+          item.answerOrigin = origin;
+          item.userAnswered = origin === "person";
+          item.needsInput = false;
+          item.omitted = false;
           return { ok: true };
         }
         // The person's answer goes through the run's one write, as decider "user".
@@ -448,12 +460,15 @@ export function initializeAiReview() {
         const after = own.reader.scan().find((row) => row.node === node);
         if (!current() || !after || after.public.invalid)
           throw Error("网页未接受这个答案，请检查该题。");
-        item.userAnswered = true;
+        item.reviewed = true;
+        item.answerOrigin = origin;
+        item.userAnswered = origin === "person";
         item.needsInput = false;
         item.omitted = false;
         JobsAnswerMemory?.remember(item.question, node, {
           requireReview: true,
-          learn: true,
+          learn: origin === "person",
+          origin,
         });
         note(
           source === "remote"

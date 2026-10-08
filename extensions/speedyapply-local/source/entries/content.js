@@ -1,4 +1,4 @@
-import { initializeQueuePage } from "../../src/custom/queue-page.js";
+import { initializeSubmissionGuard } from "../../src/custom/submission-guard.js";
 import { initializePageActions } from "../../src/custom/page-actions.js";
 import { initializeJobMatchRules } from "../../src/custom/job-match-rules.js";
 import { initializeJobMatch } from "../../src/custom/job-match.js";
@@ -39,9 +39,11 @@ import { initializeReviewPresenter } from "../../src/custom/review-presenter.js"
 import { initializeAiReview } from "../../src/custom/ai-review.js";
 import { initializeAutomaticFill } from "../../src/custom/automatic-fill.js";
 import { watchPage } from "../content/shell.js";
+import { connectOperator } from "../../src/custom/operator-state.js";
 if (!globalThis.__jobsNativePage) {
   globalThis.__jobsNativePage = true;
-  initializeQueuePage();
+  void connectOperator();
+  initializeSubmissionGuard();
   initializePageActions();
   initializeJobMatchRules();
   initializeJobMatch();

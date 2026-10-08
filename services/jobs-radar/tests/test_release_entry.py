@@ -55,10 +55,6 @@ def test_website_modes_dispatch_to_native_client_without_full_release(tmp_path, 
     assert calls[0][1].endswith('/web_release.mjs') and calls[0][2:] == [mode]
 
 
-def test_rehearsal_dispatches_only_to_local_environment_guard_without_ssh(tmp_path):
-    result, calls = run(tmp_path, ('--rehearse', '--artifact', 'private-artifact', '--old-image', 'sha256:' + 'a' * 64))
-    assert result.returncode == 0, result.stderr
-    assert len(calls) == 1 and calls[0][0] == 'python3' and calls[0][1].endswith('/local_rehearsal.py')
 
 
 def test_artifact_verification_precedes_transfer_import_and_final_identity_checks(tmp_path):
@@ -112,9 +108,8 @@ def test_rollback_uses_recorded_server_artifacts_without_a_new_candidate(tmp_pat
     assert '--rollback' in remotes[0] and '--image-id' not in remotes[0]
 
 
-def test_direct_rehearsal_cli_is_blocked_until_an_independent_environment_is_configured(tmp_path):
-    script = SCRIPT.with_name('rehearse_docker.py')
-    result = subprocess.run([sys.executable, str(script), '--stage-root', str(tmp_path / 'jobs-radar-stage'),
-        '--old-image', 'jobs-radar:old', '--candidate-image', 'jobs-radar:new'], capture_output=True, text=True)
-    assert result.returncode != 0 and 'No independent rehearsal environment' in result.stderr
-    assert list(tmp_path.iterdir()) == []
+
+@pytest.mark.parametrize('mode', ['--rehearse', '--recover-profiles', '--resume-applications'])
+def test_retired_modes_fail_before_remote_access(tmp_path, mode):
+    result, calls = run(tmp_path, (mode,))
+    assert result.returncode != 0 and calls == []

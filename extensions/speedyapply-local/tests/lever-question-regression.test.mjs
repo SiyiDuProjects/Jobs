@@ -104,8 +104,15 @@ function fixture() {
   };
   modules.forEach((code) => w.eval(code));
   const resolve = installAnswerResolver(w, [
-    { question: "Type", keywords: ["type"], appearances: 1, response: "Home" },
     {
+      origin: "person",
+      question: "Type",
+      keywords: ["type"],
+      appearances: 1,
+      response: "Home",
+    },
+    {
+      origin: "person",
       question: q.source,
       keywords: ["hear", "internship"],
       appearances: 2,

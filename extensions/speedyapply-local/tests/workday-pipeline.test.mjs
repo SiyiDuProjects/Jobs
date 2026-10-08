@@ -51,7 +51,7 @@ test("Workday declarations wait for country and preferred-name redraws; saveResp
   const w = new JSDOM(
     '<form data-automation-id="applyFlowMyInfoPage"><label>Country<button type="button" data-automation-id="countryDropdown" aria-haspopup="listbox">Select One</button></label></form>',
     {
-      url: "https://fixture.myworkdayjobs.com/apply",
+      url: "https://fixture.myworkdayjobs.com/en-US/careers/job/Role_R1/apply",
       runScripts: "outside-only",
     },
   ).window;
@@ -78,6 +78,7 @@ test("Workday declarations wait for country and preferred-name redraws; saveResp
   };
   w.JobsDiagnostics = { note: (...args) => notes.push(args), trace() {} };
   for (const code of [...scripts, ...shared]) w.eval(code);
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   w.eval(adapter);
   installAnswerResolver(w, []);
   const inspected = inspectAnswerers(w);
@@ -197,6 +198,7 @@ test("a Workday step is one pipeline run: rule answers, AI for the gap, then one
     perform: (operation, target, run) => run(),
   };
   for (const code of [...scripts, ...shared]) w.eval(code);
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   w.eval(adapter);
   installAnswerResolver(w, []);
   const inspected = inspectAnswerers(w);
@@ -323,6 +325,7 @@ test("a run without the step fill (queue resume, remote command) never swallows 
     perform: (operation, target, run) => run(),
   };
   for (const code of [...scripts, ...shared]) w.eval(code);
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   w.eval(adapter);
   installAnswerResolver(w, []);
   Object.defineProperty(w.HTMLElement.prototype, "innerText", {
@@ -452,6 +455,7 @@ test("status reports from a single-pipeline adapter never start another run", as
     perform: (operation, target, run) => run(),
   };
   for (const code of [...scripts, ...shared]) w.eval(code);
+  w.JobsOperator?.update({ mode: "person", epoch: "fixture", since: 1 });
   w.eval(adapter);
   installAnswerResolver(w, []);
   Object.defineProperty(w.HTMLElement.prototype, "innerText", {

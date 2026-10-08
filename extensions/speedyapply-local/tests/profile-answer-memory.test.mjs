@@ -55,12 +55,20 @@ function fixture(
   }
   w.JobsPageSession = { profile: () => boundProfile };
   w.eval(code);
+  w.JobsOperator.update({ mode: "person", epoch: "fixture" });
   const memory = w.JobsAnswerMemory.start(
     doc,
     true,
     save ||
       ((rows) => {
-        saved.push(...JSON.parse(JSON.stringify(rows)));
+        for (const row of rows) {
+          assert.equal(row.origin, "person");
+          assert.equal(row.operatorEpoch, "fixture");
+          assert.equal(row.context.jobKey, row.jobKey);
+          const { origin, context, ruleVersion, operatorEpoch, ...answer } =
+            row;
+          saved.push(JSON.parse(JSON.stringify(answer)));
+        }
         return Promise.resolve();
       }),
   );
@@ -205,13 +213,18 @@ test("correcting a failed queued capture back to the Profile value does not retr
     h.remember("person@example.test");
     h.memory.flush();
     await settle();
-    assert.deepEqual(attempts, [
-      {
-        question: "Email",
-        response: "old@example.test",
-        jobKey: h.w.JobsJobMatch.key(h.w.location.href),
-      },
-    ]);
+    assert.deepEqual(
+      attempts.map(
+        ({ origin, context, ruleVersion, operatorEpoch, ...answer }) => answer,
+      ),
+      [
+        {
+          question: "Email",
+          response: "old@example.test",
+          jobKey: h.w.JobsJobMatch.key(h.w.location.href),
+        },
+      ],
+    );
   } finally {
     h.close();
   }

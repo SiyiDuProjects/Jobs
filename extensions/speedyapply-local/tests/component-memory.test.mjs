@@ -17,6 +17,13 @@ const memoryCode = (
   )
 ).join("\n");
 function observe(h) {
+  h.w.history.replaceState(
+    null,
+    "",
+    h.w.location.hostname.endsWith("eightfold.ai")
+      ? "/careers?pid=123"
+      : "/en-US/jobs/job/Test/Role_R123/apply",
+  );
   const records = [],
     handlers = {};
   const add = h.doc.addEventListener.bind(h.doc);
@@ -25,11 +32,17 @@ function observe(h) {
     return add(type, listener, ...rest);
   };
   h.w.eval(memoryCode);
+  h.w.JobsOperator.update({ mode: "person", epoch: "fixture" });
   const memory = h.w.JobsAnswerMemory.start(
     h.doc,
     true,
     (rows) => {
-      records.push(...JSON.parse(JSON.stringify(rows)));
+      records.push(
+        ...JSON.parse(JSON.stringify(rows)).map(
+          ({ origin, context, ruleVersion, operatorEpoch, ...answer }) =>
+            answer,
+        ),
+      );
       return Promise.resolve();
     },
     () => h.root,

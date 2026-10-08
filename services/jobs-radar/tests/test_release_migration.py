@@ -5,7 +5,6 @@ import sqlite3
 
 import pytest
 
-from test_application_model_v2 import legacy_database
 
 
 def implementation():
@@ -16,32 +15,46 @@ def implementation():
     return module
 
 
-def test_combined_migration_uses_isolated_dryrun_and_one_commit(tmp_path):
-    database = tmp_path / 'old.sqlite'
-    legacy_database(database)
+def current_database(path):
+    from jobs_radar.store import Store
+    store = Store(path)
+    return store
+
+
+def test_current_format_validation_is_readonly_and_isolated(tmp_path):
+    database = tmp_path / 'current.sqlite'
+    current_database(database)
     before = hashlib.sha256(database.read_bytes()).hexdigest()
     report = implementation().migrate(database)
-    assert report['dryRun'] and report['diagnostics']['oldBrowserSessionsEnded']
+    assert report['dryRun'] and report['formatValidated']
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
     assert not list(tmp_path.glob('release-rehearsal-*'))
-    applied = implementation().migrate(database, dry_run=False)
-    assert not applied['dryRun']
-    with sqlite3.connect(database) as connection:
-        assert connection.execute('SELECT count(*) FROM diagnostic_migrations').fetchone()[0] == 1
+    assert implementation().migrate(database, dry_run=False)['formatValidated']
 
 
-def test_diagnostic_failure_does_not_commit_application_schema(tmp_path, monkeypatch):
-    database = tmp_path / 'old.sqlite'
-    legacy_database(database)
-    module = implementation()
-    def fail(connection):
-        raise ValueError('Synthetic diagnostic migration failure')
-    monkeypatch.setattr(module, 'diagnostics', fail)
-    with pytest.raises(ValueError, match='Synthetic'):
-        module.migrate(database, dry_run=False)
-    with sqlite3.connect(database) as connection:
-        assert connection.execute('SELECT count(*) FROM claims').fetchone()[0] == 1
-        assert connection.execute('SELECT count(*) FROM schema_migrations').fetchone()[0] == 0
+@pytest.mark.parametrize('marker', ['applications-v2', 'native-extension-submission-reporting-v1', 'diagnostics-v2-2026-09-26'])
+def test_missing_legacy_completion_marker_rejects_without_writes(tmp_path, marker):
+    database = tmp_path / 'current.sqlite'
+    store = current_database(database)
+    with store.connect(True) as c:
+        for table in ['schema_migrations', 'diagnostic_migrations']:
+            c.execute('DELETE FROM ' + table + ' WHERE name=?', (marker,))
+    before = hashlib.sha256(database.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match='Unsupported database format'):
+        implementation().migrate(database, dry_run=False)
+    assert hashlib.sha256(database.read_bytes()).hexdigest() == before
+
+
+def test_empty_database_initializes_but_legacy_rows_require_archived_release(tmp_path):
+    from jobs_radar.store import Store
+    database = tmp_path / 'new.sqlite'
+    Store(database)
+    with sqlite3.connect(database) as c:
+        assert c.execute("SELECT 1 FROM schema_migrations WHERE name='applications-v2'").fetchone()
+        c.execute('DELETE FROM schema_migrations')
+        c.execute("INSERT INTO applications(job_id,status,updated) VALUES('legacy','not_started',0)")
+    with pytest.raises(ValueError, match='Unsupported legacy'):
+        Store(database)
 
 
 def test_maintenance_blocks_auth_and_read_side_effects_before_any_route(tmp_path, monkeypatch):

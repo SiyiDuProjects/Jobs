@@ -169,7 +169,7 @@ function background(initial, respond) {
     // This suite isolates its contract; storage-upgrade.test covers the actual gate.
     JobsStorageUpgrade: { assertReady: async () => {}, peek: () => null },
     chrome,
-    JobsQueueBackground: {
+    JobsRemovalBackground: {
       remove: async (url) => announced.push({ type: "stopped", url }),
     },
     URL,
