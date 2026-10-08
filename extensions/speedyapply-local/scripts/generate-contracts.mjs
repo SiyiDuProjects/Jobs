@@ -7,23 +7,6 @@ const root = new URL("../", import.meta.url),
 export async function generateContracts() {
   await writeResponseContract();
   await buildProfileContract({ target: "extension" });
-  const migration = JSON.parse(
-    await fs.readFile(
-      new URL("jobs_radar/storage-migration-contract.json", service),
-      "utf8",
-    ),
-  );
-  await fs.writeFile(
-    new URL("src/custom/storage-migration-policy.js", root),
-    "// Generated from jobs_radar/storage-migration-contract.json. Do not edit.\nexport const JobsStorageMigrationPolicy=" +
-      JSON.stringify({
-        version: migration.version,
-        prefix: migration.prefix,
-        limits: migration.limits,
-        sourcePolicy: migration.sourcePolicy,
-      }) +
-      ";\n",
-  );
   const rules = JSON.parse(
     await fs.readFile(
       new URL("jobs_radar/job_match_rules.json", service),

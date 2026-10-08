@@ -1,7 +1,6 @@
 import { JobsPrivateSession } from "./private-session.js";
 import { JobsManagementModel } from "./management-model.js";
 import { JobsResponseContract } from "./response-contract.js";
-import { JobsMigrationMaintenance } from "./migration-maintenance.js";
 export var JobsDocumentStore;
 let initialized = false;
 export function initializeDocumentStore() {
@@ -37,27 +36,25 @@ export function initializeDocumentStore() {
     }
     function commit(change) {
       const epoch = JobsPrivateSession.epoch;
-      const task = queue.then(() =>
-        JobsMigrationMaintenance.write(async () => {
-          JobsPrivateSession.assertCurrent(epoch);
-          const current = await read();
-          const update = await change(current);
-          JobsPrivateSession.assertCurrent(epoch);
-          if (update && Object.keys(update).length) {
-            const durable = Object.fromEntries(
-              Object.entries(update).filter(([key]) => !ephemeral(key)),
-            );
-            const transient = Object.fromEntries(
-              Object.entries(update).filter(([key]) => ephemeral(key)),
-            );
-            if (Object.keys(durable).length)
-              await chrome.storage.local.set(durable);
-            if (Object.keys(transient).length)
-              await JobsPrivateSession.commit(epoch, transient);
-          }
-          return update;
-        }),
-      );
+      const task = queue.then(async () => {
+        JobsPrivateSession.assertCurrent(epoch);
+        const current = await read();
+        const update = await change(current);
+        JobsPrivateSession.assertCurrent(epoch);
+        if (update && Object.keys(update).length) {
+          const durable = Object.fromEntries(
+            Object.entries(update).filter(([key]) => !ephemeral(key)),
+          );
+          const transient = Object.fromEntries(
+            Object.entries(update).filter(([key]) => ephemeral(key)),
+          );
+          if (Object.keys(durable).length)
+            await chrome.storage.local.set(durable);
+          if (Object.keys(transient).length)
+            await JobsPrivateSession.commit(epoch, transient);
+        }
+        return update;
+      });
       queue = task.catch(() => {});
       return task;
     }
@@ -85,47 +82,41 @@ export function initializeDocumentStore() {
     }
     function pruneResponses() {
       const epoch = JobsPrivateSession.epoch;
-      const task = queue
-        .then(() =>
-          JobsMigrationMaintenance.write(async () => {
-            JobsPrivateSession.assertCurrent(epoch);
-            const current = await read();
-            const active = await activeProfileIds();
-            const base = {
-              .../** @type {Record<string,{value?:unknown,revision?:number}>} */ (
-                current.jobsManagementBaseV1 || {}
-              ),
-            };
-            const remove = [];
-            for (const key of new Set([
-              ...Object.keys(current),
-              ...Object.keys(base),
-            ])) {
-              if (
-                !key.startsWith("jobsResponses:") ||
-                active.has(key.slice("jobsResponses:".length))
-              )
-                continue;
-              // A page closing is not permission to discard its pending edits. The
-              // acknowledged baseline proves which exact value reached the server.
-              if (
-                current[key] !== undefined &&
-                !confirmed(current[key], base[key]?.value)
-              )
-                continue;
-              if (current[key] !== undefined) remove.push(key);
-              delete base[key];
-            }
-            await JobsPrivateSession.commit(
-              epoch,
-              { jobsManagementBaseV1: base },
-              remove,
-            );
-          }),
-        )
-        .catch((error) => {
-          if (error.code !== "migration_in_progress") throw error;
-        });
+      const task = queue.then(async () => {
+        JobsPrivateSession.assertCurrent(epoch);
+        const current = await read();
+        const active = await activeProfileIds();
+        const base = {
+          .../** @type {Record<string,{value?:unknown,revision?:number}>} */ (
+            current.jobsManagementBaseV1 || {}
+          ),
+        };
+        const remove = [];
+        for (const key of new Set([
+          ...Object.keys(current),
+          ...Object.keys(base),
+        ])) {
+          if (
+            !key.startsWith("jobsResponses:") ||
+            active.has(key.slice("jobsResponses:".length))
+          )
+            continue;
+          // A page closing is not permission to discard its pending edits. The
+          // acknowledged baseline proves which exact value reached the server.
+          if (
+            current[key] !== undefined &&
+            !confirmed(current[key], base[key]?.value)
+          )
+            continue;
+          if (current[key] !== undefined) remove.push(key);
+          delete base[key];
+        }
+        await JobsPrivateSession.commit(
+          epoch,
+          { jobsManagementBaseV1: base },
+          remove,
+        );
+      });
       queue = task.catch(() => {});
       return task;
     }

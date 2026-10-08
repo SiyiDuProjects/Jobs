@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from test_docker_rehearsal import module
+from deploy_module import module
 
 
 def test_actual_git_archive_is_identical_across_wall_clock_seconds(tmp_path):
@@ -498,56 +498,3 @@ def test_unsafe_or_retagging_archive_is_rejected_before_docker_load(tmp_path, ba
     assert calls == []
 
 
-@pytest.mark.parametrize('failure', [None, 'candidate', 'builder', 'rehearsal', 'rehearsal-service'])
-def test_local_rehearsal_requires_verified_local_images_and_no_unresolved_prior_work(tmp_path, monkeypatch, failure):
-    rehearsal = module('local_rehearsal')
-    monkeypatch.setattr(rehearsal.sys, 'platform', 'linux')
-    manifest = dict(imageId='sha256:' + 'b' * 64, sourceSha256='c' * 64)
-    monkeypatch.setattr(rehearsal, 'desktop_target', lambda: ('default', 'unix:///var/run/docker.sock'))
-    monkeypatch.setattr(rehearsal, 'committed_source', lambda: (tmp_path, 'd' * 40, 'd' * 12))
-    monkeypatch.setattr(rehearsal, 'verify_artifact', lambda *_: manifest)
-    stage = tmp_path / 'native/jobs-radar-stage'
-    stage.mkdir(parents=True)
-    monkeypatch.setattr(rehearsal, 'native_stage', lambda: stage)
-    monkeypatch.setattr(rehearsal, 'export_native', lambda *_: {'verified': True})
-    calls = []
-    previous = dict(os.environ)
-    class DesktopContext:
-        def __init__(self, folder):
-            calls.append('context')
-            self.cli = ['docker', '--config', str(folder / 'empty-config'), '--context', 'private-context']
-            self.env = {key: value for key, value in previous.items() if key != 'SSH_AUTH_SOCK'}
-        def call(self, args):
-            calls.append(args)
-            return json.dumps([dict(Id=args[-1], Config={'Labels': {'org.opencontainers.image.revision': 'wrong' if failure == 'candidate' else 'd' * 40,
-                'jobs.source.sha256': 'c' * 64}})])
-    class IsolatedRehearsal:
-        def __init__(self, stage, old, candidate, *, deadline, register):
-            assert stage == tmp_path / 'native/jobs-radar-stage'
-            assert old == 'sha256:' + 'a' * 64 and candidate == manifest['imageId']
-            wrapper = Path(os.environ['PATH'].split(os.pathsep)[0]) / 'docker'
-            assert '--context private-context' in wrapper.read_text() and '--config' in wrapper.read_text()
-            assert 'SSH_AUTH_SOCK' not in os.environ
-            calls.append('rehearsal')
-            register(stage / 'rehearsal-123456789abc1234', 'isolated')
-        def run(self):
-            return {'syntheticDataOnly': True}
-        def finalize(self): pass
-    monkeypatch.setattr(rehearsal, 'DesktopBuild', DesktopContext)
-    monkeypatch.setattr(rehearsal, 'Rehearsal', IsolatedRehearsal)
-    monkeypatch.setattr(rehearsal.shutil, 'which', lambda _: '/usr/bin/docker')
-    if failure in {'builder', 'rehearsal', 'rehearsal-service'}:
-        relative = ('releases/old/builder.json' if failure == 'builder' else
-                    'jobs-radar-stage/rehearsal-123456789abc/' + ('service-containers' if failure == 'rehearsal-service' else 'containers') + '/old.json')
-        receipt = tmp_path / '.qa' / relative
-        receipt.parent.mkdir(parents=True)
-        receipt.write_text(json.dumps(dict(creation='pending', removed=False)))
-    if failure:
-        with pytest.raises((RuntimeError, ValueError)):
-            rehearsal.rehearse(tmp_path / 'artifact', 'sha256:' + 'a' * 64)
-        assert 'rehearsal' not in calls
-        if failure != 'candidate':
-            assert calls == []
-    else:
-        assert rehearsal.rehearse(tmp_path / 'artifact', 'sha256:' + 'a' * 64) == {'syntheticDataOnly': True, 'evidence': {'verified': True}}
-    assert dict(os.environ) == previous

@@ -36,23 +36,6 @@ def main():
     if args.command in {'collect', 'screen', 'screen-companies', 'refresh-workday-identities'} and paused():
         print(json.dumps({'status': 'release_maintenance'}))
         return
-    from .restricted_recovery import active_recovery, RecoveryStore
-    recovery_bundle=active_recovery(args.db)
-    if recovery_bundle is not None:
-        from .recovery_server import create_app, existing, profile_writes_paused
-        origin=os.environ.get('JOBS_ORIGIN','https://jobs.siyidu.com')
-        if args.command=='approve-web':
-            from .web import WebAccess
-            recovery_store=RecoveryStore(recovery_bundle)
-            if profile_writes_paused(recovery_store): raise RuntimeError('Recovery Profile writes are paused')
-            print(json.dumps(existing(WebAccess,recovery_store,origin=origin).approve(args.request_id)))
-        elif args.command=='serve':
-            import uvicorn
-            uvicorn.run(create_app(recovery_bundle,origin),host=os.environ.get('JOBS_HOST','127.0.0.1'),
-                        port=int(os.environ.get('JOBS_PORT','8796')),access_log=False,log_level='warning',proxy_headers=False)
-        else:
-            raise RuntimeError('Restricted recovery permits only website service and website approval')
-        return
     store = Store(args.db)
     if os.name != "nt":
         os.chmod(args.db, 0o600)

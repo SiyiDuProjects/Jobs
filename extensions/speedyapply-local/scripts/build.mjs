@@ -102,20 +102,14 @@ export async function buildPackage({
       "diagnostics.html",
       "queue.html",
       "queue-entry.html",
-      "migration.html",
     ])
       await fs.copyFile(path.join(root, "src", name), path.join(stage, name));
-    for (const name of ["diagnostics-ui.css", "queue.css", "migration-ui.css"])
+    for (const name of ["diagnostics-ui.css", "queue.css"])
       await fs.copyFile(
         path.join(root, "src/custom", name),
         path.join(stage, "custom", name),
       );
-    for (const name of [
-      "diagnostics-ui",
-      "queue-ui",
-      "site-bridge",
-      "migration-ui",
-    ])
+    for (const name of ["diagnostics-ui", "queue-ui", "site-bridge"])
       await build({
         absWorkingDir: root,
         entryPoints: ["src/custom/" + name + ".js"],

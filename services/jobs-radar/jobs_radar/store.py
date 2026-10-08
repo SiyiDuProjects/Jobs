@@ -21,6 +21,7 @@ class Store:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as c:
+            new_database = not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone()
             c.executescript("""
             PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,identity TEXT UNIQUE,first_seen REAL,last_seen REAL);
@@ -68,6 +69,12 @@ class Store:
             initialize_workday(c)
         from .application_schema import initialize
         initialize(self)
+        if new_database:
+            from .release_compatibility import SUBMISSIONS, DIAGNOSTICS
+            with self.connect(True) as c:
+                c.execute('INSERT OR IGNORE INTO schema_migrations VALUES(?,?,?)', (SUBMISSIONS, time.time(), '{"initialized":true}'))
+                c.execute('CREATE TABLE IF NOT EXISTS diagnostic_migrations(name TEXT PRIMARY KEY,report TEXT NOT NULL)')
+                c.execute('INSERT OR IGNORE INTO diagnostic_migrations VALUES(?,?)', (DIAGNOSTICS, '{"initialized":true}'))
         from .job_titles import initialize as initialize_titles
         with self.connect() as c:
             initialize_titles(c)

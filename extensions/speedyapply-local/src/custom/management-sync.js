@@ -1,5 +1,4 @@
 import { JobsPrivateSession } from "./private-session.js";
-import { JobsStorageUpgrade } from "./storage-upgrade.js";
 import { JobsManagementModel } from "./management-model.js";
 import { JobsResponseContract } from "./response-contract.js";
 import { JobsSync } from "./sync.js";
@@ -66,7 +65,6 @@ export function initializeManagementSync() {
     const state = async (value) =>
       chrome.storage.local.set({ [STATUS]: { ...value, at: Date.now() } });
     async function loadProfiles(epoch) {
-      await JobsStorageUpgrade.assertReady();
       const list = await JobsSync.profileRequest({
         path: "/api/extension/profiles",
         method: "GET",

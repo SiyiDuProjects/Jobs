@@ -1,9 +1,6 @@
 import { JobsPrivateSession } from "./private-session.js";
 import { checkRecoveryPause } from "./recovery-pause.js";
 import { JobsBrand } from "./brand.js";
-import { JobsStorageUpgrade } from "./storage-upgrade.js";
-import { JobsMigrationMaintenance } from "./migration-maintenance.js";
-import { JobsStorageMigrationPolicy } from "./storage-migration-policy.js";
 import { publicJobUrl } from "./public-job-url.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsAvailabilityRules } from "./availability-rules.js";
@@ -59,7 +56,7 @@ export function initializeSync() {
       disabled: !!state.disabled,
       queued: state.outbox.length,
       needsConfirmation: state.needsConfirmation || 0,
-      error: JobsStorageUpgrade.peek()?.message || state.error || "",
+      error: state.error || "",
       lastSynced: state.lastSynced || null,
     });
     async function announce() {
@@ -663,8 +660,6 @@ export function initializeSync() {
       return result;
     }
     async function profileRequest(payload) {
-      await JobsMigrationMaintenance.assertOpen();
-      await JobsStorageUpgrade.assertReady();
       const epoch = JobsPrivateSession.epoch;
       await ready;
       const state = await serial(read);
@@ -695,7 +690,6 @@ export function initializeSync() {
       return result;
     }
     async function managementRequest(method, body) {
-      await JobsMigrationMaintenance.assertOpen();
       const epoch = JobsPrivateSession.epoch;
       await ready;
       const state = await serial(read);
@@ -721,68 +715,7 @@ export function initializeSync() {
       JobsPrivateSession.assertCurrent(epoch);
       return result;
     }
-    async function migrationIdentity() {
-      await ready;
-      const state = await serial(read);
-      if (!state.profileToken || state.disabled)
-        throw Object.assign(Error("请先在 jobs 网站恢复个人资料连接"), {
-          code: "migration_auth_required",
-        });
-      return { deviceId: state.deviceId };
-    }
-    async function migrationRequest(path, method = "GET", body = undefined) {
-      const epoch = JobsPrivateSession.epoch;
-      await ready;
-      const state = await serial(read);
-      if (!state.profileToken || state.disabled)
-        throw Object.assign(Error("请先在 jobs 网站恢复个人资料连接"), {
-          code: "migration_auth_required",
-        });
-      const suffix = path.slice(JobsStorageMigrationPolicy.prefix.length);
-      if (
-        !path.startsWith(JobsStorageMigrationPolicy.prefix) ||
-        !/^(?:\/[a-f0-9-]{36}(?:\/(?:entries\/[a-f0-9-]{36}|seal|plan|resolve|apply|verify|cleanup-claim|cleanup-ack|complete|supersede|conflicts\/[A-Za-z0-9_-]{1,128}\/preview\?choiceId=(?:[A-Za-z0-9_-]|%3A){1,128}(?:&cursor=[A-Za-z0-9_-]{1,256})?))?)?$/.test(
-          suffix,
-        ) ||
-        !["GET", "POST", "PUT"].includes(method)
-      )
-        throw Error("Invalid migration endpoint");
-      const response = await fetch(ORIGIN + path, {
-        method,
-        credentials: "omit",
-        headers: {
-          "X-Jobs-Protocol": "2",
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + state.profileToken,
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(
-          JobsStorageMigrationPolicy.limits.requestTimeoutMs,
-        ),
-      });
-      const result = await profileResult(
-        response,
-        state.profileToken,
-        "迁移暂时无法连接，原资料已保留",
-        epoch,
-      );
-      const current = await serial(read);
-      if (
-        current.disabled ||
-        current.deviceId !== state.deviceId ||
-        current.profileToken !== state.profileToken
-      )
-        throw Object.assign(Error("资料连接已改变，请重新核对迁移会话"), {
-          code: "migration_owner_mismatch",
-        });
-      if (result?.deviceId !== undefined && result.deviceId !== state.deviceId)
-        throw Object.assign(Error("迁移会话不属于当前设备"), {
-          code: "migration_owner_mismatch",
-        });
-      return result;
-    }
     async function generateAnswer(payload) {
-      await JobsMigrationMaintenance.assertOpen();
       await ready;
       const state = await serial(read);
       if (!state.profileToken || state.disabled)
@@ -980,8 +913,6 @@ export function initializeSync() {
       flush,
       profileRequest,
       managementRequest,
-      migrationIdentity,
-      migrationRequest,
       generateAnswer,
       resolveJob,
       reportJobTitle,

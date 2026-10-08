@@ -1,12 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { nativePackage } from "./helpers/native-package.mjs";
 test("native package preserves the installed public identity and contains only maintained code plus npm modules", async () => {
-  const prior = JSON.parse(
-    await fs.readFile(new URL("../upstream.json", import.meta.url), "utf8"),
-  );
   const result = await nativePackage(),
     manifest = JSON.parse(
       await fs.readFile(result.stage + "/manifest.json", "utf8"),
@@ -19,7 +18,7 @@ test("native package preserves the installed public identity and contains only m
   ]
     .map((c) => String.fromCharCode(97 + parseInt(c, 16)))
     .join("");
-  assert.equal(id, prior.developmentExtensionId);
+  assert.equal(id, "ccohapahbamkcbgkpegidkpknoeikiko");
   assert.equal(manifest.update_url, undefined);
   assert.deepEqual(manifest.permissions, [
     "storage",
@@ -46,7 +45,19 @@ test("native package preserves the installed public identity and contains only m
       await fs.readFile(result.stage + "/" + entry + "-modules.json", "utf8"),
     )) {
       assert(
-        /^(source\/|src\/custom\/|node_modules\/date-fns\/)/.test(input),
+        /^(source\/|src\/custom\/)/.test(input) ||
+          (
+            await fs.realpath(
+              path.resolve(
+                fileURLToPath(new URL("..", import.meta.url)),
+                input,
+              ),
+            )
+          ).startsWith(
+            (await fs.realpath(
+              new URL("../node_modules/date-fns", import.meta.url),
+            )) + path.sep,
+          ),
         input,
       );
       assert(!/vendor|runtime\.template|src\/chunks/.test(input));
