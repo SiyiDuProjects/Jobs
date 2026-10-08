@@ -163,3 +163,24 @@ test("publication failure cleans only this update's candidate and keeps original
     await f.close();
   }
 });
+
+test("a vocabulary edit during validation prevents publishing stale generated policy", async () => {
+  const f = await packageFixture();
+  try {
+    const vocabulary = path.resolve(
+      f.root,
+      "../../services/jobs-radar/jobs_radar/answer-vocabulary.json",
+    );
+    await assert.rejects(
+      updateInstalled(
+        options(f, {
+          check: async () => fs.writeFile(vocabulary, "updated vocabulary"),
+        }),
+      ),
+      /Source changed during checks/,
+    );
+    assert.equal(await f.code("dist"), "old");
+  } finally {
+    await f.close();
+  }
+});
