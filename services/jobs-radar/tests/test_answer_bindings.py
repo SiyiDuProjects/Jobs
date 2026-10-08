@@ -3,7 +3,7 @@ import json
 import time
 import httpx
 import pytest
-from jobs_radar.answer_bindings import BindingCache, answer, checked, evaluate
+from jobs_radar.answer_bindings import BindingCache, answer, binding_key, checked, evaluate
 from jobs_radar.answer_semantics import cache_key, MeaningCache
 from jobs_radar.answers import Answers
 from jobs_radar.profiles import Profiles
@@ -93,27 +93,30 @@ def test_missing_facts_and_unverified_legacy_hints_cannot_short_circuit(tmp_path
 
 
 @pytest.mark.parametrize('change', [
-    {'jobCountry':'Canada'}, {'jobUrl':'https://jobs.lever.co/other-company/a'},
-    {'formContext':[{'question':'Conditions','answer':'Additional restriction'}]},
-    {'jobTitle':'Different role'}, {'additionalContext':'Different context'},
+    {'jobCountry':'Canada'}, {'jobCountry':'US'},
     {'fields':[FIELD | {'required':False}]},
+    {'fields':[FIELD | {'type':'select-one'}]},
     {'fields':[FIELD | {'description':'Without restrictions'}]},
     {'fields':[FIELD | {'question':'Do you have unrestricted rights to work?'}]},
     {'fields':[FIELD | {'options':list(reversed(FIELD['options']))}]},
+    {'fields':[FIELD | {'options':[FIELD['options'][0],{'value':'y','label':'Yes, without restrictions'}]}]},
+    {'fields':[FIELD | {'options':[FIELD['options'][0],{'value':'another-value','label':'Yes'}]}]},
 ])
-def test_complete_field_and_context_changes_miss_cache(tmp_path, change):
+def test_complete_field_and_country_changes_miss_cache(tmp_path, change):
     a, _, payload = setup(tmp_path); run(a,payload,Client())
     failed = Client(fail=True)
     with pytest.raises(ValueError): run(a,payload | change,failed)
     assert len(failed.calls) == 1
 
 
-def test_model_and_vocabulary_versions_invalidate_cache():
+@pytest.mark.parametrize('key', [cache_key, binding_key])
+@pytest.mark.parametrize('version', ['version', 'ruleVersion'])
+def test_model_and_vocabulary_versions_invalidate_cache(key, version):
     from jobs_radar.answer_semantics import VOCABULARY
-    assert cache_key(FIELD,{},'one') != cache_key(FIELD,{},'two')
-    old = cache_key(FIELD,{},'one'); VOCABULARY['ruleVersion'] += 1
-    try: assert cache_key(FIELD,{},'one') != old
-    finally: VOCABULARY['ruleVersion'] -= 1
+    assert key(FIELD,{},'one') != key(FIELD,{},'two')
+    old = key(FIELD,{},'one'); VOCABULARY[version] += 1
+    try: assert key(FIELD,{},'one') != old
+    finally: VOCABULARY[version] -= 1
 
 
 def test_mixed_batch_keeps_verified_hit_when_uncached_model_fails(tmp_path):
@@ -205,3 +208,82 @@ def test_new_person_statement_during_model_wait_invalidates_cached_result(tmp_pa
     other=FIELD | {'fieldId':'other','question':'Another question'}
     with pytest.raises(ValueError,match='已存答案在核验期间改变'):
         run(a,payload | {'fields':[FIELD,other]},Changed())
+
+
+def test_verified_binding_survives_job_company_and_form_progress_changes(tmp_path):
+    a, profile, payload = setup(tmp_path)
+    first_payload = payload | {
+        'jobCountry':'US', 'jobUrl':'https://jobs.lever.co/first-company/role-one',
+        'jobTitle':'Software Engineer', 'jobDescription':'First role description',
+        'additionalContext':'Application one', 'formContext':[],
+    }
+    cold = Client()
+    assert run(a,first_payload,cold)['answers'][0]['decision']=='write'
+    assert len(cold.calls)==2
+    later = first_payload | {'formContext':[{'question':'First name','answer':'Synthetic'}]}
+    for current in [later,
+                    later | {'jobUrl':'https://jobs.lever.co/first-company/role-two','jobTitle':'Backend Engineer','jobDescription':'Second role description'},
+                    later | {'jobUrl':'https://jobs.lever.co/second-company/role-three','jobTitle':'Platform Engineer','jobDescription':'Third role description','additionalContext':'Application three','fields':[FIELD | {'fieldId':'other-page-field'}]}]:
+        offline = Client(fail=True)
+        answer = run(a,current,offline)['answers'][0]
+        assert answer['decision']=='write' and answer['value']=='y'
+        assert answer['fieldId']==current['fields'][0]['fieldId']
+        assert answer['proof']['profileVersion']==payload['profileVersion']
+        assert offline.calls==[]
+    profile['employmentData']['eligibilityUS']=False
+    newer=Profiles(a.store).save(profile,profile_id=payload['profileId'],expected_sync=payload['profileVersion'])
+    offline=Client(fail=True)
+    answer=run(a,current | {'profileVersion':newer['last_sync']},offline)['answers'][0]
+    assert answer['value']=='n' and answer['proof']['profileVersion']==newer['last_sync']
+    assert offline.calls==[]
+    with a.store.connect() as connection:
+        assert connection.execute('SELECT count(*) FROM answer_requests').fetchone()[0]==1
+
+
+def test_meaning_hints_keep_full_context_while_bindings_use_public_scope(tmp_path):
+    from jobs_radar.answers import MODEL
+    a, profile, payload=setup(tmp_path)
+    contexts=[{'jobTitle':'First role','jobDescription':'First description','additionalContext':'First application','formContext':[],
+               'jobContext':{'jobKey':'lever:first/one','companyKey':'lever:first','country':'US'}},
+              {'jobTitle':'Second role','jobDescription':'Second description','additionalContext':'Second application',
+               'formContext':[{'question':'Name','answer':'Synthetic'}],
+               'jobContext':{'jobKey':'lever:second/two','companyKey':'lever:second','country':'US'}}]
+    hints=MeaningCache(a.store)
+    hints.save([FIELD],[{'fieldId':'f','meaning':MEANING}],contexts[0],MODEL)
+    assert hints.read([FIELD],contexts[0],MODEL)=={'f':MEANING}
+    assert hints.read([FIELD],contexts[1],MODEL)=={}
+    assert binding_key(FIELD,contexts[0],MODEL)==binding_key(FIELD,contexts[1],MODEL)
+
+
+def test_old_context_bound_plan_is_not_promoted_without_new_verification(tmp_path):
+    from jobs_radar.answers import MODEL
+    a, profile, payload=setup(tmp_path)
+    context={'additionalContext':'','jobTitle':'','jobDescription':'','formContext':[],
+             'jobContext':{'jobKey':'','companyKey':'','country':''}}
+    bindings=BindingCache(a.store)
+    with a.store.connect(True) as connection:
+        connection.execute('INSERT INTO answer_bindings VALUES(?,?)',
+                           (cache_key(FIELD,context,MODEL),json.dumps({'meaning':MEANING,'binding':BINDING})))
+    assert bindings.read([FIELD],context,MODEL,profile,payload['profileId'],payload['profileVersion'],{'f':{}})=={}
+    client=Client()
+    assert run(a,payload,client)['answers'][0]['decision']=='write'
+    assert len(client.calls)==2
+    assert run(a,payload,client)['answers'][0]['decision']=='write'
+    assert len(client.calls)==2
+
+
+def test_context_dependent_verdict_is_not_cached_as_a_binding(tmp_path):
+    a, _, payload=setup(tmp_path)
+    payload=payload | {'fields':[FIELD | {'question':'Are you eligible under the conditions above?'}],
+                       'jobTitle':'First role','jobDescription':'First conditions',
+                       'formContext':[{'question':'Conditions','answer':'First answer'}]}
+    client=Client(binding=None)
+    for current in [payload,payload | {'jobTitle':'Second role','jobDescription':'Second conditions',
+                                      'formContext':[{'question':'Conditions','answer':'Second answer'}]}]:
+        assert run(a,current,client)['answers'][0]['decision']=='write'
+        verifier_input=json.loads(client.calls[-1]['input'])
+        assert verifier_input['context']['formContext']==current['formContext']
+        assert verifier_input['context']['jobDescription']==current['jobDescription']
+    assert len(client.calls)==4
+    with a.store.connect() as connection:
+        assert connection.execute('SELECT count(*) FROM answer_bindings').fetchone()[0]==0

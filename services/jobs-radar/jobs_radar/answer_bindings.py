@@ -8,6 +8,7 @@ import json
 from .answer_evidence import decide, facts
 from .answer_semantics import cache_key, classification
 
+BINDING_CACHE_VERSION = 2
 BOOLEAN = ('true', 'false')
 DISCLOSURE = (*BOOLEAN, 'undisclosed')
 GENDERS = ('male', 'female', 'nonbinary', 'undisclosed')
@@ -46,9 +47,25 @@ Set options to one closed concept per option in the original order; true/false
 mean the underlying POSITIVE predicate, including for a negated question. Use
 unused only for a placeholder/unrelated option; never discard a qualification.
 Only radio/select-one/custom-dropdown controls with complete supplied options
-are executable. A binding must not depend on another answer changing. If the
-question depends on formContext, consider its full scope or return null.
+are executable. A binding must be fully determined by the field's question,
+description, type, required flag, complete options and context.jobContext.country.
+It will be reused across companies, job postings and form filling progress.
+Return null if interpreting the field needs a company, job title/description,
+additionalContext, formContext or another answer. Do not resolve references such
+as 'the conditions above' or 'the degree required for this role' into a binding.
+Those fields may still receive a verified answer for this request, without a
+reusable binding. Unrelated changes elsewhere in the form do not affect a
+self-contained field's binding.
 """
+
+
+def binding_key(field, context, model):
+    # Only independently verified, self-contained predicates use this scope.
+    # The namespace excludes old context-bound plans rather than upgrading them.
+    return cache_key(field, {
+        'bindingVersion': BINDING_CACHE_VERSION,
+        'country': context.get('jobContext', {}).get('country', ''),
+    }, model)
 
 
 def schema():
@@ -179,7 +196,7 @@ class BindingCache:
                 # only the existing independent verifier may resolve its scope.
                 if field['fieldId'] not in saved or saved.get(field['fieldId']):
                     continue
-                row = c.execute('SELECT binding FROM answer_bindings WHERE key=?', (cache_key(field, context, model),)).fetchone()
+                row = c.execute('SELECT binding FROM answer_bindings WHERE key=?', (binding_key(field, context, model),)).fetchone()
                 if not row:
                     continue
                 try:
@@ -206,5 +223,5 @@ class BindingCache:
                 if row.get('evidence') != value['evidence']:
                     continue
                 c.execute('INSERT OR REPLACE INTO answer_bindings VALUES(?,?)',
-                          (cache_key(field, context, model), json.dumps({'meaning': check['meaning'], 'binding': binding})))
+                          (binding_key(field, context, model), json.dumps({'meaning': check['meaning'], 'binding': binding})))
             c.execute('DELETE FROM answer_bindings WHERE rowid NOT IN (SELECT rowid FROM answer_bindings ORDER BY rowid DESC LIMIT 4000)')
