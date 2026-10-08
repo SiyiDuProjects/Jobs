@@ -17,7 +17,7 @@ const dependencies = {
     "job-match-rules.js",
     "job-match.js",
   ],
-  "automatic-field-policy.js": ["answer-policy.js"],
+  "automatic-field-policy.js": ["answer-proof.js"],
   "form-pipeline.js": ["page-actions.js", "dom-wait.js", "page-commit.js"],
   "manual-answer.js": ["form-pipeline.js"],
   "history-background.js": [
@@ -62,6 +62,7 @@ const dependencies = {
     "profile-answers.js",
     "form-pipeline.js",
   ],
+  "automatic-background.js": ["answer-proof.js"],
   "automatic-fill.js": [
     "automatic-flow.js",
     "autofill-preferences.js",

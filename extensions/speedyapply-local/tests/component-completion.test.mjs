@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import fs from "node:fs/promises";
 import test from "node:test";
@@ -72,13 +73,13 @@ async function fixture(mode) {
           return {
             data: {
               answers: [
-                {
+                confirmedAnswer(message.fields[0], {
                   fieldId: message.fields[0].fieldId,
                   state: "answer",
                   value: option.value,
                   source: "profile",
                   needsConfirmation: false,
-                },
+                }),
               ],
             },
           };
@@ -281,13 +282,13 @@ for (const entry of ["ai", "known-answer", "remote"])
             return {
               data: {
                 answers: [
-                  {
+                  confirmedAnswer(message.fields[0], {
                     fieldId: message.fields[0].fieldId,
                     state: "answer",
                     value: "Daytime",
                     source: "profile",
                     needsConfirmation: false,
-                  },
+                  }),
                 ],
               },
             };

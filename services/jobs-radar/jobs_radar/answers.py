@@ -40,6 +40,12 @@ class Answers:
             value=payload.get(key,'')
             if not isinstance(value,str) or len(value)>limit: raise ValueError('题目上下文过长')
             data[key]=value
+        if batch:
+            from .answer_semantics import MeaningCache, VOCABULARY
+            meanings = MeaningCache(self.store)
+            meaning_context = {key: data[key] for key in ['additionalContext','jobTitle','jobDescription']}
+            data['meaningHints'] = meanings.read(field_data['fields'], meaning_context, MODEL)
+            data['topicVocabulary'] = VOCABULARY
         raw=json.dumps(data,ensure_ascii=False)
         if len(raw.encode())>100000: raise ValueError('资料过大')
         now=time.time();rid=str(uuid.uuid4())
@@ -50,7 +56,7 @@ class Answers:
         async def call(active):
             result=await active.post('https://api.openai.com/v1/responses',json={'model':MODEL,'store':False,'instructions':INSTRUCTIONS+('\n'+field_answers.INSTRUCTIONS if batch else ''),'input':raw,
                 'reasoning':{'effort':'low'},'max_output_tokens':6000 if batch else 1800,
-                'text':{'format':{'type':'json_schema','name':'job_answer','strict':True,'schema':field_answers.schema(field_data['fields']) if batch else SCHEMA}}})
+                'text':{'format':{'type':'json_schema','name':'job_answer','strict':True,'schema':field_answers.schema(field_data['fields'], profile) if batch else SCHEMA}}})
             if result.status_code!=200: raise ValueError('Luna 暂时不可用（HTTP '+str(result.status_code)+'）')
             body=result.json()
             if body.get('status')!='completed': raise ValueError('Luna 回答未完成，请重试')
@@ -58,6 +64,10 @@ class Answers:
             answer=json.loads(text)
             if batch:
                 rows=field_answers.checked_answers(answer,field_data['fields'],profile)
+                from .answer_evidence import decide
+                meanings.save(field_data['fields'], rows, meaning_context, MODEL)
+                fields_by_id = {f['fieldId']: f for f in field_data['fields']}
+                rows = [decide(row, fields_by_id[row['fieldId']], profile, pid, payload['profileVersion']) for row in rows]
                 self.profile_gaps.record(pid,profile,field_data['fields'],rows)
                 state='needs_input' if any(r['state']=='needs_input' for r in rows) else 'answer'
                 with self.store.connect(True) as c:c.execute('UPDATE answer_requests SET state=? WHERE id=?',(state,rid))

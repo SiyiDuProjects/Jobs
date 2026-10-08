@@ -8,9 +8,9 @@ COMMON_INSTRUCTIONS = POLICY["instructions"]["common"]
 FIELD_INSTRUCTIONS = POLICY["instructions"]["fields"]
 
 
-def needs_confirmation(state, source, requested=False, question=""):
+def needs_confirmation(state, source, requested=False, question="", *, evidence_verified=False):
     rules = POLICY["rules"]
-    return (any(re.search(pattern, question, re.I) for pattern in rules["reviewQuestions"])
-            or state != "answer" or requested is not False
+    return (state != "answer" or requested is not False
+            or source == "profile" and not evidence_verified
             or source == "suggestion" and rules["suggestionsRequireConfirmation"]
             or source == "unknown" and rules["unknownFactsRequireConfirmation"])

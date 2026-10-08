@@ -45,7 +45,9 @@ def fields_input(payload):
                       'answer':_string(item.get('answer',''),4000,'context answer',True)})
     return {'fields':fields,'formContext':clean}
 
-def schema(fields):
+def schema(fields, profile=None):
+    from .answer_evidence import citation_schema
+    from .answer_semantics import classification_schema
     return {'type':'object','properties':{'answers':{'type':'array','items':{
         'type':'object','properties':{'fieldId':{'type':'string','enum':[f['fieldId'] for f in fields]},
             'state':{'type':'string','enum':['answer','needs_input']},
@@ -53,8 +55,9 @@ def schema(fields):
             'needsConfirmation':{'type':'boolean'},
             'value':{'anyOf':[{'type':'string'},{'type':'boolean'},
                 {'type':'array','items':{'type':'string'}},{'type':'null'}]},
+            'evidence':citation_schema(profile), 'meaning':classification_schema(),
             'reason':{'type':'string'},'questionZh':{'type':'string'},'answerZh':{'type':'string'}},
-        'required':['fieldId','state','value','reason','source','needsConfirmation','questionZh','answerZh'],'additionalProperties':False}}},
+        'required':['fieldId','state','value','reason','source','needsConfirmation','questionZh','answerZh','evidence','meaning'],'additionalProperties':False}}},
         'required':['answers'],'additionalProperties':False}
 
 def _exact_date(value):
@@ -132,6 +135,8 @@ def checked_answers(body,fields,profile=None):
             display=row.get(key)
             if isinstance(display,str) and display.strip() and len(display)<=limit:
                 result[key]=display.strip()
+        for key in ['evidence','meaning']:
+            if key in row: result[key] = row[key]
         if state=='needs_input':result.pop('answerZh',None)
         checked.append(result)
     return checked

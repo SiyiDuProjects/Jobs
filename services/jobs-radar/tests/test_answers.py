@@ -57,10 +57,14 @@ def test_credentials_and_missing_profile_rejected_before_provider(tmp_path):
 
 def test_batch_fields_share_provider_and_validate_types_and_complete_coverage(tmp_path):
     a,p=setup(tmp_path)
+    profile = Profiles(a.store).at_version(p['profileId'],p['profileVersion'])
+    profile['applicationData']={'interviewLanguage':'Python'}
+    record = Profiles(a.store).save(profile,profile_id=p['profileId'],expected_sync=p['profileVersion'])
+    p['profileVersion']=record['last_sync']
     fields=[{'fieldId':'language','question':'Preferred language?','type':'radio','required':True,
              'options':[{'value':'python','label':'Python'}]},
-            {'fieldId':'office','question':'Willing to relocate?','type':'checkbox','required':False}]
-    answers=[{'fieldId':'language','state':'answer','value':'python','reason':'','source':'profile','needsConfirmation':False,'questionZh':'首选编程语言','answerZh':'Python'},
+            {'fieldId':'office','question':'Willing to relocate?','type':'checkbox','required':True}]
+    answers=[{'fieldId':'language','state':'answer','value':'python','reason':'','source':'profile','needsConfirmation':False,'evidence':[{'profilePath':'applicationData.interviewLanguage'}],'questionZh':'首选编程语言','answerZh':'Python'},
              {'fieldId':'office','state':'needs_input','value':None,'reason':'No confirmed preference','source':'unknown','needsConfirmation':True}]
     class Batch:
         async def post(self,url,json):
@@ -70,7 +74,8 @@ def test_batch_fields_share_provider_and_validate_types_and_complete_coverage(tm
                 def json(self):return {'status':'completed','output':[{'content':[{'type':'output_text','text':__import__('json').dumps({'answers':answers})}]}]}
             return Result()
     client=Batch();result=asyncio.run(a.generate({**p,'fields':fields,'formContext':[{'question':'Country','answer':'United States'}]},client))
-    assert result['answers']==answers and client.body['store'] is False
+    assert result['answers'][0]['value']=='python' and result['answers'][0]['proof']['status']=='verified'
+    assert result['answers'][1]['state']=='needs_input' and client.body['store'] is False
     assert json.loads(client.body['input'])['formContext'][0]['answer']=='United States'
     with a.store.connect() as c:
         gap=c.execute('SELECT question,answer,occurrences FROM answer_profile_gaps').fetchall()
@@ -81,7 +86,7 @@ def test_batch_fields_share_provider_and_validate_types_and_complete_coverage(tm
         result=asyncio.run(a.generate({**p,'fields':fields},client))
         assert result['answers'][0]['state']=='needs_input' and result['answers'][0]['value'] is None
         assert 'answerZh' not in result['answers'][0], 'Rejected values must not retain a successful-looking translation'
-        assert result['answers'][1]==answers[1], 'One bad value must not discard another valid answer'
+        assert result['answers'][1]['value'] is False and result['answers'][1]['decision']=='draft', 'One bad value must not discard another valid answer'
     answers[0]['fieldId']='unknown'
     with pytest.raises(ValueError):asyncio.run(a.generate({**p,'fields':fields},client))
     answers[0]['fieldId']='office'
@@ -103,7 +108,7 @@ def test_conditional_optional_blanks_keep_valid_school_answer_but_required_blank
     answers=[{'fieldId':f['fieldId'],'state':'answer','value':'berkeley' if i==0 else '',
               'reason':'学校已在列表中，无需补充。' if i<3 else '', 'source':'profile','needsConfirmation':False} for i,f in enumerate(fields)]
     checked=checked_answers({'answers':answers},fields)
-    assert checked[:2]==answers[:2]
+    assert checked[:2]==[{**row,'needsConfirmation':True} for row in answers[:2]]
     assert all(r['state']=='needs_input' and r['value'] is None and r['reason'] for r in checked[2:])
     assert all(r['source']=='unknown' for r in checked[2:])
     answers[0].pop('source')
@@ -119,7 +124,7 @@ def test_confirmation_flag_is_explicit_and_unknown_or_invalid_answers_cannot_byp
     answer={'fieldId':'experience','state':'answer','value':'no','reason':'Interpretation needs review','source':'profile'}
     for flag in [False,True,None,'false',0]:
         result=checked_answers({'answers':[{**answer,'needsConfirmation':flag}]},[field])[0]
-        assert result['needsConfirmation'] is (flag is not False)
+        assert result['needsConfirmation'] is True, 'A model certainty flag cannot replace evidence'
         assert result['value']=='no'
     assert checked_answers({'answers':[answer]},[field])[0]['needsConfirmation'] is True
     for change in [{'state':'needs_input','value':None},{'value':'not-an-option'}]:
@@ -168,7 +173,7 @@ def test_exact_graduation_dates_require_the_same_unambiguous_server_fact():
     answer={'fieldId':'graduation','state':'answer','value':'2027-05-14','reason':'Known date',
             'source':'profile','needsConfirmation':False}
     profile={'educationData':[{'graduationDate':'2027-05-14','endDate':'2027-05'}]}
-    assert checked_answers({'answers':[answer]},[field],profile)[0]==answer
+    assert checked_answers({'answers':[answer]},[field],profile)[0]=={**answer,'needsConfirmation':True}
     for records in [[],[{}],[{'graduationDate':'2027-05-13'}],
                     [*profile['educationData'],{}],
                     [*profile['educationData'],{'graduationDate':'2026-05-14'}]]:

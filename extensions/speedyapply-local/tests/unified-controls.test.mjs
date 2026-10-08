@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -87,13 +88,13 @@ function fixture(entry = "reader") {
           return {
             data: {
               answers: [
-                {
+                confirmedAnswer(message.fields[0], {
                   fieldId: message.fields[0].fieldId,
                   state: "answer",
                   value: "Physics",
                   source: "profile",
                   needsConfirmation: false,
-                },
+                }),
               ],
             },
           };
@@ -418,13 +419,13 @@ for (const needsConfirmation of [false, true])
         return {
           data: {
             answers: [
-              {
+              confirmedAnswer(message.fields[0], {
                 fieldId: message.fields[0].fieldId,
                 state: "answer",
                 value: "Grounded fixture answer",
                 source: "profile",
                 needsConfirmation,
-              },
+              }),
             ],
           },
         };

@@ -33,6 +33,7 @@ def test_shared_cases_run_through_actual_provider_boundary_with_mocked_responses
                 expected = lookup[field['fieldId']]['expected']
                 rows.append({'fieldId': field['fieldId'], **{k:v for k,v in expected.items() if k != 'nonempty'},
                              'value': expected.get('value', 'Backend reliability interests me.'),
+                             'evidence': lookup[field['fieldId']]['evidence'],
                              'reason': 'Synthetic fixture', 'questionZh': '测试问题', 'answerZh': '测试回答'})
             return httpx.Response(200, json={'status':'completed', 'usage': {},
                 'output':[{'content':[{'type':'output_text','text':__import__('json').dumps({'answers':rows})}]}]})

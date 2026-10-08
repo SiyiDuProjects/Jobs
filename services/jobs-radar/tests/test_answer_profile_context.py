@@ -141,7 +141,7 @@ def test_batch_contract_preserves_supported_false_and_missing_exact_date(tmp_pat
     ]
     provider_rows = [
         dict(fieldId='now', state='answer', value='no', reason='Explicit present-tense sponsorship fact.',
-             source='profile', needsConfirmation=False),
+             source='profile', needsConfirmation=False, evidence=[{'profilePath':'applicationData.sponsorshipNow'}]),
         dict(fieldId='exact', state='needs_input', value=None, reason='Only graduation month is known.',
              source='unknown', needsConfirmation=True),
     ]
@@ -165,5 +165,8 @@ def test_batch_contract_preserves_supported_false_and_missing_exact_date(tmp_pat
 
     client = BatchClient()
     result = asyncio.run(answers.generate({**payload, 'fields': fields}, client))
-    assert result['answers'] == provider_rows
+    assert result['answers'][0]['value'] == 'no'
+    assert result['answers'][0]['proof']['status'] == 'verified'
+    assert result['answers'][0]['needsConfirmation'] is False
+    assert result['answers'][1]['state'] == 'needs_input'
     assert client.sent['profile']['educationData'][0]['endDate'] == '2027-05'

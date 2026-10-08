@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { chooseAnswer } from "./helpers/choose-answer.mjs";
 import { readModule } from "./helpers/module-source.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
@@ -808,14 +809,14 @@ test("the rules answer school and place searches; other gaps reach AI with real 
           return {
             data: {
               answers: [
-                {
+                confirmedAnswer(message.fields[0], {
                   fieldId: message.fields[0].fieldId,
                   state: "answer",
                   value: config.answer,
                   source: "profile",
                   reason: "Confirmed fixture fact",
                   needsConfirmation: false,
-                },
+                }),
               ],
             },
           };

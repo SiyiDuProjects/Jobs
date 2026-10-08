@@ -1,3 +1,4 @@
+import { bindAnswerEvidence } from "./answer-proof.js";
 import { JobsTabProfiles } from "./tab-profiles.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsProfileAnswers } from "./profile-answers.js";
@@ -126,7 +127,20 @@ export function initializeAutomaticBackground() {
             jobDescription: String(job?.description || "").slice(0, 18000),
           });
           await operation.verify();
-          return { ...result, profileId: bound.id };
+          const answers = result?.answers?.map((answer) => {
+            const field = message.fields.find(
+              (field) => field.fieldId === answer.fieldId,
+            );
+            return field
+              ? bindAnswerEvidence(answer, field, bound)
+              : { ...answer, verification: null };
+          });
+          return {
+            ...result,
+            answers,
+            profileId: bound.id,
+            profileVersion: bound.lastSync,
+          };
         } finally {
           requests.delete(sender.tab.id);
         }

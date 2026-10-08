@@ -1,18 +1,15 @@
 import { JobsPlatformConfig } from "./platform-config.js";
 import { allowsAutomaticFill } from "./autofill-preferences.js";
-import { JobsAnswerPolicy } from "./answer-policy.js";
+import { verifiedAnswer } from "./answer-proof.js";
 
-export function answerNeedsReview(answer, row, record) {
+export function answerNeedsReview(answer, row, record, field) {
   return (
     answer.needsConfirmation !== false ||
     answer.source === "suggestion" ||
     answer.source === "unknown" ||
     record.confirm ||
-    JobsAnswerPolicy.reviewQuestions.some((pattern) =>
-      new RegExp(pattern, "i").test(
-        row.public.question + " " + (row.public.description || ""),
-      ),
-    )
+    !field ||
+    !verifiedAnswer(answer, field)
   );
 }
 

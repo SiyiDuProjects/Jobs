@@ -208,6 +208,7 @@ export function initializeAiReview() {
             id: item.id,
             question: item.questionZh || item.question,
             originalQuestion: item.question,
+            evidence: item.evidence,
             answer: response
               ? (unchanged && item.answerZh) ||
                 { Yes: "是", No: "否" }[response] ||
@@ -266,6 +267,7 @@ export function initializeAiReview() {
           source = "unknown",
           questionZh = "",
           answerZh = "",
+          evidence = [],
           needsConfirmation = true,
         } = {},
       ) => {
@@ -279,6 +281,7 @@ export function initializeAiReview() {
           question: row.public.question,
           questionZh,
           answerZh,
+          evidence,
           originalResponse: reader.response(row)?.response,
           needsInput,
           omitted,

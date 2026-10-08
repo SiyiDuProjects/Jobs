@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
@@ -92,13 +93,13 @@ function setup(html = "<label>Answer<input required></label>", resolveAnswers) {
         answers: requests[request].message.fields.map((field) =>
           custom
             ? custom(field)
-            : {
+            : confirmedAnswer(field, {
                 fieldId: field.fieldId,
                 state: "answer",
                 value: "Answer",
                 source: "profile",
                 needsConfirmation: false,
-              },
+              }),
         ),
       },
     });
@@ -245,17 +246,19 @@ test("only an explicitly clear whole batch auto-confirms; uncertain profile dedu
     try {
       const task = h.run();
       await until(() => h.requests.length === 1);
-      h.reply(0, (field) => ({
-        fieldId: field.fieldId,
-        state: "answer",
-        value: field.type === "text" ? "Known" : "no",
-        source: "profile",
-        ...(field.type === "text"
-          ? { needsConfirmation: false }
-          : flag === undefined
-            ? {}
-            : { needsConfirmation: flag }),
-      }));
+      h.reply(0, (field) =>
+        confirmedAnswer(field, {
+          fieldId: field.fieldId,
+          state: "answer",
+          value: field.type === "text" ? "Known" : "no",
+          source: "profile",
+          ...(field.type === "text"
+            ? { needsConfirmation: false }
+            : flag === undefined
+              ? {}
+              : { needsConfirmation: flag }),
+        }),
+      );
       assert.equal(await task, flag === false);
       assert.equal(h.clicks(), flag === false ? 1 : 0);
       assert.equal(
@@ -506,11 +509,13 @@ test("unknown personal answer stops once and remains blank for user input", asyn
     await h.wrapped.getProfile();
     const task = h.run();
     await until(() => h.requests.length === 1);
-    h.reply(0, (field) => ({
-      fieldId: field.fieldId,
-      state: "needs_input",
-      value: null,
-    }));
+    h.reply(0, (field) =>
+      confirmedAnswer(field, {
+        fieldId: field.fieldId,
+        state: "needs_input",
+        value: null,
+      }),
+    );
     await task;
     assert.equal(h.phases.at(-1), "ai-review");
     assert.equal(h.clicks(), 0);
@@ -537,14 +542,16 @@ test("optional explicit omissions auto-confirm without a popup or remembered emp
     await h.wrapped.getProfile();
     const task = h.run();
     await until(() => h.requests.length === 1);
-    h.reply(0, (field) => ({
-      fieldId: field.fieldId,
-      state: "answer",
-      value: field.required ? "Answer" : "",
-      source: "profile",
-      needsConfirmation: false,
-      reason: "Not applicable",
-    }));
+    h.reply(0, (field) =>
+      confirmedAnswer(field, {
+        fieldId: field.fieldId,
+        state: "answer",
+        value: field.required ? "Answer" : "",
+        source: "profile",
+        needsConfirmation: false,
+        reason: "Not applicable",
+      }),
+    );
     assert.equal(await task, true);
     assert.equal(h.clicks(), 1);
     assert.equal(h.learned.length, 0);

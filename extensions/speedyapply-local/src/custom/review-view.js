@@ -303,7 +303,7 @@ export function createReviewView() {
         button.type = "button";
         button.className = "item";
         button.innerHTML =
-          '<span class="question"></span><span class="answer"></span><span class="source"></span>';
+          '<span class="question"></span><span class="answer"></span><span class="source"></span><span class="evidence"></span>';
         button.onclick = () => void view.act("locate", row.id);
         wrapper.append(button);
         const error = document.createElement("span");
@@ -316,6 +316,11 @@ export function createReviewView() {
       item.querySelector(".answer").textContent = row.answer;
       item.title = row.originalQuestion || row.question;
       item.querySelector(".source").textContent = row.source;
+      const evidence = item.querySelector(".evidence");
+      evidence.textContent = (row.evidence || [])
+        .map((item) => item.profilePath || item.noteQuote || "")
+        .join(" · ");
+      evidence.hidden = !evidence.textContent;
       item.querySelector(".error").textContent = row.error || "";
       editorFor(item, row);
     }

@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
@@ -58,14 +59,16 @@ function setup(html, url = "https://fixture.myworkdayjobs.com/apply") {
         requests++;
         return {
           data: {
-            answers: msg.fields.map((field) => ({
-              fieldId: field.fieldId,
-              state: "needs_input",
-              value: null,
-              source: "unknown",
-              questionZh: "请你选择",
-              answerZh: "待补充",
-            })),
+            answers: msg.fields.map((field) =>
+              confirmedAnswer(field, {
+                fieldId: field.fieldId,
+                state: "needs_input",
+                value: null,
+                source: "unknown",
+                questionZh: "请你选择",
+                answerZh: "待补充",
+              }),
+            ),
           },
         };
       },
@@ -359,13 +362,15 @@ test("review puts missing and uncertain answers together above collapsed confirm
     message.fields
       ? Promise.resolve({
           data: {
-            answers: message.fields.map((field, index) => ({
-              fieldId: field.fieldId,
-              state: index === 2 ? "needs_input" : "answer",
-              value: index === 2 ? null : "Example answer",
-              source: index === 0 ? "profile" : "suggestion",
-              needsConfirmation: index !== 0,
-            })),
+            answers: message.fields.map((field, index) =>
+              confirmedAnswer(field, {
+                fieldId: field.fieldId,
+                state: index === 2 ? "needs_input" : "answer",
+                value: index === 2 ? null : "Example answer",
+                source: index === 0 ? "profile" : "suggestion",
+                needsConfirmation: index !== 0,
+              }),
+            ),
           },
         })
       : send(message);
@@ -526,13 +531,15 @@ test("replacement preserves review order and a Profile answer remains eligible f
     message.fields
       ? Promise.resolve({
           data: {
-            answers: message.fields.map((field) => ({
-              fieldId: field.fieldId,
-              state: "answer",
-              value: "Example answer",
-              source: "profile",
-              needsConfirmation: false,
-            })),
+            answers: message.fields.map((field) =>
+              confirmedAnswer(field, {
+                fieldId: field.fieldId,
+                state: "answer",
+                value: "Example answer",
+                source: "profile",
+                needsConfirmation: false,
+              }),
+            ),
           },
         })
       : send(message);

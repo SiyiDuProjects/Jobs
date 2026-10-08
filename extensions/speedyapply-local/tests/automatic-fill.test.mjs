@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
@@ -158,11 +159,13 @@ for (const scenario of [
     const h = setup(
       '<label>Overall*<select required><option value="">Select</option><option value="high">High</option></select></label>',
       async (message) =>
-        message.fields.map((field) => ({
-          ...reply(field, "high"),
-          source: scenario.source || "profile",
-          needsConfirmation: scenario.confirmation === true,
-        })),
+        message.fields.map((field) =>
+          confirmedAnswer(field, {
+            ...reply(field, "high"),
+            source: scenario.source || "profile",
+            needsConfirmation: scenario.confirmation === true,
+          }),
+        ),
     );
     try {
       const select = h.w.document.querySelector("select");
@@ -348,11 +351,13 @@ test("explicitly restarting autofill can recover a failed AI request without rel
     "<label>Motivation*<textarea required></textarea></label>",
     async (message) => {
       if (++count === 1) throw Error("Temporary network failure");
-      return message.fields.map((field) => ({
-        ...reply(field, "Recovered answer"),
-        source: "profile",
-        needsConfirmation: false,
-      }));
+      return message.fields.map((field) =>
+        confirmedAnswer(field, {
+          ...reply(field, "Recovered answer"),
+          source: "profile",
+          needsConfirmation: false,
+        }),
+      );
     },
   );
   const start = () => {
@@ -418,11 +423,13 @@ test("more than 30 unresolved fields use bounded AI batches without abandoning l
     ).join(""),
     async (message) => {
       sizes.push(message.fields.length);
-      return message.fields.map((field) => ({
-        ...reply(field, "Supported answer"),
-        source: "profile",
-        needsConfirmation: false,
-      }));
+      return message.fields.map((field) =>
+        confirmedAnswer(field, {
+          ...reply(field, "Supported answer"),
+          source: "profile",
+          needsConfirmation: false,
+        }),
+      );
     },
   );
   try {
@@ -525,12 +532,12 @@ test("missing personal facts and late validation both stop navigation", async ()
           return [reply(message.fields[0], "Answer")];
         }
         return [
-          {
+          confirmedAnswer(message.fields[0], {
             fieldId: message.fields[0].fieldId,
             state: "needs_input",
             value: null,
             reason: "Missing confirmed fact",
-          },
+          }),
         ];
       },
     );
@@ -606,12 +613,12 @@ test("iCIMS native combobox uses saved answers for required gaps and skips optio
         ),
       );
       return [
-        {
+        confirmedAnswer(message.fields[0], {
           fieldId: message.fields[0].fieldId,
           state: "needs_input",
           value: null,
           reason: "No confirmed salary expectation",
-        },
+        }),
       ];
     },
   );
@@ -728,7 +735,11 @@ test("confirmation does not navigate with auto-next off or remaining required ga
       async (message) =>
         message.fields.map((f, i) =>
           i
-            ? { fieldId: f.fieldId, state: "needs_input", value: null }
+            ? confirmedAnswer(f, {
+                fieldId: f.fieldId,
+                state: "needs_input",
+                value: null,
+              })
             : reply(f, "Draft"),
         ),
     );
@@ -839,12 +850,12 @@ test("TRC replay: optional salary is skipped, missing employment fact is visibly
       assert.equal(message.fields.length, 1);
       assert.match(message.fields[0].question, /TRC/);
       return [
-        {
+        confirmedAnswer(message.fields[0], {
           fieldId: message.fields[0].fieldId,
           state: "needs_input",
           value: null,
           reason,
-        },
+        }),
       ];
     },
   );
@@ -899,16 +910,18 @@ test("TRC education replay: exact major and school fill while conditional extra 
         1,
       );
       assert.equal(message.fields[1].options.length, 318);
-      return message.fields.map((f, i) => ({
-        ...reply(
-          f,
-          ["Physics", "University of California Berkeley", "Spring 2027"][i],
-        ),
-        source: "profile",
-        needsConfirmation: false,
-        reason:
-          f.type === "text" ? "已在列表中，无需补充。" : "档案对应的选项。",
-      }));
+      return message.fields.map((f, i) =>
+        confirmedAnswer(f, {
+          ...reply(
+            f,
+            ["Physics", "University of California Berkeley", "Spring 2027"][i],
+          ),
+          source: "profile",
+          needsConfirmation: false,
+          reason:
+            f.type === "text" ? "已在列表中，无需补充。" : "档案对应的选项。",
+        }),
+      );
     },
   );
   const learned = [];
@@ -1157,11 +1170,13 @@ test("Helion: registered saved text, textarea and Yes-No controls all reach supp
       entry("consent", "Signature", '<input id="consent" required>'),
     async (message) => {
       fields = message.fields;
-      return fields.map((field) => ({
-        fieldId: field.fieldId,
-        state: "needs_input",
-        reason: "Synthetic unknown fact",
-      }));
+      return fields.map((field) =>
+        confirmedAnswer(field, {
+          fieldId: field.fieldId,
+          state: "needs_input",
+          reason: "Synthetic unknown fact",
+        }),
+      );
     },
   );
   try {
@@ -1268,6 +1283,44 @@ test("three Ashby open-ended questions receive AI drafts through the saved-contr
     );
     assert.equal(h.w.JobsAIReview.pending(), true);
     assert.equal(h.clicks(), 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("required controls revealed during review return to the same answer pipeline and stay visible", async () => {
+  const h = setup(
+    "<label>Preference<input required></label>",
+    async (message) =>
+      message.fields.map((field) =>
+        field.question === "Follow-up*"
+          ? {
+              fieldId: field.fieldId,
+              state: "needs_input",
+              value: null,
+              source: "unknown",
+              reason: "Missing fact",
+            }
+          : reply(field, "Draft"),
+      ),
+  );
+  try {
+    await h.run({ action: "next" });
+    assert.equal(h.calls(), 1);
+    h.w.document
+      .querySelector("form")
+      .insertAdjacentHTML(
+        "beforeend",
+        "<label>Follow-up*<input required></label>",
+      );
+    await h.w.JobsAIReview.confirm();
+    assert.equal(h.calls(), 2);
+    assert.equal(h.clicks(), 0);
+    assert.equal(h.w.JobsAIReview.pending(), true);
+    assert.match(
+      h.w.document.querySelector("#jobs-ai-review").shadowRoot.textContent,
+      /Follow-up/,
+    );
   } finally {
     h.close();
   }

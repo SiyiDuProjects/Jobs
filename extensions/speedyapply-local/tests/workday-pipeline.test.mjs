@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { installPageLifecycle } from "./helpers/page-lifecycle.mjs";
 import { inspectAnswerers } from "./helpers/one-answerer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
@@ -177,14 +178,16 @@ test("a Workday step is one pipeline run: rule answers, AI for the gap, then one
           requests.push(message);
           return {
             data: {
-              answers: message.fields.map((field) => ({
-                fieldId: field.fieldId,
-                state: "answer",
-                value: "The mission and the team.",
-                source: "ai",
-                reason: "fixture",
-                needsConfirmation: false,
-              })),
+              answers: message.fields.map((field) =>
+                confirmedAnswer(field, {
+                  fieldId: field.fieldId,
+                  state: "answer",
+                  value: "The mission and the team.",
+                  source: "ai",
+                  reason: "fixture",
+                  needsConfirmation: false,
+                }),
+              ),
             },
           };
         }
@@ -305,14 +308,16 @@ test("a run without the step fill (queue resume, remote command) never swallows 
         if (message.type === "jobs:auto-answers")
           return {
             data: {
-              answers: message.fields.map((field) => ({
-                fieldId: field.fieldId,
-                state: "answer",
-                value: "The mission and the team.",
-                source: "ai",
-                reason: "fixture",
-                needsConfirmation: false,
-              })),
+              answers: message.fields.map((field) =>
+                confirmedAnswer(field, {
+                  fieldId: field.fieldId,
+                  state: "answer",
+                  value: "The mission and the team.",
+                  source: "ai",
+                  reason: "fixture",
+                  needsConfirmation: false,
+                }),
+              ),
             },
           };
         return {};
@@ -435,14 +440,16 @@ test("status reports from a single-pipeline adapter never start another run", as
         if (message.type === "jobs:auto-answers")
           return {
             data: {
-              answers: message.fields.map((field) => ({
-                fieldId: field.fieldId,
-                state: "answer",
-                value: "The mission and the team.",
-                source: "ai",
-                reason: "fixture",
-                needsConfirmation: false,
-              })),
+              answers: message.fields.map((field) =>
+                confirmedAnswer(field, {
+                  fieldId: field.fieldId,
+                  state: "answer",
+                  value: "The mission and the team.",
+                  source: "ai",
+                  reason: "fixture",
+                  needsConfirmation: false,
+                }),
+              ),
             },
           };
         return {};

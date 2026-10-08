@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -117,14 +118,16 @@ function fixture(
           requests.push(message);
           return {
             data: {
-              answers: message.fields.map((field) => ({
-                fieldId: field.fieldId,
-                state: "answer",
-                value: "The team and its problems.",
-                source: "ai",
-                reason: "fixture",
-                needsConfirmation: false,
-              })),
+              answers: message.fields.map((field) =>
+                confirmedAnswer(field, {
+                  fieldId: field.fieldId,
+                  state: "answer",
+                  value: "The team and its problems.",
+                  source: "ai",
+                  reason: "fixture",
+                  needsConfirmation: false,
+                }),
+              ),
             },
           };
         }
