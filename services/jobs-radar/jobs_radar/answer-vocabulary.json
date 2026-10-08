@@ -1,0 +1,430 @@
+{
+  "version": 1,
+  "ruleVersion": 2,
+  "topics": {
+    "noncompete": {
+      "terms": [
+        "noncompete",
+        "non compete",
+        "restrictive covenant"
+      ],
+      "paths": [],
+      "notes": true
+    },
+    "criminal_history": {
+      "terms": [
+        "criminal",
+        "convicted",
+        "conviction",
+        "felony"
+      ],
+      "paths": [],
+      "notes": false
+    },
+    "medical_history": {
+      "terms": [
+        "healthcare",
+        "health care",
+        "medical",
+        "medicare",
+        "medicaid",
+        "license discipline"
+      ],
+      "paths": [],
+      "notes": false
+    },
+    "security_clearance": {
+      "terms": [
+        "security clearance",
+        "classified information"
+      ],
+      "paths": [],
+      "notes": false
+    },
+    "unrestricted_work_right": {
+      "terms": [
+        "unrestricted",
+        "indefinitely",
+        "permanent work"
+      ],
+      "paths": [],
+      "notes": false
+    },
+    "visa_status": {
+      "terms": [
+        "visa status",
+        "immigration status",
+        "export control",
+        "itar",
+        "u s person",
+        "united states person"
+      ],
+      "paths": [
+        "applicationData.visaStatus"
+      ],
+      "notes": false
+    },
+    "work_eligibility": {
+      "terms": [
+        "authorized to work",
+        "authorised to work",
+        "work authorization",
+        "work eligibility",
+        "legally eligible to work"
+      ],
+      "paths": [
+        "employmentData.eligibilityUS"
+      ],
+      "notes": false
+    },
+    "sponsorship": {
+      "terms": [
+        "sponsor",
+        "sponsorship"
+      ],
+      "paths": [
+        "applicationData.sponsorshipNow",
+        "applicationData.sponsorshipFuture",
+        "employmentData.sponsorship"
+      ],
+      "notes": false
+    },
+    "degree": {
+      "terms": [
+        "degree",
+        "qualification",
+        "education level",
+        "completed education"
+      ],
+      "paths": [
+        "educationData.*.degree",
+        "applicationData.highestCompletedEducation"
+      ],
+      "notes": false
+    },
+    "graduation_date": {
+      "terms": [
+        "graduation",
+        "graduate",
+        "graduating",
+        "degree completion"
+      ],
+      "paths": [
+        "educationData.*.graduationDate",
+        "educationData.*.endDate"
+      ],
+      "notes": false
+    },
+    "availability": {
+      "terms": [
+        "start date",
+        "available to start",
+        "availability"
+      ],
+      "paths": [
+        "applicationData.earliestStartDate"
+      ],
+      "notes": false
+    },
+    "language_proficiency": {
+      "terms": [
+        "proficiency",
+        "language",
+        "overall"
+      ],
+      "paths": [
+        "languageData.*.proficiency",
+        "languageData.*.fluent"
+      ],
+      "notes": false
+    },
+    "phone_type": {
+      "terms": [
+        "phone device type",
+        "phone type"
+      ],
+      "paths": [
+        "contactData.phoneDeviceType"
+      ],
+      "notes": false
+    },
+    "signature": {
+      "terms": [
+        "signature",
+        "sign here"
+      ],
+      "paths": [
+        "nameData.firstName",
+        "nameData.middleName",
+        "nameData.lastName"
+      ],
+      "notes": false
+    },
+    "acknowledgment": {
+      "terms": [
+        "acknowledge",
+        "agree",
+        "consent",
+        "certify",
+        "attest",
+        "read and understood"
+      ],
+      "paths": [],
+      "notes": false
+    },
+    "preference": {
+      "terms": [
+        "prefer",
+        "desired",
+        "motivation",
+        "why",
+        "interested"
+      ],
+      "paths": [],
+      "notes": false
+    },
+    "experience": {
+      "terms": [
+        "experience",
+        "project",
+        "example",
+        "describe",
+        "grit",
+        "ownership"
+      ],
+      "paths": [],
+      "notes": false
+    },
+    "unknown": {
+      "terms": [],
+      "paths": [],
+      "notes": false
+    },
+    "interview_language": {
+      "terms": [
+        "preferred language",
+        "interview language",
+        "preferred programming language"
+      ],
+      "paths": [
+        "applicationData.interviewLanguage"
+      ],
+      "notes": false
+    }
+  },
+  "optionConcepts": {
+    "degree": {
+      "associate": [
+        "Associate",
+        "Associates",
+        "Associate degree"
+      ],
+      "bachelor": [
+        "Bachelor",
+        "Bachelors",
+        "Bachelor degree",
+        "Bachelor of Science",
+        "Bachelor of Arts",
+        "BS",
+        "BA",
+        "BSc"
+      ],
+      "master": [
+        "Master",
+        "Masters",
+        "Master degree",
+        "Master of Science",
+        "Master of Arts",
+        "MS",
+        "MA",
+        "MSc"
+      ],
+      "doctorate": [
+        "Doctorate",
+        "Doctoral",
+        "PhD",
+        "Doctor of Philosophy"
+      ],
+      "high_school": [
+        "High School",
+        "High School Diploma",
+        "GED"
+      ]
+    },
+    "language_proficiency": {
+      "elementary": [
+        "Beginner",
+        "Basic",
+        "Elementary",
+        "Elementary Proficiency",
+        "Minimal Competency"
+      ],
+      "limited": [
+        "Intermediate",
+        "Limited working",
+        "Limited Working Proficiency",
+        "Limited Competency"
+      ],
+      "professional": [
+        "Advanced",
+        "Professional working",
+        "Professional Working Proficiency",
+        "Professional"
+      ],
+      "full_professional": [
+        "Full Professional Proficiency",
+        "Full Professional",
+        "Advanced Professional"
+      ],
+      "native": [
+        "Native",
+        "Native or bilingual",
+        "Native or Bilingual Proficiency",
+        "Native Speaker",
+        "Bilingual",
+        "Complete Mastery"
+      ],
+      "fluent": [
+        "Fluent",
+        "High",
+        "Fluent / Native Speaker"
+      ]
+    },
+    "boolean": {
+      "yes": [
+        "Yes",
+        "True",
+        "I agree",
+        "I acknowledge",
+        "I accept"
+      ],
+      "no": [
+        "No",
+        "False",
+        "I do not agree",
+        "I do not accept"
+      ]
+    }
+  },
+  "degreeCatalog": {
+    "levels": {
+      "bachelor": [
+        "Bachelor",
+        "Bachelor's",
+        "Bachelors",
+        "Bachelor's Degree",
+        "Bachelor Degree",
+        "Bachelors Degree"
+      ],
+      "master": [
+        "Master",
+        "Master's",
+        "Masters",
+        "Master's Degree",
+        "Master Degree",
+        "Masters Degree"
+      ],
+      "associate": [
+        "Associate",
+        "Associate's",
+        "Associates",
+        "Associate's Degree",
+        "Associate Degree",
+        "Associates Degree"
+      ],
+      "doctorate": [
+        "Doctorate",
+        "Doctorate Degree",
+        "Doctoral Degree",
+        "Doctoral"
+      ]
+    },
+    "types": [
+      [
+        "bachelor",
+        [
+          "Bachelor of Arts",
+          "Bachelor of Arts (B.A.)",
+          "Bachelor of Arts (BA)",
+          "BA",
+          "B.A."
+        ]
+      ],
+      [
+        "bachelor",
+        [
+          "Bachelor of Science",
+          "Bachelor of Science (B.S.)",
+          "Bachelor of Science (BS)",
+          "BS",
+          "B.S.",
+          "BSc",
+          "B.Sc."
+        ]
+      ],
+      [
+        "master",
+        [
+          "Master of Arts",
+          "Master of Arts (M.A.)",
+          "MA",
+          "M.A."
+        ]
+      ],
+      [
+        "master",
+        [
+          "Master of Science",
+          "Master of Science (M.S.)",
+          "MS",
+          "M.S.",
+          "MSc",
+          "M.Sc."
+        ]
+      ],
+      [
+        "master",
+        [
+          "Master of Business Administration",
+          "Master of Business Administration (MBA)",
+          "MBA"
+        ]
+      ],
+      [
+        "associate",
+        [
+          "Associate of Arts",
+          "Associate of Arts (A.A.)",
+          "AA",
+          "A.A."
+        ]
+      ],
+      [
+        "associate",
+        [
+          "Associate of Science",
+          "Associate of Science (A.S.)",
+          "AS",
+          "A.S."
+        ]
+      ],
+      [
+        "doctorate",
+        [
+          "Doctor of Philosophy",
+          "Doctor of Philosophy (Ph.D.)",
+          "PhD",
+          "Ph.D."
+        ]
+      ],
+      [
+        "doctorate",
+        [
+          "Doctor of Pharmacy",
+          "Doctor of Pharmacy (PharmD)",
+          "PharmD"
+        ]
+      ]
+    ]
+  }
+}

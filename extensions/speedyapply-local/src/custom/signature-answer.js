@@ -3,11 +3,19 @@
 export function signatureAnswer(question, profile, context, date) {
   const label = question.replace(/[?:.]+$/g, "").trim();
   const kind = context.inputType || context.type || "text";
+  const combined =
+    label.endsWith("signature and date") || label.endsWith("signature & date");
+  const signature = label.endsWith("signature") || combined;
+  const signingDate =
+    ["date", "text"].includes(kind) &&
+    (label === "date signed" ||
+      label === "signature date" ||
+      label === "today's date" ||
+      (label.endsWith("date") &&
+        (label.includes("certify") || label.includes("signature"))));
   if (
-    !["text", "textarea"].includes(kind) ||
-    !(
-      label.endsWith("signature and date") || label.endsWith("signature & date")
-    )
+    !["text", "textarea", "date"].includes(kind) ||
+    (!signature && !signingDate)
   )
     return null;
   const name = [
@@ -17,10 +25,15 @@ export function signatureAnswer(question, profile, context, date) {
   ]
     .filter(Boolean)
     .join(" ");
-  const value = name ? name + " — " + date : null;
+  const value =
+    signingDate && !combined
+      ? date
+      : name
+        ? name + (combined ? " — " + date : "")
+        : null;
   return {
     topic: "signature",
-    field: "nameData.fullName",
+    field: signingDate && !combined ? "calendar.today" : "nameData.fullName",
     kind: "text",
     source: "profile",
     profileOnly: true,

@@ -76,7 +76,11 @@ export async function buildProfileContract({
     generated +
     runtime +
     `\nexport const JobsProfileContract = makeProfileContract(${JSON.stringify(schema)});\n`;
+  const vocabulary = JSON.parse(await fs.readFile(new URL("jobs_radar/answer-vocabulary.json", service), "utf8"));
+  const vocabularySource = "// Generated from jobs_radar/answer-vocabulary.json. Do not edit.\nexport const AnswerVocabulary = Object.freeze(" + JSON.stringify(vocabulary) + ");\n";
   const outputs = new Map([
+    [new URL("web/src/manage/answer-vocabulary.js", service), vocabularySource],
+    [new URL("../../extensions/speedyapply-local/src/custom/answer-vocabulary.js", service), vocabularySource],
     [new URL("web/src/manage/profile-contract.js", service), source],
     [
       new URL(
