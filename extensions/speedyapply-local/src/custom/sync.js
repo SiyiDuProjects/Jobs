@@ -742,7 +742,7 @@ export function initializeSync() {
               .jobsAnswerTasksV1 || {}
           );
         for (const [id, item] of Object.entries(tasks))
-          if (Date.now() - item.created > 600000) delete tasks[id];
+          if (Date.now() - item.created > 900000) delete tasks[id];
         if (!tasks[key])
           tasks[key] = { id: crypto.randomUUID(), created: Date.now() };
         await chrome.storage.session.set({ jobsAnswerTasksV1: tasks });
@@ -801,7 +801,7 @@ export function initializeSync() {
         }
       };
       let result = await request("POST");
-      const deadline = Date.now() + 125000;
+      const deadline = Date.now() + 605000;
       while (result.state === "pending" && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         result = await request("GET");

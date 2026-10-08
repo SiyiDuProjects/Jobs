@@ -44,7 +44,8 @@ class Answers:
         calendar = calendar_fact(data['additionalContext']) if batch else {}
         evidence_profile = {**profile, 'calendar': calendar}
         if calendar: data['calendar'] = calendar
-        saved = {}; memory = None; memory_context = {}
+        saved = {}; memory = None; memory_context = {}; cached = {}
+        all_fields = field_data['fields'] if batch else []
         if batch:
             from .answer_memory import AnswerMemory, request_context
             job_context = request_context(payload)
@@ -56,18 +57,39 @@ class Answers:
                 data['answerContext'] = memory_context
             from .answer_semantics import MeaningCache, VOCABULARY
             meanings = MeaningCache(self.store)
-            meaning_context = {key: data[key] for key in ['additionalContext','jobTitle','jobDescription']}
+            meaning_context = {key: data[key] for key in ['additionalContext','jobTitle','jobDescription','formContext']}
             meaning_context['jobContext'] = job_context
+            from .answer_bindings import BindingCache
+            bindings = BindingCache(self.store)
+            cached = bindings.read(all_fields, meaning_context, MODEL, evidence_profile, pid, payload['profileVersion'], saved)
+            field_data = {**field_data, 'fields': [f for f in all_fields if f['fieldId'] not in cached]}
+            data['fields'] = field_data['fields']
             data['meaningHints'] = meanings.read(field_data['fields'], meaning_context, MODEL)
             data['topicVocabulary'] = {key: VOCABULARY[key] for key in ['version','topics','optionConcepts','draftTopics']}
             from .answer_policy import POLICY
             data['standingAuthorizations'] = POLICY['standingAuthorizations']
+        def combined(rows, response_id):
+            if cached and not memory.current():
+                raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
+            by_id = {**cached, **{row['fieldId']: row for row in rows}}
+            return {'answers': [by_id[f['fieldId']] for f in all_fields], 'responseId': response_id, 'model': MODEL}
+        def partial_failure(error):
+            if not cached:
+                raise error
+            from .answer_evidence import decide
+            rows = [decide({'fieldId': f['fieldId'], 'state': 'needs_input', 'value': None,
+                            'source': 'unknown', 'reason': 'Answer service unavailable; verified fields remain usable.'},
+                           f, evidence_profile, pid, payload['profileVersion'], {'verdict': 'unavailable'})
+                    for f in field_data['fields']]
+            return combined(rows, str(uuid.uuid4()))
+        if batch and not field_data['fields']:
+            return combined([], str(uuid.uuid4()))
         raw=json.dumps(data,ensure_ascii=False)
         if len(raw.encode())>100000: raise ValueError('资料过大')
         now=time.time();rid=str(uuid.uuid4())
         with self.store.connect(True) as c:
             if c.execute('SELECT count(*) FROM answer_requests WHERE created>?',(now-3600,)).fetchone()[0]>=60:
-                raise ValueError('本小时 AI 请求较多，请稍后再试')
+                return partial_failure(ValueError('本小时 AI 请求较多，请稍后再试'))
             c.execute('INSERT INTO answer_requests VALUES(?,?,?)',(rid,now,'started'))
         async def call(active):
             result=await active.post('https://api.openai.com/v1/responses',json={'model':MODEL,'store':False,'instructions':INSTRUCTIONS+('\n'+field_answers.INSTRUCTIONS if batch else ''),'input':raw,
@@ -82,18 +104,19 @@ class Answers:
                 rows=field_answers.checked_answers(answer,field_data['fields'],profile)
                 from .answer_evidence import decide
                 from .answer_verification import verify
-                if memory.prompt() and not memory.current():
+                if not memory.current():
                     raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
-                checks = await verify(active, rows, field_data['fields'], evidence_profile, MODEL, saved, memory_context)
-                if memory.prompt() and not memory.current():
+                checks = await verify(active, rows, field_data['fields'], evidence_profile, MODEL, saved, memory_context, meaning_context)
+                if not memory.current():
                     raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
                 meanings.save(field_data['fields'], [{**row, 'meaning': checks.get(row['fieldId'], {}).get('meaning', row.get('meaning'))} for row in rows], meaning_context, MODEL)
                 fields_by_id = {f['fieldId']: f for f in field_data['fields']}
                 rows = [decide(row, fields_by_id[row['fieldId']], evidence_profile, pid, payload['profileVersion'], checks.get(row['fieldId'], {'verdict': 'missing_fact'}), saved.get(row['fieldId'])) for row in rows]
+                bindings.save(field_data['fields'], rows, checks, meaning_context, MODEL, evidence_profile, pid, payload['profileVersion'], saved)
                 self.profile_gaps.record(pid,profile,field_data['fields'],rows)
                 state='needs_input' if any(r['state']=='needs_input' for r in rows) else 'answer'
                 with self.store.connect(True) as c:c.execute('UPDATE answer_requests SET state=? WHERE id=?',(state,rid))
-                return {'answers':rows,'responseId':rid,'model':MODEL}
+                return combined(rows, rid)
             if answer.get('state') not in {'answer','needs_input'} or not isinstance(answer.get('text'),str) or not answer['text'].strip(): raise ValueError('Luna 返回的回答无效')
             with self.store.connect(True) as c:c.execute('UPDATE answer_requests SET state=? WHERE id=?',(answer['state'],rid))
             if answer['state']=='needs_input': raise ValueError('需要你确认：'+answer['text'][:600])
@@ -107,4 +130,6 @@ class Answers:
             async with httpx.AsyncClient(headers={'Authorization':'Bearer '+api_key()},timeout=60) as active:
                 return await call(active)
         except (httpx.HTTPError,json.JSONDecodeError,KeyError):
-            raise ValueError('Luna 请求失败，未填入任何答案') from None
+            return partial_failure(ValueError('Luna 请求失败，未填入任何答案'))
+        except ValueError as error:
+            return partial_failure(error)

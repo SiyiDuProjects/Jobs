@@ -46,6 +46,13 @@ SHA=$(git rev-parse --short=12 HEAD)
 FULL_SHA=$(git rev-parse HEAD)
 [ "$(git rev-parse --verify "$SHA^{commit}")" = "$FULL_SHA" ] || { echo 'Commit abbreviation is ambiguous.' >&2; exit 1; }
 STAGE=$STAGE_ROOT/$SHA
+# Check before even transferring an image archive; uploading first can fill the
+# disk before import/switch preflights get a chance to refuse the release.
+TRANSFER_BYTES=0
+if [ -n "$ARTIFACT" ]; then
+  TRANSFER_BYTES=$(python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); print(sum((p/n).stat().st_size for n in ("source.tar","image.tar","manifest.json")))' "$ARTIFACT")
+fi
+remote sudo -n python3 - "$LIVE/data/jobs.sqlite" "$LIVE/data/migrations" "$TRANSFER_BYTES" < "$ENTRY_DIR/../jobs_radar/capacity.py"
 if [ -n "$ARTIFACT" ]; then
   IMPORT=$STAGE_ROOT/import-$FULL_SHA-$(python3 -c 'import secrets;print(secrets.token_hex(6))')
   # Transfer data only; production runs the importer from committed source.

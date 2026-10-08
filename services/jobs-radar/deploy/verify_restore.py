@@ -67,6 +67,8 @@ def rehearse(source, destination):
     if destination == source or destination.exists() or destination.is_symlink():
         raise ValueError("Backup must be a new, separate file")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    from jobs_radar.capacity import require_space
+    require_space(source, destination.parent)
     descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     os.close(descriptor)
     with readonly(source) as live:

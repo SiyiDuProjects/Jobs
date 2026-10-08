@@ -123,6 +123,8 @@ class AnswerMemory:
 
     def current(self):
         with self.store.connect() as c:
+            if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='management_documents'").fetchone():
+                return self.revision == 0
             row = c.execute('SELECT revision FROM management_documents WHERE key=?', (self.key,)).fetchone()
         return (row['revision'] if row else 0) == self.revision
 

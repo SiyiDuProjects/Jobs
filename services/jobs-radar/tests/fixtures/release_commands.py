@@ -174,7 +174,10 @@ def execute():
             state['probe'] = image_label(image)
         elif payload[0] == '-c':
             script = payload[1]
-            if 'release_compatibility' in script:
+            if 'HEADROOM_BYTES' in script:
+                fail('capacity')
+                print('{"passed":true}')
+            elif 'release_compatibility' in script:
                 print(state.get('schemas', {}).get(image_label(image), 'v2'))
             elif '.write_text' in script:
                 if flag.exists():

@@ -788,6 +788,8 @@ test("AI task resumes after worker interruption without issuing a new model requ
     undefined,
     session,
   );
+  const stamp = Date.now();
+  interrupted.clock(stamp);
   await assert.rejects(interrupted.api.generateAnswer(payload), /interrupted/);
   let polls = 0;
   const restart = harness(
@@ -807,6 +809,7 @@ test("AI task resumes after worker interruption without issuing a new model requ
     undefined,
     session,
   );
+  restart.clock(stamp + 650000);
   assert.equal(
     (await restart.api.generateAnswer(payload)).text,
     "Confirmed availability",
@@ -1670,3 +1673,35 @@ for (const fresh of [false, true])
       gate.resolve();
       await assert.rejects(pending, /连接已改变/);
     });
+
+test("answer polling allows queued work to finish beyond the old two-minute deadline", async () => {
+  const initial = connected();
+  initial.jobsSyncV1.profileToken = "b".repeat(64);
+  const stamp = Date.now();
+  let polls = 0;
+  const h = harness(initial, async (path, options) => {
+    if (options.method === "POST") return Response.json({ state: "pending" });
+    polls++;
+    h.clock(stamp + polls * 130000);
+    return Response.json(
+      polls < 3
+        ? { state: "pending" }
+        : {
+            state: "completed",
+            result: { text: "Queued answer" },
+          },
+    );
+  });
+  h.clock(stamp);
+  assert.equal(
+    (
+      await h.api.generateAnswer({
+        profileId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        profileVersion: "2026-09-20T00:00:00Z",
+        prompt: "Fixture question",
+      })
+    ).text,
+    "Queued answer",
+  );
+  assert.equal(polls, 3);
+});

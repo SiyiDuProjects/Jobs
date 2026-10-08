@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "ruleVersion": 3,
+  "version": 3,
+  "ruleVersion": 4,
   "topics": {
     "noncompete": {
       "terms": [
@@ -396,6 +396,26 @@
         "source of application"
       ],
       "paths": [],
+      "notes": true
+    },
+    "age": {
+      "terms": [
+        "age",
+        "at least 18"
+      ],
+      "paths": [
+        "employmentData.age"
+      ],
+      "notes": true
+    },
+    "hispanic_latino": {
+      "terms": [
+        "Hispanic",
+        "Latino"
+      ],
+      "paths": [
+        "employmentData.hispanicOrLatino"
+      ],
       "notes": true
     }
   },

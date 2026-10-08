@@ -121,7 +121,10 @@ def test_unknown_writer_state_never_reaches_maintenance_or_database_changes(tmp_
     assert (live / 'data/jobs.sqlite').read_text() == 'old schema with data'
     assert not (live / 'data/.release-maintenance').exists()
     assert state['running'] and state['active'] == 'aaaaaaaaaaaa'
-    assert not any(call[:2] == ['docker', 'create'] or call[:2] == ['systemctl', 'start'] for call in state['calls'])
+    creates = [call for call in state['calls'] if call[:2] == ['docker', 'create']]
+    assert len(creates) == 1 and 'HEADROOM_BYTES' in creates[0][creates[0].index('-c') + 1]
+    assert creates[0][creates[0].index('-v') + 1].endswith('/data:ro')
+    assert not any(call[:2] == ['systemctl', 'start'] for call in state['calls'])
 
 
 def test_tag_replacement_after_preflight_cannot_change_migration_probe_or_activation_image(tmp_path):
@@ -344,3 +347,12 @@ def test_rehearsal_overrides_cannot_disable_production_guards(tmp_path, escape):
     assert result.returncode != 0
     assert (root / 'live/data/jobs.sqlite').read_bytes() == before
     assert not any(call[0] in {'sudo', 'systemctl', 'rsync', 'tar'} or call[:2] in [['docker', 'run'], ['docker', 'tag']] for call in state['calls'])
+
+
+def test_insufficient_capacity_refuses_before_any_live_writer_is_paused(tmp_path):
+    live, _, _ = setup(tmp_path,'capacity')
+    result, state = run(tmp_path)
+    assert result.returncode != 0 and state['running'] and state['active']=='aaaaaaaaaaaa'
+    assert not (live/'data/.release-maintenance').exists()
+    assert not any(call[0]=='sudo' or call[:3]==['docker','compose','stop'] for call in state['calls'])
+    assert not (live/'data/migrations').exists()

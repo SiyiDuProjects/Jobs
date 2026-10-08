@@ -6,11 +6,15 @@ import time
 import uuid
 
 ANSWER_TIMEOUT_SECONDS = 120
+QUEUE_TIMEOUT_SECONDS = 480
+TOTAL_BATCHES_PER_HOUR = 600
+CONCURRENT_BATCHES = 4
 
 
 class AnswerJobs:
     def __init__(self, store, answers):
         self.store, self.answers, self.tasks = store, answers, {}
+        self.slots = asyncio.Semaphore(CONCURRENT_BATCHES)
         with store.connect(True) as c:
             c.execute('CREATE TABLE IF NOT EXISTS answer_jobs(id TEXT PRIMARY KEY,digest TEXT NOT NULL,created REAL NOT NULL,state TEXT NOT NULL,result TEXT)')
 
@@ -44,8 +48,8 @@ class AnswerJobs:
                 if row['digest'] != digest:
                     raise ValueError('回答任务标识已被其他题目使用')
             else:
-                if c.execute('SELECT count(*) FROM answer_jobs WHERE created>?', (time.time()-3600,)).fetchone()[0] >= 60:
-                    raise ValueError('本小时 AI 请求较多，请稍后再试')
+                if c.execute('SELECT count(*) FROM answer_jobs WHERE created>?', (time.time()-3600,)).fetchone()[0] >= TOTAL_BATCHES_PER_HOUR:
+                    raise ValueError('本小时回答任务较多，请稍后再试')
                 c.execute('INSERT INTO answer_jobs VALUES(?,?,?,?,NULL)', (request_id,digest,time.time(),'pending'))
         if not row:
             task = asyncio.create_task(self._run(request_id, payload))
@@ -61,7 +65,11 @@ class AnswerJobs:
             # after the client has been told it failed. Preserve the existing
             # 120-second answer window. A live task owns its timeout result;
             # status() only expires orphaned work, avoiding a polling race.
-            result = await asyncio.wait_for(self.answers.generate(payload), timeout=ANSWER_TIMEOUT_SECONDS)
+            await asyncio.wait_for(self.slots.acquire(), timeout=QUEUE_TIMEOUT_SECONDS)
+            try:
+                result = await asyncio.wait_for(self.answers.generate(payload), timeout=ANSWER_TIMEOUT_SECONDS)
+            finally:
+                self.slots.release()
         except TimeoutError:
             state, result = 'failed', {'error':'回答超时，当前填写内容已保留，请重试'}
         except asyncio.CancelledError:

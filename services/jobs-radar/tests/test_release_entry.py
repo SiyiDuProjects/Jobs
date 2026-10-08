@@ -68,6 +68,7 @@ def test_artifact_verification_precedes_transfer_import_and_final_identity_check
     remotes = [call for call in calls if call[0] == 'ssh']
     importer = next(index for index, call in enumerate(remotes) if any(value.endswith('/import_image.py') for value in call))
     activation = next(index for index, call in enumerate(remotes) if any(value.endswith('/switch_release.sh') for value in call))
+    assert 'sudo' in remotes[0] and remotes[0][-1] == str(3 * len('private artifact fixture'))
     assert importer < activation
     assert not any('build' in call or 'run' in call for call in calls if call[0] == 'docker')
 
@@ -85,9 +86,10 @@ def test_prebuilt_exact_commit_and_digest_are_verified_before_upload_and_switch(
     remote_calls = [call for call in calls if call[0] == 'ssh']
     docker_calls = [call for call in calls if call[0] == 'docker']
     assert len(docker_calls) == 3 and all(call[1:3] == ['image', 'inspect'] for call in docker_calls)
-    assert 'bash' in remote_calls[0] and '-s' in remote_calls[0]
+    assert 'sudo' in remote_calls[0] and remote_calls[0][-1] == '0'
+    assert 'bash' in remote_calls[1] and '-s' in remote_calls[1]
     assert remote_calls[-1][-1] == 'sha256:' + '1' * 64
-    assert any('mkdir -p ' in value for value in remote_calls[1])
+    assert any('mkdir -p ' in value for value in remote_calls[2])
     assert not any('build' in call or 'run' in call for call in docker_calls)
 
 
@@ -113,3 +115,17 @@ def test_rollback_uses_recorded_server_artifacts_without_a_new_candidate(tmp_pat
 def test_retired_modes_fail_before_remote_access(tmp_path, mode):
     result, calls = run(tmp_path, (mode,))
     assert result.returncode != 0 and calls == []
+
+
+@pytest.mark.parametrize('artifact_mode', [False, True])
+def test_capacity_failure_prevents_any_upload_import_or_activation(tmp_path, artifact_mode):
+    args=('release','--image-id','sha256:'+'1'*64)
+    if artifact_mode:
+        artifact=tmp_path/'artifact';artifact.mkdir()
+        for name in ['source.tar','image.tar','manifest.json']:(artifact/name).write_text('private artifact fixture')
+        args=('release','--artifact',str(artifact))
+    result,calls=run(tmp_path,args,capacity_insufficient=True)
+    assert result.returncode != 0 and 'Insufficient free disk' in result.stderr
+    remotes=[call for call in calls if call[0]=='ssh']
+    assert len(remotes)==1 and 'sudo' in remotes[0]
+    assert not any('mkdir -p' in arg or 'cat >' in arg or '/import_image.py' in arg or '/switch_release.sh' in arg for call in remotes for arg in call)

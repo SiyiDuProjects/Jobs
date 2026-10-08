@@ -161,3 +161,12 @@ def test_calendar_evidence_is_computed_in_the_declared_zone_not_copied_from_page
     assert decide(row,current,profile,'p','v',check)['decision']=='write'
     check['meaning']['topic']='graduation_date'
     assert decide(row,current,profile,'p','v',check)['decision']=='ask'
+
+
+def test_owner_authorizes_required_and_optional_application_arbitration_and_waivers():
+    row=answer([{'authorization':'application_terms'}]); row['value']='y'
+    check={'verdict':'write','meaning':{'topic':'acknowledgment','country':'','company':'','timeframe':''}}
+    for required in [True,False]:
+        assert decide(row,field('I accept the application arbitration and waiver terms') | {'required':required},{},'p','v',check)['decision']=='write'
+    # Authority to accept terms is not evidence for an unknown personal fact.
+    assert decide(row,field('I certify that I have never been convicted'),{},'p','v',check | {'verdict':'missing_fact'})['decision']=='ask'

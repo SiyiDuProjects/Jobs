@@ -116,6 +116,9 @@ docker tag "$CURRENT_IMAGE_ID" "$IMAGE_PREFIX:$CURRENT"
 COLLECT_TIMER=inactive
 BACKUP_TIMER=inactive
 helper() { helper_cli run --image "$HELPER" --image-id "$HELPER_ID" --memory 768 --mount "$LIVE/data:/data" -- "$@"; }
+# Fail before pausing timers, maintenance, or the public service. Execute the
+# current driver's stdlib-only check even when rollback uses an older image.
+helper_cli run --image "$HELPER" --image-id "$HELPER_ID" --memory 768 --mount "$LIVE/data:/data:ro" -- -c "$(cat "$DRIVER_DIR/../jobs_radar/capacity.py")" /data/jobs.sqlite /data/migrations
 unit_state() {
   local state status
   if state=$(systemctl is-active "$1"); then status=0; else status=$?; fi

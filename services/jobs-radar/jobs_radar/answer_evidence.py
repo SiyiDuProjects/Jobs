@@ -93,7 +93,7 @@ def decide(row, field, profile, profile_id, profile_version, check=None, saved=N
             return meaning['topic'] not in {'unknown', 'acknowledgment'}
         return 'authorization' in item and meaning['topic'] == 'acknowledgment'
     compatible_evidence = bool(evidence) and all(compatible(item) for item in evidence)
-    verified = (compatible_evidence and (field['required'] or all('authorization' not in item for item in evidence))
+    verified = (compatible_evidence and (field['required'] or all('authorization' not in item or item['authorization'] == 'application_terms' for item in evidence))
                 and row['state'] == 'answer' and verdict == 'write')
     # Date precision is a value invariant, independent of question wording or
     # how many education records the Profile contains. A selected exact date

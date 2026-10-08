@@ -50,6 +50,8 @@ elif command == 'python3':
             print(config['image_id'])
         else:
             raise ValueError(args)
+    elif args[0] == '-c' and 'print(sum((p/n).stat().st_size' in args[1]:
+        sys.exit(subprocess.run([sys.executable, *args]).returncode)
     elif args[0] == '-c' and 'secrets.token_hex' in args[1]:
         print('123456abcdef')
     else:
@@ -66,7 +68,14 @@ elif command == 'timeout':
 elif command == 'ssh':
     remote = args[args.index('fixture@local') + 1:]
     data = sys.stdin.read()
-    if remote[:2] == ['bash', '-s']:
+    if remote[:4] == ['sudo', '-n', 'python3', '-']:
+        assert 'HEADROOM_BYTES' in data and 'require_space' in data
+        assert int(remote[-1]) >= 0
+        if config.get('capacity_insufficient'):
+            print('Insufficient free disk space', file=sys.stderr)
+            sys.exit(1)
+        print('{"passed": true}')
+    elif remote[:2] == ['bash', '-s']:
         if remote[3].endswith('/source.tar'):
             assert 'sha256sum' in data and 'tar -xf' in data
             sys.exit(0)

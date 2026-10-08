@@ -159,3 +159,42 @@ def test_async_routes_require_profile_auth_version_and_csrf_and_remove_sync_rout
         retired = client.post('/api/manage/answer', json={'prompt': 'Old client'}, headers=headers)
         assert retired.status_code == 426 and retired.json()['code'] == 'client_upgrade_required'
         assert len(calls) == 1
+
+
+def test_ten_requests_queue_and_complete_with_four_executing_at_most(tmp_path):
+    async def run():
+        class Counted:
+            active = maximum = calls = 0
+            release = asyncio.Event()
+            async def generate(self, payload):
+                self.calls += 1; self.active += 1; self.maximum = max(self.maximum,self.active)
+                try:
+                    await self.release.wait()
+                    return {'text':'fixture'}
+                finally: self.active -= 1
+        provider = Counted(); jobs = AnswerJobs(Store(tmp_path/'queue.sqlite'),provider)
+        ids = [str(uuid.uuid4()) for _ in range(10)]
+        for request_id in ids: assert jobs.start({'requestId':request_id,'prompt':'fixture'})['state']=='pending'
+        for _ in range(10): await asyncio.sleep(0)
+        assert provider.calls == 4 and provider.active == 4
+        assert all(jobs.status(request_id)['state']=='pending' for request_id in ids)
+        provider.release.set(); await asyncio.gather(*list(jobs.tasks.values()))
+        assert provider.calls == 10 and provider.maximum == 4 and provider.active == 0
+        assert all(jobs.status(request_id)['state']=='completed' for request_id in ids)
+    asyncio.run(run())
+
+
+def test_outer_quota_allows_cache_batches_beyond_sixty_but_stops_at_six_hundred(tmp_path):
+    async def run():
+        store = Store(tmp_path/'quota.sqlite'); provider = Provider(); provider.release.set()
+        jobs = AnswerJobs(store,provider)
+        with store.connect(True) as c:
+            c.executemany('INSERT INTO answer_jobs VALUES(?,?,?,?,NULL)',
+                          [(str(uuid.uuid4()),'fixture',time.time(),'completed') for _ in range(599)])
+        payload = {'requestId':str(uuid.uuid4()),'prompt':'fixture'}
+        assert jobs.start(payload)['state']=='pending'
+        with pytest.raises(ValueError,match='本小时回答任务'):
+            jobs.start({'requestId':str(uuid.uuid4()),'prompt':'fixture'})
+        await asyncio.gather(*list(jobs.tasks.values()))
+        assert jobs.start(payload)['state']=='completed' and provider.calls==1
+    asyncio.run(run())

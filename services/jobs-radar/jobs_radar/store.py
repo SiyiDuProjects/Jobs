@@ -334,8 +334,8 @@ class Store:
         if dest.resolve() == self.path.resolve():
             raise ValueError("Backup destination must differ from the live database")
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if shutil.disk_usage(dest.parent).free < self.path.stat().st_size + 256 * 1024 ** 2:
-            raise ValueError("Insufficient free disk space for a verified backup")
+        from .capacity import require_space
+        require_space(self.path, dest.parent)
         with self.connect() as source, sqlite3.connect(dest) as target:
             source.backup(target)
             if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
