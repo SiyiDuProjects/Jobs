@@ -1,6 +1,5 @@
 import { JobsPrivateSession } from "./private-session.js";
 import { JobsBrand } from "./brand.js";
-import { JobsStorageUpgrade } from "./storage-upgrade.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsManagementModel } from "./management-model.js";
 import { JobsManagementSync } from "./management-sync.js";
@@ -140,7 +139,6 @@ export function initializeTabProfiles() {
       selectionSource = "default",
       url = undefined,
     ) {
-      await JobsStorageUpgrade.assertReady();
       const value = {
         id: record.id,
         profileName: record.profile.profileName,
@@ -268,13 +266,11 @@ export function initializeTabProfiles() {
       });
     }
     async function ensure(sender, bindDefault = true) {
-      await JobsStorageUpgrade.assertReady();
       const id = sender.tab?.id;
       if (id === undefined) return null;
       return inTab(id, () => ensureTab(sender, bindDefault));
     }
     async function ensureTab(sender, bindDefault) {
-      await JobsStorageUpgrade.assertReady();
       const id = sender.tab.id;
       const operation = operations.get(id);
       let value = await selected(id);
@@ -533,7 +529,6 @@ export function initializeTabProfiles() {
       return record;
     }
     async function fresh(sender, { begin = false, remote = false } = {}) {
-      await JobsStorageUpgrade.assertReady();
       const id = sender.tab?.id;
       if (id === undefined) return null;
       return inTab(id, async () => {
@@ -666,7 +661,7 @@ export function initializeTabProfiles() {
         throw Error("Invalid popup");
       if (!["read", "select"].includes(msg.action))
         throw Error("Invalid profile action");
-      await JobsStorageUpgrade.assertReady();
+
       const tab = Number.isInteger(msg.tabId)
         ? await chrome.tabs.get(msg.tabId).catch(() => null)
         : null;

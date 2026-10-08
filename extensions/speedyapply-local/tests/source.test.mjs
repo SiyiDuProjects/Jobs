@@ -6,9 +6,6 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { nativePackage } from "./helpers/native-package.mjs";
 test("native package preserves the installed public identity and contains only maintained code plus npm modules", async () => {
-  const prior = JSON.parse(
-    await fs.readFile(new URL("../upstream.json", import.meta.url), "utf8"),
-  );
   const result = await nativePackage(),
     manifest = JSON.parse(
       await fs.readFile(result.stage + "/manifest.json", "utf8"),
@@ -21,7 +18,7 @@ test("native package preserves the installed public identity and contains only m
   ]
     .map((c) => String.fromCharCode(97 + parseInt(c, 16)))
     .join("");
-  assert.equal(id, prior.developmentExtensionId);
+  assert.equal(id, "ccohapahbamkcbgkpegidkpknoeikiko");
   assert.equal(manifest.update_url, undefined);
   assert.deepEqual(manifest.permissions, [
     "storage",

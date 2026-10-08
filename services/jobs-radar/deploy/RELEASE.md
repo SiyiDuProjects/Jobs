@@ -1,8 +1,7 @@
 # Release an identified image
 
-`release.sh` remains the only build/rehearsal/production release entrypoint.
-Production never builds an image or runs import smoke or a rehearsal. Local
-build and rehearsal modes never contact SSH.
+`release.sh` remains the only build/production release entrypoint.
+Production never builds an image. Local builds never contact SSH.
 
 ## Independent website releases
 
@@ -67,10 +66,9 @@ Page entries are not cached. Old versioned resources remain available, so an
 already-open page cannot receive another version's JS/CSS. Bundles are retained;
 these commands do not prune old versions or delete data. The public
 `/.well-known/jobs-web-release` endpoint exposes only compatibility/version
-metadata. Restricted recovery keeps the pinned bundled website and disables
-independent publication while that recovery server is active.
+metadata.
 
-## Local build and rehearsal
+## Local build
 
 Run from macOS or WSL connected to this machine's Docker Desktop. On Mac,
 install and start Docker Desktop; the entrypoint also discovers its bundled CLI
@@ -102,7 +100,7 @@ database files and links, including accidental commits. This filename guard is
 not a complete audit of source-file contents. Builds use an explicitly selected,
 temporary BuildKit container with a verified 2 CPU / 4 GiB budget and no additional
 swap. Both Intel and Apple Silicon hosts build `linux/amd64` for production.
-The local build/rehearsal lock prevents parallel auxiliary tasks. Unresolved
+The local build lock prevents parallel auxiliary tasks. Unresolved
 earlier builder/container receipts block another run; absent listings never erase
 pending creation receipts. Cleanup uses the full verified container ID and its
 observed unique cache volume, retaining the receipt.
@@ -112,17 +110,13 @@ manifest records full commit, source archive SHA-256, full image ID and image
 archive SHA-256. The image also carries full commit and source archive hash labels.
 `--build` creates an artifact; it does not certify a real website flow or deploy it.
 
-```text
-bash services/jobs-radar/deploy/release.sh --rehearse --artifact <local-artifact-directory> --old-image sha256:<64 hex>
-```
-
-Fault rehearsal currently requires WSL and its native Linux filesystem semantics;
-macOS supports building and releasing, but does not run this filesystem rehearsal.
-Rehearsal additionally requires the old image already present on the same local
-Desktop engine. It uses synthetic data under `.qa/jobs-radar-stage/rehearsal-*`,
-unique image/container names, no ports or Docker network, and no host timers. It
-preserves archives and reports. Missing images or unresolved old cleanup block
-execution; there is no production fallback or automatic image download from it.
+The one-time migration/recovery runners have been retired. The release validator
+requires applications-v2, native-extension-submission-reporting-v1 and
+diagnostics-v2-2026-09-26 completion markers and checks active Profiles and SQLite
+integrity in an isolated dry run before the maintenance-protected final check.
+A populated legacy database must first pass the archived migration release;
+this release does not rerun old repairs. Backup and compatible rollback remain
+part of the ordinary release transaction.
 
 ## Import and release
 

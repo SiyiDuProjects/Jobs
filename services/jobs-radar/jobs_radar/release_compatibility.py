@@ -1,7 +1,8 @@
-"""Conservative rollback contract: every stored-data format must match."""
-from .application_schema import VERSION as APPLICATIONS
-from .profile_contract import VERSION as PROFILE
-from .diagnostic_migration import VERSION as DIAGNOSTICS
+"""Stored-data format identity, independent of retired migration implementations."""
+APPLICATIONS = 'applications-v2'
+PROFILE = 1
+DIAGNOSTICS = 'diagnostics-v2-2026-09-26'
+SUBMISSIONS = 'native-extension-submission-reporting-v1'
 
 
 def data_contract():

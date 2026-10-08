@@ -14,10 +14,7 @@ remote() { python3 "$ENTRY_DIR/host_command.py" --timeout 3600 -- ssh -o BatchMo
 case "$MODE" in --build-web|--release-web|--rollback-web|--web-status)
   exec node "$ENTRY_DIR/web_release.mjs" "$MODE" "$@";;
 esac
-case "$MODE" in release|--build|--rollback|--rehearse|--recover-profiles|--resume-applications) ;; *) echo 'Unknown release mode' >&2; exit 2;; esac
-if [ "$MODE" = --rehearse ]; then
-  exec python3 "$ENTRY_DIR/local_rehearsal.py" "$@"
-fi
+case "$MODE" in release|--build|--rollback) ;; *) echo 'Unknown release mode' >&2; exit 2;; esac
 if [ "$MODE" = --build ]; then
   [ "$#" = 0 ] || { echo 'Local builds accept no host or builder overrides.' >&2; exit 2; }
   exec python3 "$ENTRY_DIR/local_build.py" build
@@ -30,9 +27,6 @@ if [ "$MODE" = --rollback ]; then
   exit $?
 fi
 ARTIFACT=
-if [[ "$MODE" = --recover-profiles || "$MODE" = --resume-applications ]]; then
-  [ "$#" = 2 ] && [ "$1" = --image-id ] || { echo 'Recovery requires the already published immutable --image-id; artifact imports are not accepted.' >&2; exit 2; }
-fi
 if [ "$#" = 2 ] && [ "$1" = --artifact ]; then
   ARTIFACT=$(cd "$2" && pwd)
   IMAGE_ID=$(python3 "$ENTRY_DIR/local_build.py" verify --artifact "$ARTIFACT")
@@ -85,12 +79,6 @@ git archive --format=tar "$FULL_SHA" services/jobs-radar |
   remote "mkdir -p $STAGE && tar -x -C $STAGE --strip-components=2"
 
 remote "printf '%s\\n' $SHA > $STAGE/RELEASE"
-if [[ "$MODE" = --recover-profiles || "$MODE" = --resume-applications ]]; then
-  # This driver additionally requires LIVE and its running image to be this
-  # same committed release. Recovery never installs another runtime or image.
-  remote python3 "$STAGE/deploy/recover_profiles.py" "$MODE" --live "$LIVE" --release "$SHA" --image-id "$IMAGE_ID"
-  exit $?
-fi
 OUTPUT=$(remote bash "$STAGE/deploy/switch_release.sh" "$SHA" "$LIVE" "$STAGE" "$ARCHIVE" "$IMAGE_ID")
 echo "$OUTPUT"
 grep -q "^Released $SHA " <<<"$OUTPUT" || { echo 'Release did not complete; check the server.' >&2; exit 1; }

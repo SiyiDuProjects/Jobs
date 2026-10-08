@@ -9,7 +9,6 @@ import pytest
 
 from jobs_radar.application_records import ApplicationRecords, read
 from jobs_radar.application_progress import ApplicationProgress
-from jobs_radar.application_schema import migrate_path
 from jobs_radar.board import Board
 from jobs_radar.extension_sync import ExtensionSync, EXTENSION_ID
 from jobs_radar.management import Management
@@ -140,56 +139,10 @@ def legacy_database(path):
     return jid
 
 
-def test_migration_is_explicit_lossless_dry_run_and_idempotent(tmp_path):
-    path=tmp_path/'old.sqlite';jid=legacy_database(path)
-    before=hashlib.sha256(path.read_bytes()).hexdigest()
-    report=migrate_path(path,dry_run=True)
-    assert report['dry_run'] and report['source_counts']['claims']==1
-    assert hashlib.sha256(path.read_bytes()).hexdigest()==before
-    with pytest.raises(ValueError,match='migration required'):Store(path)
-    applied=migrate_path(path,dry_run=False)
-    assert not applied['dry_run']
-    store=Store(path)
-    with store.connect() as c:
-        tables={r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert not {'claims','historical','recruiting_events','application_progress','extension_receipts'} & tables
-        assert c.execute("SELECT count(*) FROM application_events WHERE kind='migration_evidence'").fetchone()[0]==3
-        assert c.execute("SELECT count(*) FROM management_documents WHERE key='appliedList'").fetchone()[0]==0
-        app=c.execute('SELECT * FROM applications WHERE job_id=?',(jid,)).fetchone()
-        assert app['application_id']=='old-record'
-        assert app['status']=='submitted_unconfirmed' and app['confirmed_at'] is None
-    assert migrate_path(path,dry_run=False)['already_applied']
 
 
-def test_migration_failure_rolls_back_all_changes(tmp_path):
-    path=tmp_path/'invalid.sqlite';legacy_database(path)
-    with sqlite3.connect(path) as c:
-        c.execute("UPDATE management_documents SET value=?",(json.dumps([{'invalid':'record'}]),))
-    with pytest.raises(ValueError,match='Invalid application record'):migrate_path(path,dry_run=False)
-    with sqlite3.connect(path) as c:
-        assert c.execute('SELECT count(*) FROM claims').fetchone()[0]==1
-        assert c.execute('SELECT count(*) FROM schema_migrations').fetchone()[0]==0
-        assert c.execute('SELECT count(*) FROM application_events').fetchone()[0]==0
 
 
-def test_original_schema_columns_pending_reviews_and_cleanup(tmp_path):
-    path=tmp_path/'original.sqlite';legacy_database(path)
-    with sqlite3.connect(path) as c:
-        c.execute('CREATE TABLE original_applications AS SELECT job_id,status,version,updated,detail,evidence,owner_run_id FROM applications')
-        c.execute('DROP TABLE applications')
-        c.execute('ALTER TABLE original_applications RENAME TO applications')
-        c.execute('CREATE TABLE original_jobs AS SELECT id,identity,first_seen,last_seen FROM jobs')
-        c.execute('DROP TABLE jobs')
-        c.execute('ALTER TABLE original_jobs RENAME TO jobs')
-        c.execute('CREATE TABLE application_progress_pending(job_id TEXT PRIMARY KEY,payload TEXT)')
-        c.execute('INSERT INTO application_progress_pending VALUES(?,?)',('email:pending',json.dumps({'job_id':'email:pending','stage':'interview','message_id':'123456789abc','candidates':[]})))
-    migrate_path(path,dry_run=True)
-    assert list(tmp_path.glob('.applications-migration-*'))==[]
-    migrate_path(path,dry_run=False)
-    store=Store(path)
-    assert ApplicationProgress(store).list()['unresolved_matches'][0]['message_id']=='123456789abc'
-    with store.connect() as c:
-        assert not c.execute("SELECT 1 FROM sqlite_master WHERE name='application_progress_pending'").fetchone()
 
 
 def test_concurrent_event_replay_has_one_effect(model):

@@ -9,7 +9,7 @@ import tracemalloc
 
 import pytest
 
-from test_docker_rehearsal import module
+from deploy_module import module
 
 
 class Engine:

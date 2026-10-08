@@ -114,9 +114,6 @@ def attach_web(server, store, origin):
     from .profile_routes import register_profile_routes
     register_profile_routes(api, profiles, management_access)
     register_profile_routes(api, profiles, profile_access, prefix='/api/extension/profiles')
-    from .storage_migrations import StorageMigrations
-    from .storage_migration_routes import register_storage_migration_routes
-    register_storage_migration_routes(api, StorageMigrations(store, profiles, management), profile_access)
     from .client_protocol import register_retired_routes, upgrade_required
     register_retired_routes(api, management_access)
 

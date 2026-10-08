@@ -1,5 +1,3 @@
-import { initializeStorageUpgrade } from "../../src/custom/storage-upgrade.js";
-import "../storage-migration/entry.js";
 import { initializeOptionMatch } from "../../src/custom/option-match.js";
 import { initializeProfileAnswers } from "../../src/custom/profile-answers.js";
 import "../../src/custom/response-contract.js";
@@ -28,7 +26,6 @@ import { initializeSubmissionBackground } from "../../src/custom/submission-back
 import "../../source/background-api.js";
 import "../../source/runtime-registration.js";
 import "../../src/custom/runtime-version.js";
-initializeStorageUpgrade();
 initializeOptionMatch();
 initializeProfileAnswers();
 
