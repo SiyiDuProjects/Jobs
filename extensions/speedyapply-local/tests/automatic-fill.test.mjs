@@ -264,7 +264,7 @@ test("queue navigation journal is awaited inside readiness and a changed field c
   let release,
     started = false,
     after = 0;
-  h.w.JobsQueuePage = {
+  h.w.JobsSubmissionGuard = {
     allowed: () => true,
     guard: (fn) => fn,
     verify: async () => {},
@@ -295,7 +295,7 @@ test("durable queue refusal cannot be bypassed by an otherwise ready automatic s
     '<label>Name<input required value="Ready"></label>',
     async () => [],
   );
-  h.w.JobsQueuePage = {
+  h.w.JobsSubmissionGuard = {
     allowed: () => true,
     guard: (fn) => fn,
     verify: async () => {},

@@ -3,7 +3,7 @@ import { diagnosticGuard } from "./diagnostic-evidence.js";
 import { JobsProfileAnswers } from "./profile-answers.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsControlFields } from "./control-fields.js";
-import { JobsQueuePage } from "./queue-page.js";
+import { JobsSubmissionGuard } from "./submission-guard.js";
 export var JobsOperationContext;
 let initialized = false;
 export function initializeOperationContext() {
@@ -148,7 +148,7 @@ export function initializeOperationContext() {
       }
       async function check(fresh) {
         assertCurrent();
-        await JobsQueuePage?.verify();
+        await JobsSubmissionGuard?.verify();
         if (!profile || typeof profile !== "object")
           throw Error("本页 Profile 不可用");
         const state = await chrome.runtime.sendMessage({

@@ -8,7 +8,7 @@ import { publicJobUrl } from "./public-job-url.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsAvailabilityRules } from "./availability-rules.js";
 import { JobsManagementSync } from "./management-sync.js";
-import { JobsQueueBackground } from "./queue-background.js";
+import { JobsRemovalBackground } from "./removal-background.js";
 export var JobsSync;
 let initialized = false;
 export function initializeSync() {
@@ -305,7 +305,7 @@ export function initializeSync() {
         );
       });
       if (msg.type === "jobs:availability-delete")
-        await JobsQueueBackground?.remove?.(url);
+        await JobsRemovalBackground?.remove?.(url);
       void flush();
       return result;
     }

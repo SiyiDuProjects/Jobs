@@ -12,7 +12,7 @@ import { JobsOperationContext } from "./operation-context.js";
 import { JobsFormPipeline } from "./form-pipeline.js";
 import { JobsProfileAnswers } from "./profile-answers.js";
 import { JobsAnswerMemory } from "./answer-memory.js";
-import { JobsQueuePage } from "./queue-page.js";
+import { JobsSubmissionGuard } from "./submission-guard.js";
 import { recoverReview, finishRecovery } from "./recover-review.js";
 import {
   automaticFillPolicy,
@@ -592,7 +592,7 @@ export function initializeAutomaticFill() {
         if (!(await reader.verify(current)))
           throw Error("页面显示的答案尚未确认保存，请检查填写诊断");
         if (action !== "fill")
-          await JobsQueuePage?.beforeNavigate(
+          await JobsSubmissionGuard?.beforeNavigate(
             action,
             root,
             target || document.querySelector(selector),
@@ -668,8 +668,8 @@ export function initializeAutomaticFill() {
         onNavigate();
         setMessage(action === "submit" ? "submitting" : "awaiting-transition");
         if (
-          !(JobsQueuePage
-            ? JobsQueuePage.clickNavigate(action, buttons[0])
+          !(JobsSubmissionGuard
+            ? JobsSubmissionGuard.clickNavigate(action, buttons[0])
             : JobsPageActions.click(buttons[0]))
         )
           throw Error("Navigation cancelled before click");

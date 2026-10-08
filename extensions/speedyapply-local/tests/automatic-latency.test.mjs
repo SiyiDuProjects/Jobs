@@ -177,7 +177,7 @@ for (const change of [
       allowed = true;
     const now = h.w.Date.now.bind(h.w.Date);
     h.w.Date.now = () => now() + offset;
-    h.w.JobsQueuePage = {
+    h.w.JobsSubmissionGuard = {
       guard: (fn) => () => allowed && fn(),
       allowed: () => allowed,
       verify: async () => {},

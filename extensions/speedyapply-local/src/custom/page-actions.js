@@ -1,4 +1,4 @@
-import { JobsQueuePage } from "./queue-page.js";
+import { JobsSubmissionGuard } from "./submission-guard.js";
 import { JobsFormPipeline } from "./form-pipeline.js";
 export var JobsPageActions;
 let initialized = false;
@@ -7,11 +7,11 @@ export function initializePageActions() {
   initialized = true;
   (() => {
     const allowed = () =>
-      JobsQueuePage?.allowed() !== false &&
+      JobsSubmissionGuard?.allowed() !== false &&
       JobsFormPipeline?.live?.() !== false;
     // Bind a caller's liveness check to the queue operation current at entry,
     // so a pause followed by resume never revives an older asynchronous write.
-    const guard = (check) => JobsQueuePage?.guard(check) || check;
+    const guard = (check) => JobsSubmissionGuard?.guard(check) || check;
     const live = (check) => allowed() && check();
     const when = (action) => allowed() && action();
     const click = (node) => allowed() && (node.click(), true);

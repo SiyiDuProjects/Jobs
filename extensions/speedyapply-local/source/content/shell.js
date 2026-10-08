@@ -30,7 +30,6 @@ const phases = {
   "already-applied": "网站显示已申请，无需再次提交",
   "awaiting-transition": "等待下一页",
   "site-error": "网站返回错误",
-  "queue-paused": "队列已暂停",
 };
 export function lifecycle() {
   const controller = new AbortController();

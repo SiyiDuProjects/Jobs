@@ -5,6 +5,7 @@ import { JobsJobMatch } from "./job-match.js";
 import { JobsManagementModel } from "./management-model.js";
 import { JobsManagementSync } from "./management-sync.js";
 import { JobsSync } from "./sync.js";
+import { JobsRemovalBackground } from "./removal-background.js";
 /** @typedef {import('../../../../services/jobs-radar/web/src/manage/profile-types').Profile} Profile */
 /** @typedef {{id:string, profile:Profile, last_sync?:string}} ProfileRecord */
 /** @typedef {{id:string, profile:Profile, profileName:string, selectionSource:string, timestamp:string, lastSync?:string, resumeRef?:string}} TabProfile */
@@ -591,6 +592,12 @@ export function initializeTabProfiles() {
         begin: message.refresh === true,
         remote: message.verify === true,
       });
+      const removal = await JobsRemovalBackground?.removalState(
+        sender.tab?.url || sender.url,
+        false,
+        true,
+      );
+      if (removal?.removed) throw Error("岗位已移除，已停止填写");
       return value
         ? {
             tabId: sender.tab.id,

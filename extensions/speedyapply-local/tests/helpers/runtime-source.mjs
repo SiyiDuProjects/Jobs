@@ -7,6 +7,11 @@ import { readModule } from "./module-source.mjs";
 // Manifest ordering has its own contract test.
 const custom = new URL("../../src/custom/", import.meta.url);
 const dependencies = {
+  "submission-guard.js": [
+    "job-match-rules.js",
+    "job-match.js",
+    "page-actions.js",
+  ],
   "automatic-field-policy.js": ["answer-policy.js"],
   "form-pipeline.js": ["page-actions.js", "dom-wait.js", "page-commit.js"],
   "manual-answer.js": ["form-pipeline.js"],
