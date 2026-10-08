@@ -1,3 +1,4 @@
+import "../../src/custom/draft-background.js";
 import { initializeOptionMatch } from "../../src/custom/option-match.js";
 import { initializeProfileAnswers } from "../../src/custom/profile-answers.js";
 import "../../src/custom/response-contract.js";

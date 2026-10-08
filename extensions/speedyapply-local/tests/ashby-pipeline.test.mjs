@@ -1,3 +1,4 @@
+import { fixtureReply } from "./helpers/fixture-provider.mjs";
 import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
@@ -83,13 +84,13 @@ function fixture(t, saved = []) {
           return {
             data: {
               answers: message.fields.map((field) =>
-                confirmedAnswer(field, {
-                  fieldId: field.fieldId,
-                  state: "answer",
-                  value: "The mission and the team.",
-                  source: "ai",
-                  reason: "fixture",
-                  needsConfirmation: false,
+                fixtureReply(w.JobsProfileAnswers, field, profile, {
+                  text: "The mission and the team.",
+                  values: {
+                    "Will you be able to work onsite":
+                      "Yes, I am able to work onsite",
+                    "Preferred team": "Platform",
+                  },
                 }),
               ),
             },
@@ -145,7 +146,7 @@ function fixture(t, saved = []) {
   const until = async (check, label) => {
     for (let i = 0; i < 250 && !check(); i++)
       await new Promise((resolve) => setTimeout(resolve, 20));
-    assert(check(), label);
+    assert(check(), label + JSON.stringify({ phases, notes, requests }));
   };
   return {
     w,
@@ -261,8 +262,10 @@ test("Ashby optional keyword memory stays blank while the exact saved question f
   assert.equal(f.value("favorite"), "");
   assert.equal(f.value("team"), "Platform");
   assert(
-    f.requests.every((request) =>
-      request.fields.every((field) => field.required),
+    f.requests.some((request) =>
+      request.fields.some(
+        (field) => field.question === "Favorite tool" && !field.required,
+      ),
     ),
   );
   f.answerers.check(f.doc.querySelector("form"));

@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { readModule, functionBlock } from "./helpers/module-source.mjs";
 import { installAnswerResolver } from "./helpers/answer-resolver.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
@@ -27,6 +28,8 @@ const codes = await Promise.all(
     "control-fields",
     "workday-controls",
     "form-pipeline",
+    "review-presenter",
+    "ai-review",
     "operation-context",
     "automatic-fill",
   ].map((name) =>
@@ -77,12 +80,27 @@ async function run(kind, legacy, patched) {
     answers = 0,
     mount;
   w.JobsAIReview = { pending: () => false };
+  w.JobsDiagnostics = {
+    note: (kind, node, detail) => trace.push([kind, detail]),
+  };
   w.chrome = {
     runtime: {
       sendMessage: async (message) => {
         if (message.type !== "jobs:tab-profile") {
           answers++;
-          throw Error("Unexpected AI request");
+          return {
+            data: {
+              answers: message.fields.map((field) =>
+                confirmedAnswer(field, {
+                  fieldId: field.fieldId,
+                  state: "answer",
+                  value: true,
+                  source: "profile",
+                  needsConfirmation: false,
+                }),
+              ),
+            },
+          };
         }
         return { data: { id: "fixture", profile } };
       },
@@ -214,7 +232,7 @@ async function run(kind, legacy, patched) {
             .map((row) => row.public),
         }),
     );
-    assert.equal(answers, 0);
+    assert.equal(answers, kind === "disclosures" ? 1 : 0);
     assert(!phases.includes("complete-required"));
     assert(!phases.includes("ai-review"));
     assert(

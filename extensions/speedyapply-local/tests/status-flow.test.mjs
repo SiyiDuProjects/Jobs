@@ -246,19 +246,18 @@ test("only an explicitly clear whole batch auto-confirms; uncertain profile dedu
     try {
       const task = h.run();
       await until(() => h.requests.length === 1);
-      h.reply(0, (field) =>
-        confirmedAnswer(field, {
+      h.reply(0, (field) => ({
+        ...confirmedAnswer(field, {
           fieldId: field.fieldId,
           state: "answer",
           value: field.type === "text" ? "Known" : "no",
           source: "profile",
-          ...(field.type === "text"
-            ? { needsConfirmation: false }
-            : flag === undefined
-              ? {}
-              : { needsConfirmation: flag }),
+          needsConfirmation: false,
         }),
-      );
+        ...(field.type === "text"
+          ? { needsConfirmation: false }
+          : { needsConfirmation: flag }),
+      }));
       assert.equal(await task, flag === false);
       assert.equal(h.clicks(), flag === false ? 1 : 0);
       assert.equal(

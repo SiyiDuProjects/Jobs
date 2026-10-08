@@ -1,3 +1,4 @@
+import { fixtureAnswers, explicitReply } from "./fixture-provider.mjs";
 import { readWithDependencies } from "./runtime-source.mjs";
 import { installAnswerResolver } from "./answer-resolver.mjs";
 import { JSDOM } from "jsdom";
@@ -94,7 +95,14 @@ export const profile = Object.freeze({
 
 export async function adapterPage(
   t,
-  { site, html, url = "https://fixture.invalid/apply", saved = [], ai } = {},
+  {
+    site,
+    html,
+    url = "https://fixture.invalid/apply",
+    saved = [],
+    ai,
+    replies = [],
+  } = {},
 ) {
   if (site && !adapters.has(site))
     adapters.set(site, await read("source/content/adapters/" + site + ".js"));
@@ -122,12 +130,25 @@ export async function adapterPage(
           requests.push(message);
           return {
             data: {
-              answers: message.fields.map((field) => ({
-                fieldId: field.fieldId,
-                ...(ai?.(field) || { state: "needs_input", reason: "fixture" }),
-                source: "ai",
-                reason: "fixture",
-              })),
+              answers: message.fields.map((field) =>
+                ai
+                  ? {
+                      fieldId: field.fieldId,
+                      ...(ai?.(field) || {
+                        state: "needs_input",
+                        reason: "fixture",
+                      }),
+                      source: "ai",
+                      reason: "fixture",
+                    }
+                  : explicitReply(
+                      w.JobsProfileAnswers,
+                      field,
+                      active,
+                      replies,
+                      [...message.fields, ...(message.formContext || [])],
+                    ),
+              ),
             },
           };
         }

@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -21,7 +24,7 @@ vm.runInContext(
   c,
 );
 
-test("old labels, expanded prompts and typed signature all use the same confirmed full name", () => {
+test("typed answers: old labels, expanded prompts and typed signature all use the same confirmed full name", () => {
   for (const middleName of ["Middle", "", undefined]) {
     const profile = {
       nameData: { firstName: "Example", middleName, lastName: "Applicant" },
@@ -39,12 +42,9 @@ test("old labels, expanded prompts and typed signature all use the same confirme
       "Signature",
       "Electronic signature",
     ]) {
-      const decision = c.JobsAnswerResolver.decide(
-        { question },
-        profile,
-        { inputType: "text" },
-        [],
-      );
+      const decision = typedAnswer(c.JobsProfileAnswers, question, profile, {
+        inputType: "text",
+      });
       assert.equal(decision.answer, expected, question);
       assert.equal(decision.field, "nameData.fullName");
     }

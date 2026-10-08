@@ -43,18 +43,11 @@ def test_damage_allowance_cannot_duplicate_invalid_history():
     with pytest.raises(ValueError): normalize_list([bad,bad],[bad])
 
 
-def test_question_keyword_extraction_matches_shared_browser_contract():
-    import subprocess
-    from jobs_radar.saved_responses import question_keywords
-    questions = ['What is your experience with Python?', '您的全名？', 'C++ / C# / 3 years', 'Ｆｕｌｌ name name', 'Do you work in the US?', 'naïve café 2026']
-    script = """
-import fs from 'node:fs';
-import {JobsResponseContract} from './web/src/manage/saved-response-contract.js';
-console.log(JSON.stringify(JSON.parse(fs.readFileSync(0,'utf8')).map(JobsResponseContract.questionKeywords)));
-"""
-    result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).resolve().parents[1],
-                            input=json.dumps(questions), text=True, encoding='utf8', capture_output=True, check=True)
-    assert json.loads(result.stdout) == [question_keywords(question) for question in questions]
+def test_new_exact_question_records_do_not_need_legacy_keywords():
+    row = {'key':'q', 'question':'Have you used Example?', 'response':'Yes', 'origin':'person',
+           'scope':'company','ruleVersion':3,'context':{'companyKey':'example','country':'US'}}
+    assert normalize_record(row) == {**row,'fromAutofill':False}
+    assert 'questionKeywords' not in __import__('jobs_radar.saved_responses',fromlist=['RULES']).RULES
 
 
 @pytest.mark.parametrize('origin', ['person', 'agent', 'page-tool', 'legacy'])

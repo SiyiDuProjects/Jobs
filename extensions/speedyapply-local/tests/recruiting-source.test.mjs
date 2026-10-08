@@ -1,3 +1,4 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -131,7 +132,7 @@ test("source preference is Profile owned; actual context wins and personal follo
     ])
       assert.notEqual(api.classify(question)?.topic, "recruiting_source");
     assert.equal(
-      api.resolve("Where did you find this job?", profile).answer,
+      typedAnswer(api, "Where did you find this job?", profile).answer,
       "LinkedIn",
     );
   } finally {
@@ -234,7 +235,8 @@ test("initial source adapter, supplement and an exact AI answer commit the same 
           await h.w.ultiproFillApplicationSource(profile);
         else {
           const row = reader.scan().find((row) => row.node === node);
-          const resolved = h.w.JobsProfileAnswers.resolve(
+          const resolved = typedAnswer(
+            h.w.JobsProfileAnswers,
             row.public.question,
             profile,
             row.public,
@@ -353,13 +355,14 @@ test("Workday initial source and supplemental option reads use an unfiltered lis
           row = reader.scan()[0];
         // The rules' one decision (the source spec) is what the option reader gets.
         const options = await reader.readOptions(row, () => true, {
-          optionSpec: h.w.JobsProfileAnswers.resolve(
+          optionSpec: typedAnswer(
+            h.w.JobsProfileAnswers,
             row.public.question,
             profile,
           ).optionSpec,
         });
         const answer = h.w.JobsProfileAnswers.select(
-          h.w.JobsProfileAnswers.resolve(row.public.question, profile),
+          typedAnswer(h.w.JobsProfileAnswers, row.public.question, profile),
           options.map((item) => item.label),
         );
         await reader.apply(row, answer);

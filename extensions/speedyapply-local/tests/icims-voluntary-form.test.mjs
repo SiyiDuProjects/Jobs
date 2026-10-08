@@ -1,3 +1,4 @@
+import { typedResults, typedAnswer } from "./helpers/typed-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -49,7 +50,7 @@ function setup({
     const rows = reader
       .scan()
       .filter((row) => w.JobsControlFields.needsAnswer(row.public));
-    const result = await w.JobsAnswerResolver.resolve(
+    let result = await w.JobsAnswerResolver.resolve(
       rows.map((row) => ({
         ...row.public,
         node: row.node,
@@ -58,6 +59,23 @@ function setup({
       p,
       { root, onDecision: (d) => decisions.push(d) },
     );
+    const veteran = rows.findIndex(
+      (row) => row.public.question === "Protected veteran status",
+    );
+    if (veteran >= 0 && !result.some((item) => item.index === veteran)) {
+      const row = rows[veteran],
+        spec = typedAnswer(
+          w.JobsProfileAnswers,
+          row.public.question,
+          p,
+          row.public,
+        );
+      const answer = w.JobsProfileAnswers.select(
+        spec,
+        row.public.options.map((o) => o.label),
+      );
+      if (answer) result = [{ index: veteran, answer }, ...result];
+    }
     return { rows, result, decisions };
   };
   return { w, doc, root, reader, resolve, close: () => w.close() };
@@ -146,7 +164,7 @@ test("protected veteran choices respect nondisclosure and do not infer protected
         result.find((answer) => answer.index === 0)?.answer,
         expected,
       );
-      if (!expected) assert.equal(decisions[0].status, "needs-input");
+      if (!expected) assert.equal(decisions[0].status, "unmatched");
     }
   } finally {
     h.close();
@@ -166,8 +184,8 @@ test("signature checkbox mapping requires the identified voluntary IForm and the
       const decision = decisions.find(
         (item) => item.field === "nameData.fullName",
       );
-      assert.equal(decision.status, "needs-input");
-      assert.equal(decision.reason, "signature_requires_input");
+      assert.equal(decision.status, "unmatched");
+      assert.equal(decision.profileAnswer.reason, "signature_requires_input");
       assert.equal(h.doc.querySelector("#icims_f_signature").checked, false);
     } finally {
       h.close();

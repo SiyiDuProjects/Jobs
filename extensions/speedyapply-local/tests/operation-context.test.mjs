@@ -1,3 +1,4 @@
+import { confirmedDraft } from "./helpers/verified-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -76,7 +77,13 @@ async function setup(entry, { complete = false } = {}) {
           };
         }
         if (message.type === "jobs:auto-answers")
-          throw Error("These tests use confirmed values, never AI");
+          return {
+            data: {
+              answers: message.fields.map((field) =>
+                confirmedDraft(field, "Fixture draft"),
+              ),
+            },
+          };
         return {};
       },
     },

@@ -17,13 +17,13 @@ def answer(evidence, **extra):
                 needsConfirmation=False, evidence=evidence, **extra)
 
 
-def decision(question, citations, profile, value='n'):
-    return decide(answer(citations) | {'value':value}, field(question), profile, 'profile-a', 'revision-a')
+def decision(question, citations, profile, value='n', checked_topic=None):
+    return decide(answer(citations) | {'value':value}, field(question), profile, 'profile-a', 'revision-a', {'verdict':'write','meaning':{'topic':checked_topic,'country':'','company':'','timeframe':''}} if checked_topic else None)
 
 
 def test_explicit_noncompete_sentence_can_pass_without_category_confirmation():
     quote='I have no non-compete agreements.'
-    result=decision('Are you bound by a non-compete agreement?', [{'noteQuote':quote}], {'applicationData':{'aiNotes':quote}})
+    result=decision('Are you bound by a non-compete agreement?', [{'noteQuote':quote}], {'applicationData':{'aiNotes':quote}}, checked_topic='noncompete')
     assert result['decision']=='write' and result['needsConfirmation'] is False
     assert result['proof']['status']=='verified'
     assert result['proof']['profileVersion']=='revision-a'
@@ -55,7 +55,7 @@ def test_sources_paths_false_and_zero_are_checked_not_trusted():
     assert facts(profile)['applicationData.sponsorshipNow'] is False and facts(profile)['count']==0
     assert resolve([{'profilePath':'missing'}],profile) is None
     assert resolve([{'profilePath':'count','noteQuote':'text'}],profile) is None
-    row=decision('Do you require sponsorship now?',[{'profilePath':'applicationData.sponsorshipNow'}],profile)
+    row=decision('Do you require sponsorship now?',[{'profilePath':'applicationData.sponsorshipNow'}],profile,checked_topic='sponsorship')
     assert row['decision']=='write' and row['value']=='n'
     assert decision('Do you require sponsorship now?',[],profile)['decision']=='ask'
     assert decision('Do you require sponsorship in the future?',[{'profilePath':'applicationData.sponsorshipNow'}],profile)['decision']=='ask'
@@ -102,3 +102,10 @@ def test_model_free_text_cannot_be_written_to_meaning_cache(tmp_path):
     row=answer([],meaning={'topic':'noncompete','country':'private fact','company':'','timeframe':''})
     cache.save([field()],[row],{},'model')
     assert not cache.read([field()],{},'model')
+
+
+def test_even_an_exact_personal_fact_needs_the_semantic_check():
+    profile={'applicationData':{'aiNotes':'I have no non-compete agreements.'}}
+    result=decision('Are you bound by a non-compete agreement?',
+                    [{'noteQuote':profile['applicationData']['aiNotes']}],profile)
+    assert result['decision']=='ask' and result['value'] is None

@@ -25,6 +25,12 @@ def test_shared_cases_run_through_actual_provider_boundary_with_mocked_responses
         async def post(self, url, json):
             assert json['store'] is False
             payload = __import__('json').loads(json['input'])
+            if 'candidates' in payload:
+                topics={'now':'sponsorship','future':'sponsorship','combined':'sponsorship','exact-date':'graduation_date','completed':'degree','preference':'preference'}
+                checks=[{'fieldId':row['field']['fieldId'], 'verdict':'draft' if row['field']['fieldId']=='preference' else 'write',
+                         'meaning':{'topic':topics[row['field']['fieldId']],'country':'','company':'','timeframe':''}}
+                        for row in payload['candidates']]
+                return httpx.Response(200,json={'status':'completed','output':[{'content':[{'type':'output_text','text':__import__('json').dumps({'checks':checks})}]}]})
             assert payload['profile']['profileName'] == 'Synthetic policy verification'
             assert 'resumeBase64' not in str(payload)
             calls.append(payload)

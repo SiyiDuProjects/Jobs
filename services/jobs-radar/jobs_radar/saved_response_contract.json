@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "keywordNormalization": "NFKC",
   "keywordCategoryPrefixes": [
     "L",
@@ -10,7 +10,7 @@
   "fields": {
     "keywords": {
       "type": "keywords",
-      "required": true,
+      "required": false,
       "minItems": 1
     },
     "ignore": {
@@ -23,7 +23,7 @@
     },
     "appearances": {
       "type": "integer",
-      "required": true,
+      "required": false,
       "minimum": 1
     },
     "response": {
@@ -79,56 +79,15 @@
           "maxLength": 100
         }
       }
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "job",
+        "company",
+        "global"
+      ]
     }
   },
-  "appearancesCannotExceedKeywords": true,
-  "questionKeywords": {
-    "categories": [
-      "L",
-      "N"
-    ],
-    "characters": "_",
-    "stopWords": [
-      "am",
-      "an",
-      "as",
-      "at",
-      "be",
-      "by",
-      "co",
-      "do",
-      "eg",
-      "et",
-      "ex",
-      "go",
-      "he",
-      "hi",
-      "ie",
-      "if",
-      "in",
-      "is",
-      "it",
-      "me",
-      "mr",
-      "my",
-      "nd",
-      "of",
-      "oh",
-      "ok",
-      "on",
-      "or",
-      "qv",
-      "rd",
-      "re",
-      "so",
-      "th",
-      "to",
-      "un",
-      "up",
-      "us",
-      "vs",
-      "we"
-    ],
-    "minimumLetters": 2
-  }
+  "appearancesCannotExceedKeywords": true
 }

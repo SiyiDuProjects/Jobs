@@ -79,6 +79,7 @@ export function initializeAutomaticBackground() {
       return {
         bound,
         job,
+        url,
         async verify() {
           const after = await JobsTabProfiles.verify(sender);
           if (JSON.stringify(after) !== snapshot)

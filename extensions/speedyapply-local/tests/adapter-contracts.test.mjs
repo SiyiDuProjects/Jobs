@@ -189,19 +189,17 @@ test("Seek personal details: the names, calling code and phone are written befor
   assert.equal(h.value("select[data-testid]"), "resume.pdf");
 });
 
-test("the rules keep a manual selection made while saved answers load", async (t) => {
+test("the answer stage keeps a manual selection made while verification is pending", async (t) => {
   const h = await adapterPage(t, {
     site: "paylocity",
     html: '<form><label for="eligibility">Are you authorized to work in the United States?</label><select id="eligibility"><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></form>',
   });
   const node = h.doc.querySelector("select");
-  h.w.fixtureSavedResponses = {
-    then(resolve) {
-      Promise.resolve().then(() => {
-        node.value = "N";
-        resolve([]);
-      });
-    },
+  const send = h.w.chrome.runtime.sendMessage;
+  h.w.chrome.runtime.sendMessage = async (message) => {
+    const reply = await send(message);
+    if (message.type === "jobs:auto-answers") node.value = "N";
+    return reply;
   };
   await h.fill(() => null);
   assert.equal(node.value, "N");

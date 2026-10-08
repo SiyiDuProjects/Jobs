@@ -16,7 +16,6 @@ import {
   blankEducation,
   blankJob,
   defaultProfile,
-  questionKeywords,
   safeHref,
   type Profile as ProfileData,
   type ProfileRecord,
@@ -35,7 +34,6 @@ import {
   Upload,
 } from "./components";
 
-import { Tags } from "./ProfileWidgets";
 export function Responses({ profileId }: { profileId: string }) {
   const { docs } = useManagement(),
     key = "jobsResponses:" + profileId,
@@ -49,21 +47,21 @@ export function Responses({ profileId }: { profileId: string }) {
     ),
     close = () => setDialog(null);
   const filtered = rows.filter((r) =>
-    (r.keywords.join(" ") + " " + r.response)
+    ((r.question || r.keywords?.join(" ") || "") + " " + r.response)
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
   const columns: DataGridColumn<Response>[] = [
     {
-      id: "keywords",
-      header: "Keywords",
+      id: "question",
+      header: "Question",
       isRowHeader: true,
       cell: (r) => (
         <Button
           variant="ghost"
           onPress={() => setDialog({ type: "edit", row: r })}
         >
-          {r.keywords.join(", ")}
+          {r.question || "Legacy response — add the complete question to reuse"}
         </Button>
       ),
     },
@@ -216,17 +214,16 @@ function ResponseEditor({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Response>(
-      structuredClone(
-        row || {
-          key: crypto.randomUUID(),
-          keywords: [],
-          response: "",
-          appearances: 3,
-          fromAutofill: false,
-        },
-      ),
+    structuredClone(
+      row || {
+        key: crypto.randomUUID(),
+        question: "",
+        scope: "global",
+        response: "",
+        fromAutofill: false,
+      },
     ),
-    [question, setQuestion] = useState("");
+  );
   const [base] = useState(rows);
   const [original] = useState(rawRows);
   const [deleting, setDeleting] = useState(false);
@@ -248,25 +245,15 @@ function ResponseEditor({
             },
             { [documentKey]: original },
           );
-        if (
-          !draft.response.trim() ||
-          (!row && draft.keywords.length < 3) ||
-          (!row && draft.appearances < 3) ||
-          draft.appearances > draft.keywords.length
-        )
-          throw Error(
-            "Use at least 3 keywords and 3 appearances, and enter a response",
-          );
+        if (!draft.response.trim() || !draft.question?.trim())
+          throw Error("Enter the complete question and your answer");
         const value = savedResponses.normalizeRecord({
           ...draft,
+          question: draft.question.trim(),
           origin: "person",
-          ruleVersion: 2,
-          key:
-            row?.key ||
-            [...draft.keywords]
-              .map(savedResponses.normalizeKeyword)
-              .sort()
-              .join("|"),
+          context: { ...draft.context, capturedAt: new Date().toISOString() },
+          ruleVersion: 3,
+          key: draft.key,
         });
         return store.write(
           {
@@ -281,17 +268,24 @@ function ResponseEditor({
         );
       }}
     >
-      <Tags
-        label="Keywords"
-        value={draft.keywords}
-        onChange={(keywords) => setDraft({ ...draft, keywords })}
-      />
       <Field
-        label="Appearances"
-        type="number"
-        value={draft.appearances}
-        onChange={(v) => setDraft({ ...draft, appearances: Number(v) })}
+        label="Complete question"
+        value={draft.question || ""}
+        onChange={(question) => setDraft({ ...draft, question })}
+        multiline
+        required
       />
+      <p className="text-muted text-sm">
+        {draft.scope === "job"
+          ? "Applies to the original job and this exact question."
+          : draft.context?.companyKey || draft.jobKey
+            ? "Applies within the original company and recorded context."
+            : draft.scope === "global"
+              ? "Saving authorizes reuse of your answer for this exact question across companies."
+              : "The original reuse scope is retained. Legacy answers without a recorded scope remain available for manual selection."}{" "}
+        Changing the question does not broaden the recorded company or country
+        scope.
+      </p>
       <Field
         label="Response"
         value={draft.response}
@@ -299,43 +293,8 @@ function ResponseEditor({
         multiline
         required
       />
-      {draft.fromAutofill && <Chip variant="soft">Autofill</Chip>}
-      {draft.question && (
-        <p className="text-muted text-sm">
-          Original Question: {draft.question}
-        </p>
-      )}
-      <Separator />
-      <Field label="Test Keywords" value={question} onChange={setQuestion} />
-      <Button
-        variant="secondary"
-        isDisabled={question.trim().split(/\s+/).filter(Boolean).length < 3}
-        onPress={() => {
-          const keywords = questionKeywords(question);
-          setDraft({
-            ...draft,
-            keywords,
-            appearances: Math.min(
-              Math.max(3, draft.appearances),
-              keywords.length,
-            ),
-          });
-        }}
-      >
-        Set Keywords
-      </Button>
-      {question && (
-        <p>
-          {draft.keywords.filter(
-            (k) =>
-              !!savedResponses.normalizeKeyword(k) &&
-              question
-                .toLowerCase()
-                .includes(savedResponses.normalizeKeyword(k)),
-          ).length >= draft.appearances
-            ? "Passing"
-            : "Failing"}
-        </p>
+      {draft.fromAutofill && (
+        <Chip variant="soft">Captured from your answer</Chip>
       )}
       {row && (
         <Button variant="danger-soft" onPress={() => setDeleting(!deleting)}>

@@ -1,3 +1,4 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 // One EEO rule for every ATS: the site vocabularies the adapters used to map by
 // hand must still produce the same option, from the shared rule.
@@ -26,7 +27,7 @@ const pick = (topic, employment, labels) =>
 test("singular and plural veteran-status labels resolve the same confirmed Profile fact", () => {
   for (const question of ["Veteran Status:*", "Veterans Status:*"]) {
     assert.equal(rules.classify(question)?.topic, "veteran");
-    const answer = rules.resolve(question, {
+    const answer = typedAnswer(rules, question, {
       employmentData: { veteran: false },
     });
     assert.equal(answer?.field, "employmentData.veteran");
@@ -42,7 +43,8 @@ test("singular and plural veteran-status labels resolve the same confirmed Profi
   ])
     assert.notEqual(rules.classify(question)?.topic, "veteran", question);
   assert.equal(
-    rules.resolve("Veterans Status:*", { employmentData: {} })?.answer ?? null,
+    typedAnswer(rules, "Veterans Status:*", { employmentData: {} })?.answer ??
+      null,
     null,
   );
 });
@@ -305,7 +307,7 @@ test("split and combined ethnicity questions use only their confirmed identity f
     "Asian",
   );
   assert.equal(
-    rules.resolve("Ethnicity", { employmentData: nonHispanic }).answer,
+    typedAnswer(rules, "Ethnicity", { employmentData: nonHispanic }).answer,
     "Asian",
     "free text is a category, not the boolean No",
   );
@@ -438,7 +440,8 @@ test("first fill and supplement share the EEO rule, and AI/remote writes commit 
       );
       const first = node.value ? node.selectedOptions[0].text : null;
       const answer = w.JobsProfileAnswers.select(
-        w.JobsProfileAnswers.resolve(
+        typedAnswer(
+          w.JobsProfileAnswers,
           question,
           { employmentData },
           { options: labels },

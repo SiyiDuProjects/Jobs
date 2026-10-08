@@ -419,13 +419,16 @@ for (const needsConfirmation of [false, true])
         return {
           data: {
             answers: [
-              confirmedAnswer(message.fields[0], {
-                fieldId: message.fields[0].fieldId,
-                state: "answer",
-                value: "Grounded fixture answer",
-                source: "profile",
+              {
+                ...confirmedAnswer(message.fields[0], {
+                  fieldId: message.fields[0].fieldId,
+                  state: "answer",
+                  value: "Grounded fixture answer",
+                  source: "profile",
+                  needsConfirmation: false,
+                }),
                 needsConfirmation,
-              }),
+              },
             ],
           },
         };

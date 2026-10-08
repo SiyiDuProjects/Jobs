@@ -20,34 +20,6 @@ export const JobsResponseContract = (() => {
       .replace(cleanPattern, "")
       .replace(/\s+/gu, " ")
       .trim();
-  const questionRules = rules.questionKeywords;
-  const questionPattern = new RegExp(
-    "[" +
-      questionRules.categories
-        .map((category) => "\\p{" + category + "}")
-        .join("") +
-      questionRules.characters +
-      "]+",
-    "gu",
-  );
-  const questionStopWords = new Set(questionRules.stopWords);
-  function questionKeywords(question) {
-    return [
-      ...new Set(
-        (
-          String(question)
-            .normalize(rules.keywordNormalization)
-            .toLowerCase()
-            .match(questionPattern) || []
-        ).filter(
-          (word) =>
-            ([...word].length >= questionRules.minimumLetters ||
-              /^[0-9]+$/.test(word)) &&
-            !questionStopWords.has(word),
-        ),
-      ),
-    ];
-  }
   function normalizeField(value, rule, name) {
     if (value === undefined) {
       if ("default" in rule) return rule.default;
@@ -98,7 +70,8 @@ export const JobsResponseContract = (() => {
     }
     if (
       rules.appearancesCannotExceedKeywords &&
-      result.appearances > result.keywords.length
+      result.appearances !== undefined &&
+      (!Array.isArray(result.keywords) || result.appearances > result.keywords.length)
     )
       throw Error("Appearances exceed distinct keywords");
     return result;
@@ -181,22 +154,13 @@ export const JobsResponseContract = (() => {
     // Cross-field validation runs at every persistence/import/read boundary.
     return z.object(shape).passthrough();
   }
-  // "Why" also introduces stable personal history (leaving a previous job,
-  // choosing a major). Only an explicit current employer/role reference makes
-  // a manually saved answer local to this application.
-  const jobSpecific = (question) =>
-    /\b(?:our|this) (?:company|team|role|position|organization|organisation)\b|\b(?:work(?:ing)?|apply(?:ing)?) here\b|\b(?:join(?:ing)?|work(?:ing)? (?:for|with)) us\b/i.test(
-      question,
-    );
   return Object.freeze({
     version: rules.version,
-    questionKeywords,
     normalizeKeyword,
     normalizeRecord,
     readList,
     parseList,
     preserveRejected,
     schema,
-    jobSpecific,
   });
 })();

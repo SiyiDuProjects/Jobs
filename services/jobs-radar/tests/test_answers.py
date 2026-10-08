@@ -68,10 +68,14 @@ def test_batch_fields_share_provider_and_validate_types_and_complete_coverage(tm
              {'fieldId':'office','state':'needs_input','value':None,'reason':'No confirmed preference','source':'unknown','needsConfirmation':True}]
     class Batch:
         async def post(self,url,json):
-            self.body=json
+            self.body = json if json['text']['format']['name'] != 'answer_evidence_check' else getattr(self, 'body', None)
+            verification = json['text']['format']['name'] == 'answer_evidence_check'
+            checked = [{'fieldId': row['field']['fieldId'], 'verdict': 'draft' if row['field']['fieldId'] == 'office' else 'write',
+                        'meaning': {'topic': 'preference' if row['field']['fieldId'] == 'office' else 'interview_language', 'country': '', 'company': '', 'timeframe': ''}}
+                       for row in __import__('json').loads(json['input']).get('candidates', [])]
             class Result:
                 status_code=200
-                def json(self):return {'status':'completed','output':[{'content':[{'type':'output_text','text':__import__('json').dumps({'answers':answers})}]}]}
+                def json(self):return {'status':'completed','output':[{'content':[{'type':'output_text','text':__import__('json').dumps({'checks':checked} if verification else {'answers':answers})}]}]}
             return Result()
     client=Batch();result=asyncio.run(a.generate({**p,'fields':fields,'formContext':[{'question':'Country','answer':'United States'}]},client))
     assert result['answers'][0]['value']=='python' and result['answers'][0]['proof']['status']=='verified'
@@ -80,7 +84,7 @@ def test_batch_fields_share_provider_and_validate_types_and_complete_coverage(tm
     with a.store.connect() as c:
         gap=c.execute('SELECT question,answer,occurrences FROM answer_profile_gaps').fetchall()
         assert len(gap)==1 and gap[0]['question']=='Preferred language?' and json.loads(gap[0]['answer'])=='python'
-    answers[1]={'fieldId':'office','state':'answer','value':False,'reason':'Confirmed preference','source':'suggestion','needsConfirmation':True}
+    answers[1]={'fieldId':'office','state':'answer','value':False,'reason':'Confirmed preference','source':'suggestion','needsConfirmation':True,'evidence':[]}
     for invalid in ['unknown',True,['python']]:
         answers[0]['value']=invalid
         result=asyncio.run(a.generate({**p,'fields':fields},client))
@@ -167,18 +171,16 @@ def test_real_world_duplicate_options_and_long_school_lists_are_valid_without_am
         fields_input(field(choices+[{'value':'5','label':'Different school'}]))
 
 
-def test_exact_graduation_dates_require_the_same_unambiguous_server_fact():
+def test_field_shape_validation_does_not_classify_date_questions_or_reject_multiple_records():
     from jobs_radar.field_answers import checked_answers
     field={'fieldId':'graduation','question':'Graduation date','type':'date','required':True,'options':[]}
     answer={'fieldId':'graduation','state':'answer','value':'2027-05-14','reason':'Known date',
             'source':'profile','needsConfirmation':False}
-    profile={'educationData':[{'graduationDate':'2027-05-14','endDate':'2027-05'}]}
-    assert checked_answers({'answers':[answer]},[field],profile)[0]=={**answer,'needsConfirmation':True}
-    for records in [[],[{}],[{'graduationDate':'2027-05-13'}],
-                    [*profile['educationData'],{}],
-                    [*profile['educationData'],{'graduationDate':'2026-05-14'}]]:
+    for records in [[],[{}],[{'graduationDate':'2027-05-14'},{}]]:
         result=checked_answers({'answers':[answer]},[field],{'educationData':records})[0]
-        assert result['state']=='needs_input' and result['value'] is None and result['needsConfirmation']
+        assert result=={**answer,'needsConfirmation':True}
+    # The separate evidence decision owns truth and precision; shape checks
+    # alone never clear confirmation.
 
 
 def test_date_validation_preserves_reviewable_start_preferences_but_rejects_invalid_calendar_dates():

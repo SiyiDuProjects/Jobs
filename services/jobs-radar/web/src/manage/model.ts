@@ -43,16 +43,18 @@ export type ApplicationProgress = {
 export type AppRow = Application & { key: string; boardStage?: string };
 export type Response = {
   key: string;
-  keywords: string[];
+  keywords?: string[];
   response: string;
-  appearances: number;
+  appearances?: number;
   fromAutofill: boolean;
   origin?: "person" | "agent" | "page-tool" | "legacy";
   ruleVersion?: number;
   question?: string;
   id?: string;
+  jobKey?: string;
+  scope?: "job" | "company" | "global";
+  context?: { jobKey?: string; companyKey?: string; country?: string; capturedAt?: string };
 };
-export { questionKeywords } from "./saved-responses";
 export type ProfileRecord = { id: string; profile: Profile; last_sync: string };
 export type ProfileSummary = { id: string; profileName: string };
 export type Documents = Record<string, { revision: number; value: any }>;

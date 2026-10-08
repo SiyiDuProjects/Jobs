@@ -1,3 +1,4 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
 import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { chooseAnswer } from "./helpers/choose-answer.mjs";
 import { readModule } from "./helpers/module-source.mjs";
@@ -64,7 +65,10 @@ w.greenhouseSelect = async (labelXPath, answer) => {
     answer && typeof answer === "object"
       ? answer
       : answer
-        ? w.JobsProfileAnswers.knownSpec(label?.textContent, answer)
+        ? typedAnswer(w.JobsProfileAnswers, label?.textContent, {
+            educationData: [{ school: answer }],
+          })?.optionSpec ||
+          w.JobsProfileAnswers.knownSpec(label?.textContent, answer)
         : null;
   return (
     await w.JobsFormPipeline.bind([
@@ -74,7 +78,8 @@ w.greenhouseSelect = async (labelXPath, answer) => {
 };
 // The rules' one decision for a row, as the run passes it to the option reader.
 const decided = (row, profile) => {
-  const result = w.JobsProfileAnswers.resolve(
+  const result = typedAnswer(
+    w.JobsProfileAnswers,
     row.public.question,
     profile,
     row.public,
@@ -335,11 +340,18 @@ test("custom college question uses profile search and shared school matching thr
       [correct],
     );
     const answer = w.JobsProfileAnswers.select(
-      w.JobsProfileAnswers.resolve("Which college did you attend?", profile),
+      typedAnswer(
+        w.JobsProfileAnswers,
+        "Which college did you attend?",
+        profile,
+      ),
       options.map((o) => o.label),
     );
     assert.equal(answer, correct);
-    await writer.apply(writer.scan()[0], answer);
+    await w.JobsControlFields.chooseSpec(
+      writer.scan()[0].node,
+      decided(writer.scan()[0], profile).optionSpec,
+    );
     assert.deepEqual(f.clicks, [correct]);
     assert.equal(writer.state().ready, true);
     assert(
@@ -733,7 +745,7 @@ test("the rules answer school and place searches; other gaps reach AI with real 
         "San Leandro, California, United States",
       ],
       answer: "San Leandro, California, United States",
-      rule: true,
+      rule: false,
     },
     {
       id: "school--0",
@@ -747,12 +759,13 @@ test("the rules answer school and place searches; other gaps reach AI with real 
     {
       id: "question_college",
       question: "Which college did you attend?",
+      query: "University of California, Berkeley",
       filter: (query) =>
         query === "Berkeley"
           ? ["Berkeley College", "University of California--Berkeley (CA)"]
           : [],
       answer: "University of California--Berkeley (CA)",
-      rule: true,
+      rule: false,
     },
     {
       id: "question_12678689007",
@@ -760,7 +773,7 @@ test("the rules answer school and place searches; other gaps reach AI with real 
       question: "What is your expected graduation month & year?",
       labels: ["Already graduated", "May - Aug 2027"],
       answer: "May - Aug 2027",
-      rule: true,
+      rule: false,
     },
     {
       id: "question_12678500007",
@@ -795,11 +808,12 @@ test("the rules answer school and place searches; other gaps reach AI with real 
             ? config.answer
             : [config.answer];
           assert(
-            desired.every((answer) =>
-              message.fields[0].options.some(
-                (option) => option.label === answer,
+            message.fields[0].type === "search-choice" ||
+              desired.every((answer) =>
+                message.fields[0].options.some(
+                  (option) => option.label === answer,
+                ),
               ),
-            ),
           );
           assert(
             !message.fields[0].options.some(
@@ -809,14 +823,18 @@ test("the rules answer school and place searches; other gaps reach AI with real 
           return {
             data: {
               answers: [
-                confirmedAnswer(message.fields[0], {
-                  fieldId: message.fields[0].fieldId,
-                  state: "answer",
-                  value: config.answer,
-                  source: "profile",
-                  reason: "Confirmed fixture fact",
-                  needsConfirmation: false,
-                }),
+                confirmedAnswer(
+                  message.fields[0],
+                  {
+                    fieldId: message.fields[0].fieldId,
+                    state: "answer",
+                    value: config.query || config.answer,
+                    source: "profile",
+                    reason: "Confirmed fixture fact",
+                    needsConfirmation: false,
+                  },
+                  config.query ? ["educationData.0.school"] : [],
+                ),
               ],
             },
           };

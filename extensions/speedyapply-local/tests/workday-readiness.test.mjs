@@ -225,7 +225,10 @@ test("Workday missing committed source and real validation errors still block Ne
     try {
       assert.equal(await h.run(), false);
       assert.equal(h.clicks(), 0);
-      assert.equal(h.calls(), 0);
+      assert.equal(
+        h.calls(),
+        body.includes("Please verify your address") ? 0 : 1,
+      );
       assert.equal(h.phases.at(-1), "complete-required");
     } finally {
       h.close();

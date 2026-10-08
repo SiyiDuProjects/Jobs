@@ -1,3 +1,4 @@
+import { explicitReply } from "./helpers/fixture-provider.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -83,7 +84,19 @@ function fixture(
         if (message.type === "jobs:tab-profile")
           return { data: { id: "fixture", profile } };
         ai++;
-        throw Error("Confirmed answers must not call AI");
+        return {
+          data: {
+            answers: message.fields.map((field) =>
+              explicitReply(
+                w.JobsProfileAnswers,
+                field,
+                profile,
+                w.fixtureSavedResponses || [],
+                message.formContext,
+              ),
+            ),
+          },
+        };
       },
     },
   };
@@ -156,7 +169,7 @@ test("observed 83-option discipline is one required group and fills exact Physic
     ["Physics"],
   );
   assert.equal(f.reader.state().ready, true);
-  assert.equal(f.ai(), 0);
+  assert.equal(f.ai(), 1);
   assert.equal(f.submits(), 1);
 });
 test("first-pass Greenhouse adapter also fills the native discipline group", async (t) => {
@@ -294,12 +307,14 @@ test("active internship Other cannot reuse generic/source memory; exact contextu
   });
   await f.fill();
   assert.equal(f.doc.getElementById(id.other).value, "Confirmed Firm");
-  const captured = await f.w.greenhouseReadUnresolvedResponses(new Set());
+  const captured = await f.w.greenhouseReadUnresolvedResponses(
+    f.w.JobsFormPipeline.answered(f.root),
+  );
   assert(
-    captured.some(
+    !captured.some(
       (row) => row.question === scoped && row.response === "Confirmed Firm",
     ),
-    "captured answers retain parent question scope",
+    "verified automatic answers are not learned as personal input",
   );
   assert(
     !captured.some((row) => row.question === other),
@@ -375,7 +390,13 @@ test("React Select parent uses its committed value, never typed search text or a
     [{ node: f.find("explain").node, question: explain }],
     profile,
   );
-  assert.equal(answers[0].answer, "Source Portal");
+  assert.equal(
+    answers.length,
+    0,
+    "freeform follow-up requires the verified provider boundary",
+  );
+  await f.fill();
+  assert.equal(f.doc.getElementById(id.explain).value, "Source Portal");
 });
 test("discipline retains its linked label when the non-labelable group uses description only", async (t) => {
   const f = fixture(

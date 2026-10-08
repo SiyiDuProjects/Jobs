@@ -55,16 +55,22 @@ export async function saveResponses(entries, sender) {
             .trim()
             .toLowerCase()
             .replace(/\s+/g, " ") === normalized &&
+          (!row.context?.country ||
+            !entry.context?.country ||
+            row.context.country === entry.context.country) &&
           ((row.jobKey || "") === context ||
-            (companyKey &&
+            (row.scope !== "job" &&
+              companyKey &&
               JobsJobMatch.companyFromKey(row.jobKey) === companyKey)),
       );
       const metadata = {
         origin: "person",
-        ruleVersion: 2,
+        ruleVersion: 3,
+        scope: old?.scope || (companyKey ? "company" : "job"),
         context: {
           jobKey: context,
           companyKey: companyKey || "",
+          country: entry.context?.country || old?.context?.country || "",
           capturedAt:
             entry.context?.capturedAt ||
             old?.context?.capturedAt ||
@@ -87,9 +93,6 @@ export async function saveResponses(entries, sender) {
           saved++;
         }
       } else {
-        const keywords = JobsResponseContract.questionKeywords?.(question) || [
-          normalized,
-        ];
         const baseKey =
           "question:" +
           normalized +
@@ -107,8 +110,6 @@ export async function saveResponses(entries, sender) {
           question,
           response,
           key: recordKey,
-          keywords,
-          appearances: keywords.length,
           fromAutofill: true,
           ...(context ? { jobKey: context } : {}),
         });

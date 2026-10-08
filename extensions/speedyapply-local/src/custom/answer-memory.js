@@ -125,10 +125,12 @@ export function initializeAnswerMemory() {
           ...record,
           origin: "person",
           operatorEpoch: operator.epoch,
-          ruleVersion: 2,
+          ruleVersion: 3,
           context: {
             jobKey: record.jobKey,
             companyKey: JobsJobMatch?.companyFromKey(record.jobKey) || "",
+            country:
+              JobsProfileAnswers.scope(lastRows.map((row) => row.public)) || "",
             capturedAt: new Date().toISOString(),
           },
         };

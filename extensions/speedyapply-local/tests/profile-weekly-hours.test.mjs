@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readModule } from "./helpers/module-source.mjs";
@@ -19,9 +22,9 @@ vm.runInContext(
 const api = sandbox.JobsProfileAnswers;
 const profile = (weeklyHours = "30") => ({ applicationData: { weeklyHours } });
 const answer = (question, p = profile()) =>
-  api.resolve(question, p)?.answer ?? null;
+  typedAnswer(api, question, p)?.answer ?? null;
 
-test("weekly availability reads the selected profile and missing facts retain fallback", () => {
+test("typed answers: weekly availability reads the selected profile and missing facts retain fallback", () => {
   for (const q of [
     "How many hours per week are you available to work?",
     "How many hours are you able to work each week?",
@@ -43,7 +46,7 @@ test("weekly availability reads the selected profile and missing facts retain fa
   assert.equal(answer("Can you work 30 hours a week?"), "Yes");
 });
 
-test("weekly capacity never supplies dates, duration, legal limits, past hours or calendar promises", () => {
+test("typed answers: weekly capacity never supplies dates, duration, legal limits, past hours or calendar promises", () => {
   for (const q of [
     "Are you available to work 30 hours per week from May to August?",
     "Can you work 30 hours per week onsite in Boston?",
@@ -56,8 +59,8 @@ test("weekly capacity never supplies dates, duration, legal limits, past hours o
     assert.equal(answer(q), null, q);
 });
 
-test("weekly options preserve units and reject overlapping ranges or added commitments", () => {
-  const r = api.resolve("Hours per week", profile());
+test("typed answers: weekly options preserve units and reject overlapping ranges or added commitments", () => {
+  const r = typedAnswer(api, "Hours per week", profile());
   assert.equal(
     api.select(r, [
       "20 hours per week",
@@ -75,7 +78,7 @@ test("weekly options preserve units and reject overlapping ranges or added commi
     api.select(r, ["30 hours/month", "30 hours/week during May-August"]),
     null,
   );
-  const yes = api.resolve("Can you work 20 hours per week?", profile());
+  const yes = typedAnswer(api, "Can you work 20 hours per week?", profile());
   assert.equal(api.select(yes, ["Yes", "No"]), "Yes");
   assert.equal(api.select(yes, ["Yes, including weekends", "No"]), null);
   assert.equal(

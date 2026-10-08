@@ -11,9 +11,11 @@ export function evidenceField(field) {
 export function bindAnswerEvidence(answer, field, bound) {
   const proof = answer.proof;
   const verified =
-    answer.decision === "write" &&
+    ["write", "draft"].includes(answer.decision) &&
     answer.state === "answer" &&
-    answer.source === "profile" &&
+    (answer.decision === "write"
+      ? answer.source === "profile"
+      : answer.source === "suggestion") &&
     proof?.version === ANSWER_PROTOCOL &&
     proof.status === "verified" &&
     proof.profileId === bound.id &&
@@ -30,6 +32,8 @@ export function bindAnswerEvidence(answer, field, bound) {
     verification: verified
       ? {
           version: ANSWER_PROTOCOL,
+          decision: answer.decision,
+          source: answer.source,
           fieldId: field.fieldId,
           field: JSON.stringify(evidenceField(field)),
           value: JSON.stringify(answer.value),
@@ -45,6 +49,8 @@ export function verifiedAnswer(answer, field) {
   const proof = answer.verification;
   return (
     proof?.version === ANSWER_PROTOCOL &&
+    proof.decision === answer.decision &&
+    proof.source === answer.source &&
     proof.fieldId === field.fieldId &&
     proof.field === JSON.stringify(evidenceField(field)) &&
     proof.value === JSON.stringify(answer.value)

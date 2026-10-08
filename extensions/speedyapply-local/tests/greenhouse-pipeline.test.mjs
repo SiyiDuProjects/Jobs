@@ -1,3 +1,4 @@
+import { fixtureReply } from "./helpers/fixture-provider.mjs";
 import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
@@ -119,13 +120,8 @@ function fixture(
           return {
             data: {
               answers: message.fields.map((field) =>
-                confirmedAnswer(field, {
-                  fieldId: field.fieldId,
-                  state: "answer",
-                  value: "The team and its problems.",
-                  source: "ai",
-                  reason: "fixture",
-                  needsConfirmation: false,
+                fixtureReply(w.JobsProfileAnswers, field, current, {
+                  text: "The team and its problems.",
                 }),
               ),
             },
@@ -205,7 +201,7 @@ function fixture(
   const until = async (check, label) => {
     for (let i = 0; i < 200 && !check(); i++)
       await new Promise((resolve) => setTimeout(resolve, 20));
-    assert(check(), label);
+    assert(check(), label + JSON.stringify({ phases, notes, requests }));
   };
   return {
     answerers,
@@ -266,7 +262,11 @@ test("Greenhouse job boards fill in one pipeline run: bindings, history rows, ru
     JSON.parse(
       JSON.stringify(f.requests[0].fields.map((field) => field.question)),
     ),
-    ["What excites you about this role?*"],
+    [
+      "Are you authorized to work in the United States?*",
+      "What excites you about this role?*",
+      "Website",
+    ],
   );
   assert.equal(
     f.notes.filter((note) => note.type === "auto_step_started").length,
@@ -282,7 +282,7 @@ test("Greenhouse job boards fill in one pipeline run: bindings, history rows, ru
   assert(
     f.traces.some(
       (entry) =>
-        entry.source === "rule:profile" &&
+        entry.source === "ai:profile" &&
         entry.result === "committed" &&
         entry.chosen === "Yes",
     ),

@@ -148,6 +148,10 @@ def test_batch_contract_preserves_supported_false_and_missing_exact_date(tmp_pat
 
     class BatchClient:
         async def post(self, url, json):
+            if json['text']['format']['name']=='answer_evidence_check':
+                import httpx
+                checks=[{'fieldId':'now','verdict':'write','meaning':{'topic':'sponsorship','country':'US','company':'','timeframe':'current'}}]
+                return httpx.Response(200,json={'status':'completed','output':[{'content':[{'type':'output_text','text':__import__('json').dumps({'checks':checks})}]}]})
             self.body = json
             self.sent = __import__('json').loads(json['input'])
             assert self.sent['profile']['applicationData']['sponsorshipNow'] is False

@@ -1,3 +1,4 @@
+import { fixtureAnswers } from "./helpers/fixture-provider.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
@@ -65,11 +66,12 @@ function fixture(
         requests.push(message);
         return {
           data: {
-            answers: (message.fields || []).map((f) => ({
-              fieldId: f.fieldId,
-              state: "needs_input",
-              reason: "Unknown fact",
-            })),
+            answers: fixtureAnswers(
+              w.JobsProfileAnswers,
+              message.fields || [],
+              profile,
+              message.formContext,
+            ),
           },
         };
       },

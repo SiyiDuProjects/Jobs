@@ -1,3 +1,6 @@
+import { typedAnswer, typedResults } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -13,7 +16,8 @@ for (const name of ["option-match", "profile-answers"])
     ),
     c,
   );
-const resolve = installAnswerResolver(c);
+const resolve = (fields, profile) =>
+  typedResults(c.JobsProfileAnswers, fields, profile, { country: "US" });
 const profile = {
   nameData: { firstName: "Alex", lastName: "Example" },
   addressData: { country: "United States of America", state: "California" },
@@ -34,7 +38,7 @@ const profile = {
   ],
 };
 
-test("country suffixes preserve separate sponsorship and working-hours requirements", async () => {
+test("typed answers: country suffixes preserve separate sponsorship and working-hours requirements", async () => {
   for (const suffix of [
     "without sponsorship",
     "on a full-time basis",
@@ -49,7 +53,8 @@ test("country suffixes preserve separate sponsorship and working-hours requireme
       [{ question, required: true, options: ["Yes", "No"] }],
       profile,
     );
-    if (suffix === "for this role") assert.equal(result[0]?.answer, "Yes");
+    if (suffix === "for this role")
+      assert.equal(c.JobsProfileAnswers.resolve(question, profile), null);
     else
       assert.notEqual(
         result[0]?.answer,
@@ -59,7 +64,7 @@ test("country suffixes preserve separate sponsorship and working-hours requireme
   }
 });
 
-test("Hispanic wording uses an explicit ethnicity fact and never infers it from race", async () => {
+test("typed answers: Hispanic wording uses an explicit ethnicity fact and never infers it from race", async () => {
   for (const question of [
     "Do you identify as Hispanic or Latino?",
     "Are you Hispanic/Latino?",
@@ -86,7 +91,7 @@ test("Hispanic wording uses an explicit ethnicity fact and never infers it from 
   }
 });
 
-test("observed cross-platform factual wording resolves without supplemental AI", async () => {
+test("typed answers: observed cross-platform factual wording retains its typed answer value", async () => {
   const cases = [
     ["Please state your full legal name:✱", "Alex Example"],
     ["School / University Name", "Example University"],
@@ -109,7 +114,7 @@ test("observed cross-platform factual wording resolves without supplemental AI",
   }
 });
 
-test("observed veteran headings retain the protected-status distinction", async () => {
+test("typed answers: observed veteran headings retain the protected-status distinction", async () => {
   for (const question of [
     "Please select from the Veteran Statuses below:*",
     "Veteran/Military Status*",
@@ -145,7 +150,7 @@ test("observed veteran headings retain the protected-status distinction", async 
   }
 });
 
-test("catalog decoration and explicit fluency use one proficiency policy", () => {
+test("typed answers: catalog decoration and explicit fluency use one proficiency policy", () => {
   const api = c.JobsProfileAnswers,
     pick = c.JobsOptionMatch.pick;
   for (const label of ["Fluent", "3 - Fluent", "4. Fluent", "Fluent (4)"])
@@ -184,7 +189,7 @@ test("catalog decoration and explicit fluency use one proficiency policy", () =>
   );
 });
 
-test("observed source wording reuses the existing recruiting-source rule", async () => {
+test("typed answers: observed source wording reuses the existing recruiting-source rule", async () => {
   for (const question of [
     "How did you hear about this internship?",
     "How did you first learn about Example as an employer?",
@@ -204,7 +209,7 @@ test("observed source wording reuses the existing recruiting-source rule", async
   }
 });
 
-test("employer and visa phrases do not turn the documented US jurisdiction into UNKNOWN", async () => {
+test("typed answers: employer and visa phrases do not turn the documented US jurisdiction into UNKNOWN", async () => {
   for (const question of [
     "Do you require immigration sponsorship to work for Affirm in the United States?",
     "Will you now or in the future require sponsorship for a U.S. employment visa (e.g. H-1B)?",

@@ -1,3 +1,4 @@
+import { fixtureAnswers } from "./helpers/fixture-provider.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -45,11 +46,11 @@ async function runStep(w, root, current, fill) {
           ? { data: { id: "fixture", profile: current } }
           : {
               data: {
-                answers: message.fields.map((field) => ({
-                  fieldId: field.fieldId,
-                  state: "needs_input",
-                  reason: "fixture",
-                })),
+                answers: fixtureAnswers(
+                  w.JobsProfileAnswers,
+                  message.fields || [],
+                  current,
+                ),
               },
             },
     },

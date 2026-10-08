@@ -1,3 +1,4 @@
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -332,7 +333,7 @@ test("supplement runs the address cascade in order through the existing shared l
   }
 });
 
-test("all iCIMS required gaps reach the shared answer pipeline with choices; optional fields never reach AI", async () => {
+test("iCIMS gaps include choices and optional questions; unknown optional facts stay blank", async () => {
   const h = setup(
     choices("prefix", "Prefix") +
       choices("suffix", "Suffix") +
@@ -355,13 +356,13 @@ test("all iCIMS required gaps reach the shared answer pipeline with choices; opt
           return {
             data: {
               answers: message.fields.map((f) =>
-                f.question === "Security Clearance"
+                f.question === "Security Clearance" || !f.required
                   ? {
                       fieldId: f.fieldId,
                       state: "needs_input",
                       reason: "No confirmed clearance information",
                     }
-                  : {
+                  : confirmedAnswer(f, {
                       fieldId: f.fieldId,
                       state: "answer",
                       value:
@@ -371,7 +372,7 @@ test("all iCIMS required gaps reach the shared answer pipeline with choices; opt
                       reason: "Explicit fixture answer",
                       source: "profile",
                       needsConfirmation: false,
-                    },
+                    }),
               ),
             },
           };
@@ -394,7 +395,7 @@ test("all iCIMS required gaps reach the shared answer pipeline with choices; opt
       },
     });
     assert.equal(result, false, "Unknown clearance remains visible in review");
-    // Optional blanks reach only the rule pass (no rule for a middle name), never AI.
+    // Optional blanks may reach verification, but unknown values are omitted without review.
     assert.deepEqual(
       knownQuestions.map((q) => q.question).sort(),
       [
@@ -415,9 +416,14 @@ test("all iCIMS required gaps reach the shared answer pipeline with choices; opt
         "How did you hear about us?",
         "Military Spouse",
         "Security Clearance",
+        "Prefix",
+        "Suffix",
+        "Middle Name",
       ].sort(),
     );
-    assert(aiQuestions.every((q) => q.options.length > 0));
+    assert(
+      aiQuestions.filter((q) => q.required).every((q) => q.options.length > 0),
+    );
     assert.equal(
       h.doc.querySelector("label input:not(.iCIMS_Forms_YearInput)").value,
       "",

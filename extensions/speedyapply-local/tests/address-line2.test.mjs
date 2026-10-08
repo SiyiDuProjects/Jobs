@@ -162,7 +162,7 @@ test("required second address line without a value remains unresolved instead of
   try {
     assert.equal(await f.run(), false);
     assert.equal(f.w.document.getElementById("line2").value, "");
-    assert.equal(f.requests.length, 0);
+    assert.equal(f.requests.length, 1);
     assert(f.w.JobsAIReview.pending());
   } finally {
     f.close();
@@ -174,7 +174,7 @@ test("an absent address profile is unknown rather than an intentional blank", as
   try {
     assert.equal(await f.run(), false);
     assert.equal(f.w.document.getElementById("line2").value, "");
-    assert.equal(f.requests.length, 0);
+    assert.equal(f.requests.length, 1);
     assert(f.w.JobsAIReview.pending());
   } finally {
     f.close();

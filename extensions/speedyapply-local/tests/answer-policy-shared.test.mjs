@@ -1,3 +1,4 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -24,12 +25,13 @@ for (const name of ["answer-policy", "option-match", "profile-answers"])
   );
 
 for (const scenario of fixture.cases)
-  test(`shared AI/rule policy: ${scenario.id}`, () => {
+  test(`typed policy: ${scenario.id}`, () => {
     const profile = {
       ...structuredClone(fixture.profile),
       ...scenario.profilePatch,
     };
-    const result = sandbox.JobsProfileAnswers.resolve(
+    const result = typedAnswer(
+      sandbox.JobsProfileAnswers,
       scenario.question,
       profile,
       {

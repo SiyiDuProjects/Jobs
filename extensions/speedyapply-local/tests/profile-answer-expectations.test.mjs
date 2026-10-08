@@ -42,11 +42,16 @@ test("the explicit synthetic matrix retains every reviewed resolution and select
 });
 
 for (const [name, profile] of Object.entries(fixture.profiles))
-  test(`explicit Profile answers and option choices: ${name}`, (t) => {
+  test(`typed Profile answers and option choices: ${name}`, (t) => {
     let resolutions = 0,
       selections = 0;
     for (const row of fixture.cases.filter((row) => row.profile === name)) {
-      const answer = api.resolve(row.question, profile, fixture.context);
+      const answer = api.answerForType(
+        fixture.types[row.type],
+        row.question,
+        profile,
+        fixture.context,
+      );
       assert.equal(
         answer?.answer ?? null,
         row.answer,
@@ -86,7 +91,19 @@ test("authorization accepts truthful long options for both confirmed polarities"
       },
     };
     assert.equal(
-      api.select(api.resolve(question, profile), options),
+      api.select(
+        api.answerForType(
+          {
+            theme: "work_authorization",
+            topic: "work_authorization",
+            field: "employmentData.eligibilityUS",
+            kind: "boolean",
+          },
+          question,
+          profile,
+        ),
+        options,
+      ),
       options[index],
     );
   }

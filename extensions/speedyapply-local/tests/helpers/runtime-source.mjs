@@ -67,6 +67,9 @@ const dependencies = {
   ],
   "automatic-background.js": ["answer-proof.js"],
   "automatic-fill.js": [
+    "prepare-answers.js",
+    "request-answers.js",
+    "search-answer.js",
     "automatic-flow.js",
     "autofill-preferences.js",
     "automatic-field-policy.js",

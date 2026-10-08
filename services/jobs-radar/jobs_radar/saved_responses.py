@@ -12,21 +12,6 @@ def normalize_keyword(value):
     value = ''.join(c for c in value if unicodedata.category(c)[0] in RULES['keywordCategoryPrefixes'] or c in RULES['keywordCharacters'] or RULES['keywordWhitespace'] and c.isspace())
     return re.sub(r'\s+', ' ', value).strip()
 
-def question_keywords(question):
-    rule = RULES['questionKeywords']
-    normalized = unicodedata.normalize(RULES['keywordNormalization'], str(question)).lower()
-    words, current = [], []
-    for char in normalized:
-        if unicodedata.category(char)[0] in rule['categories'] or char in rule['characters']:
-            current.append(char)
-        elif current:
-            words.append(''.join(current))
-            current = []
-    if current:
-        words.append(''.join(current))
-    return list(dict.fromkeys(word for word in words if (len(word) >= rule['minimumLetters'] or word.isascii() and word.isdigit()) and word not in rule['stopWords']))
-
-
 def normalize_record(value):
     if not isinstance(value, dict): raise ValueError('Invalid saved response')
     result = dict(value)
@@ -57,7 +42,7 @@ def normalize_record(value):
                 if not isinstance(item, str) or len(item) > rule['fields'][key]['maxLength']:
                     raise ValueError('Invalid ' + name + '.' + key)
         result[name] = field
-    if RULES['appearancesCannotExceedKeywords'] and result['appearances'] > len(result['keywords']): raise ValueError('Appearances exceed distinct keywords')
+    if RULES['appearancesCannotExceedKeywords'] and 'appearances' in result and ('keywords' not in result or result['appearances'] > len(result['keywords'])): raise ValueError('Appearances exceed distinct keywords')
     return result
 
 def normalize_list(value, previous=()):

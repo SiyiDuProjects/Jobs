@@ -200,7 +200,7 @@ test("completed authorization supplies country to either entry without borrowing
     assert.equal(next.length, 0);
     for (const record of h.records) {
       assert.equal(record.questions[0].country, "CA");
-      assert.equal(record.decisions[0].reason, "country_mismatch");
+      assert.equal(record.decisions[0].reason, "server_decision_required");
     }
   } finally {
     h.close();
@@ -261,7 +261,7 @@ test("an optional confirmed answer that reveals a required field is resolved bef
   }
 });
 
-test("foreign-country answers require a country-specific memory instead of home-country defaults or broad keywords", async () => {
+test("legacy foreign-country answers do not bypass server evidence verification", async () => {
   for (const specific of [false, true]) {
     const saved = [
       { keywords: ["authorized to work"], appearances: 1, response: "Yes" },
@@ -290,18 +290,14 @@ test("foreign-country answers require a country-specific memory instead of home-
         ],
         profile,
       );
-      assert.equal(answer.length, specific ? 1 : 0);
-      if (specific) {
-        assert.equal(answer[0].answer, "No");
-        assert.equal(answer[0].source, "saved");
-      }
+      assert.equal(answer.length, 0);
     } finally {
       h.close();
     }
   }
 });
 
-test("new-field absence retains Saved Response fallback, while missing date precision cannot be replaced by a guessed day", async () => {
+test("legacy saved dates cannot override missing Profile facts or manufacture date precision", async () => {
   const h = fixture(
     '<label>Earliest start date<input id="start" type="date"></label><label>Graduation date<input id="grad" type="date"></label>',
     undefined,
@@ -325,10 +321,11 @@ test("new-field absence retains Saved Response fallback, while missing date prec
       h.reader.scan().map((row) => ({ ...row.public, node: row.node })),
       { ...profile, educationData: [{ endDate: "2027-05" }] },
     );
-    assert.equal(answers.length, 1);
-    assert.equal(answers[0].answer, "2027-06-10");
-    assert.equal(answers[0].source, "saved");
-    assert.equal(h.records[0].decisions[1].reason, "missing_day_precision");
+    assert.equal(answers.length, 0);
+    assert.equal(
+      h.records[0].decisions[1].profileAnswer.reason,
+      "missing_day_precision",
+    );
   } finally {
     h.close();
   }
@@ -349,7 +346,7 @@ test("duplicate labels keep independent types and identities; describing questio
     );
     assert.deepEqual(
       Array.from(answers, (r) => r.answer),
-      ["2027-05", "2027-05-17"],
+      ["2027-05"],
     );
     const questions = h.records[0].questions;
     assert.notEqual(questions[0].fieldId, questions[1].fieldId);
@@ -366,11 +363,11 @@ test("duplicate labels keep independent types and identities; describing questio
   }
 });
 
-test("Ashby exact and unique-boolean choice policy also applies through the shared supplemental resolver", async () => {
+test("legacy keyword responses cannot select options through the shared supplemental resolver", async () => {
   for (const [options, response, expected] of [
     [["Friend or Referral", "LinkedIn"], "Friend", null],
     [["Yes - intern", "Yes - employee", "No"], "Yes", null],
-    [["Yes, willing to relocate", "No"], "Yes", "Yes, willing to relocate"],
+    [["Yes, willing to relocate", "No"], "Yes", null],
   ]) {
     const h = fixture(
       '<label>Office preference<select id="choice"><option value="">Choose</option>' +

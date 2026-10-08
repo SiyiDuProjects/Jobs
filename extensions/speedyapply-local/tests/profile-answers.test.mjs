@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -12,8 +15,8 @@ const code = await Promise.all(
 const c = vm.createContext({});
 vm.runInContext(code, c);
 const p = c.JobsProfileAnswers;
-test("Physics catalog equivalence is shared by bindings and Profile answers", () => {
-  const answer = p.resolve("Field of Study", {
+test("typed answers: Physics catalog equivalence is shared by bindings and Profile answers", () => {
+  const answer = typedAnswer(p, "Field of Study", {
     educationData: [{ fieldOfStudy: "Physics" }],
   });
   const specs = [
@@ -56,7 +59,7 @@ const profile = (sponsorship, date) => ({
 const ng = profile(true, "2027-05"),
   intern = profile(false, "2027-12");
 
-test("direct college attendance questions resolve the sole profile school without guessing degree completion", () => {
+test("typed answers: direct college attendance questions resolve the sole profile school without guessing degree completion", () => {
   const profile = { educationData: [{ school: "Example University" }] };
   for (const question of [
     "Which college did you attend?*",
@@ -64,12 +67,12 @@ test("direct college attendance questions resolve the sole profile school withou
     "Which school are you currently attending?",
   ])
     assert.equal(
-      p.resolve(question, profile)?.answer,
+      typedAnswer(p, question, profile)?.answer,
       "Example University",
       question,
     );
   assert.equal(
-    p.resolve("Which college did you attend?", {
+    typedAnswer(p, "Which college did you attend?", {
       educationData: [{ school: "First" }, { school: "Second" }],
     })?.answer,
     null,
@@ -79,11 +82,11 @@ test("direct college attendance questions resolve the sole profile school withou
     "Which college did your parents attend?",
     "Which institution awarded your most recently completed degree?",
   ])
-    assert.equal(p.resolve(question, profile), null);
+    assert.equal(typedAnswer(p, question, profile), null);
 });
 
-test("school options allow a state suffix but preserve full university and campus identity", () => {
-  const answer = p.resolve("School", {
+test("typed answers: school options allow a state suffix but preserve full university and campus identity", () => {
+  const answer = typedAnswer(p, "School", {
     educationData: [{ school: "University of California, Berkeley" }],
   });
   const correct = "University of California--Berkeley (CA)";
@@ -102,11 +105,11 @@ test("school options allow a state suffix but preserve full university and campu
     [correct, "University of California, Berkeley"],
   ])
     assert.equal(p.select(answer, labels), null);
-  const campus = p.resolve("School", {
+  const campus = typedAnswer(p, "School", {
     educationData: [{ school: "Example University (North Campus)" }],
   });
   assert.equal(p.select(campus, ["Example University (South Campus)"]), null);
-  const region = p.resolve("School", {
+  const region = typedAnswer(p, "School", {
     educationData: [{ school: "Example University (CA)" }],
   });
   assert.equal(p.select(region, ["Example University (NY)"]), null);
@@ -116,18 +119,18 @@ test("school options allow a state suffix but preserve full university and campu
   );
 });
 
-test("real observed sponsorship variants use the passed Profile, including require support and sponsor as a verb", () => {
+test("typed answers: real observed sponsorship variants use the passed Profile, including require support and sponsor as a verb", () => {
   for (const question of [
     "Will you require Immigration Support to maintain work authorization*",
     "Will you now or in the future require Example to commence (“sponsor”) an immigration case in order to employ you?",
     "Do you currently, or will you in the future, require an employer to sponsor or continue sponsoring your employment authorization in order to work in the United States?",
     "Will you need visa sponsorship now or in the future?",
   ]) {
-    assert.equal(p.resolve(question, ng).answer, "Yes");
-    assert.equal(p.resolve(question, intern).answer, "No");
+    assert.equal(typedAnswer(p, question, ng).answer, "Yes");
+    assert.equal(typedAnswer(p, question, intern).answer, "No");
   }
 });
-test("graduation year, month and combined date stay separate across two simultaneous Profiles", () => {
+test("typed answers: graduation year, month and combined date stay separate across two simultaneous Profiles", () => {
   for (const [question, a, b] of [
     ["When will you graduate? (month & year)", "May 2027", "December 2027"],
     ["What is your anticipated graduation month?", "May", "December"],
@@ -138,12 +141,12 @@ test("graduation year, month and combined date stay separate across two simultan
       "December 2027",
     ],
   ]) {
-    assert.equal(p.resolve(question, ng).answer, a);
-    assert.equal(p.resolve(question, intern).answer, b);
-    assert.equal(p.resolve(question, ng).answer, a);
+    assert.equal(typedAnswer(p, question, ng).answer, a);
+    assert.equal(typedAnswer(p, question, intern).answer, b);
+    assert.equal(typedAnswer(p, question, ng).answer, a);
   }
 });
-test("does not confuse high-school dates, term qualifiers, internship-induced delays or relatives with existing date fields", () => {
+test("typed answers: does not confuse high-school dates, term qualifiers, internship-induced delays or relatives with existing date fields", () => {
   for (const question of [
     "What year did you graduate high school?",
     "Are you graduating in the summer or fall of 2027?",
@@ -153,33 +156,38 @@ test("does not confuse high-school dates, term qualifiers, internship-induced de
     "If you are currently on a VISA sponsorship, what type of VISA?",
     "Can you work without visa sponsorship?",
   ])
-    assert.equal(p.resolve(question, ng), null, question);
+    assert.equal(typedAnswer(p, question, ng), null, question);
 });
-test("mapped answers retain country boundaries and never guess unknown or ambiguous profile data", () => {
+test("typed answers: mapped answers retain country boundaries and never guess unknown or ambiguous profile data", () => {
   assert.equal(
-    p.resolve("Will you require sponsorship to work in Canada?", ng).answer,
-    null,
-  );
-  assert.equal(
-    p.resolve("Will you require sponsorship?", ng, { country: "CA" }).answer,
-    null,
-  );
-  assert.equal(
-    p.resolve("Will you require sponsorship?", profile(undefined, "2027-05"))
+    typedAnswer(p, "Will you require sponsorship to work in Canada?", ng)
       .answer,
     null,
   );
   assert.equal(
-    p.resolve("Graduation year", {
+    typedAnswer(p, "Will you require sponsorship?", ng, { country: "CA" })
+      .answer,
+    null,
+  );
+  assert.equal(
+    typedAnswer(
+      p,
+      "Will you require sponsorship?",
+      profile(undefined, "2027-05"),
+    ).answer,
+    null,
+  );
+  assert.equal(
+    typedAnswer(p, "Graduation year", {
       educationData: [{ endDate: "2027-05" }, { endDate: "2026-01" }],
     }).answer,
     null,
   );
   assert.equal(p.country("Will you require us to sponsor you?"), null);
 });
-test("option translation supports abbreviations, numeric months and explicit month ranges, never an arbitrary first option", () => {
-  const month = p.resolve("Graduation month", intern),
-    date = p.resolve("Graduation date", intern);
+test("typed answers: option translation supports abbreviations, numeric months and explicit month ranges, never an arbitrary first option", () => {
+  const month = typedAnswer(p, "Graduation month", intern),
+    date = typedAnswer(p, "Graduation date", intern);
   assert.equal(p.select(month, ["November", "Dec"]), "Dec");
   assert.equal(p.select(month, ["11", "12"]), "12");
   assert.equal(
@@ -192,31 +200,23 @@ test("option translation supports abbreviations, numeric months and explicit mon
   assert.equal(p.select(date, ["Fall 2027", "Spring 2028"]), "Fall 2027");
   assert.equal(p.select(month, ["12", "December"]), null);
 });
-test("actual common matcher prioritizes profile-backed fields over stale exact saved answers", async () => {
+test("free-form saved answers cannot override either selected Profile locally", async () => {
   vm.runInContext(
     resolverWith(
-      '[{question:"Will you require sponsorship?",response:"No",keywords:["sponsorship"],appearances:1}]',
+      '[{origin:"person",question:"Will you require sponsorship?",response:"No",keywords:["sponsorship"],appearances:1}]',
     ),
     c,
   );
-  assert.equal(
-    (
-      await c.JobsAnswerResolver.resolve(
-        [{ question: "Will you require sponsorship?" }],
-        ng,
-      )
-    )[0].answer,
-    "Yes",
-  );
-  assert.equal(
-    (
-      await c.JobsAnswerResolver.resolve(
-        [{ question: "Will you require sponsorship?" }],
-        intern,
-      )
-    )[0].answer,
-    "No",
-  );
+  for (const profile of [ng, intern])
+    assert.equal(
+      (
+        await c.JobsAnswerResolver.resolve(
+          [{ question: "Will you require sponsorship?" }],
+          profile,
+        )
+      ).length,
+      0,
+    );
   assert.equal(
     (
       await c.JobsAnswerResolver.resolve(
@@ -228,7 +228,7 @@ test("actual common matcher prioritizes profile-backed fields over stale exact s
   );
 });
 
-test("cleanup removes only covered answer formats and never invents a graduation day or start date", () => {
+test("typed answers: cleanup removes only covered answer formats and never invents a graduation day or start date", () => {
   assert(
     !p.covers(
       { question: "Will you require sponsorship?", response: "No" },
@@ -236,7 +236,7 @@ test("cleanup removes only covered answer formats and never invents a graduation
     ),
   );
   assert(
-    p.covers(
+    !p.covers(
       { question: "Will you require sponsorship?", response: "Yes" },
       ng,
     ),
@@ -254,12 +254,18 @@ test("cleanup removes only covered answer formats and never invents a graduation
   assert(
     !p.covers({ question: "Graduation date", response: "Fall 2027" }, intern),
   );
-  assert.equal(p.resolve("Graduation date (MM/DD/YYYY)", intern).answer, null);
-  assert.equal(p.resolve("What day will you graduate?", intern).answer, null);
-  assert.equal(p.resolve("When can you start working?", intern), null);
+  assert.equal(
+    typedAnswer(p, "Graduation date (MM/DD/YYYY)", intern).answer,
+    null,
+  );
+  assert.equal(
+    typedAnswer(p, "What day will you graduate?", intern).answer,
+    null,
+  );
+  assert.equal(typedAnswer(p, "When can you start working?", intern), null);
 });
 
-test("observed TRC education controls use each Profile directly rather than Luna or stale memory", () => {
+test("typed answers: observed TRC education controls use each Profile directly rather than Luna or stale memory", () => {
   for (const [end, season] of [
     ["2027-05", "Spring 2027"],
     ["2027-12", "Fall 2027"],
@@ -283,28 +289,28 @@ test("observed TRC education controls use each Profile directly rather than Luna
       ["Education Level*", "Bachelor's"],
       ["Expected Graduation Date*", season],
     ]) {
-      assert.equal(p.select(p.resolve(question, profile), [value]), value);
+      assert.equal(p.select(typedAnswer(p, question, profile), [value]), value);
       assert.equal(
         p.covers({ question, response: value }, profile),
-        question !== "Expected Graduation Date*",
+        question === "Education Level*",
       );
     }
     assert.equal(
-      p.resolve("Graduated?*", profile, { now: "2026-09" }).answer,
+      typedAnswer(p, "Graduated?*", profile, { now: "2026-09" }).answer,
       "No",
     );
     assert.equal(
-      p.resolve("Graduated?*", profile, { now: "2028-01" }).answer,
+      typedAnswer(p, "Graduated?*", profile, { now: "2028-01" }).answer,
       null,
     );
     assert.equal(
-      p.resolve("Please add your Major if it is not in the list", profile),
+      typedAnswer(p, "Please add your Major if it is not in the list", profile),
       null,
     );
   }
 });
 
-test("existing school, degree, major and GPA use explicit education facts without inferring eligibility or a second degree", () => {
+test("typed answers: existing school, degree, major and GPA use explicit education facts without inferring eligibility or a second degree", () => {
   const educated = {
     educationData: [
       {
@@ -325,9 +331,9 @@ test("existing school, degree, major and GPA use explicit education facts withou
       "3.9/4.0",
     ],
   ])
-    assert.equal(p.resolve(question, educated).answer, answer);
+    assert.equal(typedAnswer(p, question, educated).answer, answer);
   assert.equal(
-    p.select(p.resolve("Degree", educated), [
+    p.select(typedAnswer(p, "Degree", educated), [
       "High school",
       "Bachelors",
       "Masters",
@@ -339,16 +345,16 @@ test("existing school, degree, major and GPA use explicit education facts withou
     "Do you have a computer science degree?",
     "School Minor:",
   ])
-    assert.equal(p.resolve(q, educated), null);
+    assert.equal(typedAnswer(p, q, educated), null);
   assert.equal(
-    p.resolve("School", {
+    typedAnswer(p, "School", {
       educationData: [{ school: "First" }, { school: "Second" }],
     }).answer,
     null,
   );
 });
 
-test("school punctuation and observed GPA bands translate without fuzzy topic matching or scale conversion", () => {
+test("typed answers: school punctuation and observed GPA bands translate without fuzzy topic matching or scale conversion", () => {
   const profile = {
     educationData: [
       {
@@ -360,7 +366,7 @@ test("school punctuation and observed GPA bands translate without fuzzy topic ma
     ],
   };
   assert.equal(
-    p.select(p.resolve("Name of School", profile), [
+    p.select(typedAnswer(p, "Name of School", profile), [
       "University of Example - City",
       "University of Example, Elsewhere",
     ]),
@@ -372,18 +378,18 @@ test("school punctuation and observed GPA bands translate without fuzzy topic ma
     "Undergraduate GPA",
     "Please indicate your most recent GPA",
   ]) {
-    const answer = p.resolve(question, profile);
+    const answer = typedAnswer(p, question, profile);
     for (const label of ["3.900 / 4.000", "3.75 - 4", "3.5 or higher", "3.75+"])
       assert.equal(p.select(answer, [label]), label);
     assert.equal(p.select(answer, ["3.5 or higher", "3.75+"]), null);
     assert.equal(p.select(answer, ["3.9/5.0"]), null);
   }
   assert.equal(
-    p.resolve("What is your Current Degree Program?", profile).answer,
+    typedAnswer(p, "What is your Current Degree Program?", profile).answer,
     "Bachelor's",
   );
   assert.equal(
-    p.resolve("Please indicate your program major", profile).answer,
+    typedAnswer(p, "Please indicate your program major", profile).answer,
     "Physics",
   );
   for (const question of [
@@ -391,10 +397,10 @@ test("school punctuation and observed GPA bands translate without fuzzy topic ma
     "Do you hold a Bachelor's degree?",
     "School Minor:",
   ])
-    assert.equal(p.resolve(question, profile), null);
+    assert.equal(typedAnswer(p, question, profile), null);
 });
 
-test("contact and location variants read only their own Profile fields; conditional identity questions stay unowned", () => {
+test("typed answers: contact and location variants read only their own Profile fields; conditional identity questions stay unowned", () => {
   const profile = {
     nameData: { firstName: "Test", lastName: "User" },
     addressData: {
@@ -412,12 +418,12 @@ test("contact and location variants read only their own Profile fields; conditio
     ["What is the zip code of your primary residence?", "12345"],
     ["Zip / postal code", "12345"],
   ])
-    assert.equal(p.resolve(question, profile).answer, expected);
+    assert.equal(typedAnswer(p, question, profile).answer, expected);
   assert.equal(
-    p.select(p.resolve("What country do you currently reside in?", profile), [
-      "USA",
-      "Canada",
-    ]),
+    p.select(
+      typedAnswer(p, "What country do you currently reside in?", profile),
+      ["USA", "Canada"],
+    ),
     "USA",
   );
   for (const question of [
@@ -426,21 +432,27 @@ test("contact and location variants read only their own Profile fields; conditio
     "If you answered Yes, provide your permanent address",
     "Please share your gender pronouns.",
   ])
-    assert.equal(p.resolve(question, profile), null);
-  assert.equal(p.resolve("Email", profile).answer, null);
+    assert.equal(typedAnswer(p, question, profile), null);
+  assert.equal(typedAnswer(p, "Email", profile).answer, null);
   assert.equal(
-    p.resolve("Are you legally authorized to work in the United States?", ng)
-      .answer,
+    typedAnswer(
+      p,
+      "Are you legally authorized to work in the United States?",
+      ng,
+    ).answer,
     null,
   );
   const legal = { ...ng, employmentData: { eligibilityUS: true } };
   assert.equal(
-    p.resolve("Are you legally authorized to work in the United States?", legal)
-      .answer,
+    typedAnswer(
+      p,
+      "Are you legally authorized to work in the United States?",
+      legal,
+    ).answer,
     "Yes",
   );
   assert.equal(
-    p.resolve("Are you legally authorized to work in Canada?", legal),
+    typedAnswer(p, "Are you legally authorized to work in Canada?", legal),
     null,
   );
 });

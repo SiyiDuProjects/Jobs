@@ -25,7 +25,7 @@ const question = (text) => ({
   topicHint: "consent",
 });
 
-test("required privacy and reading notices share one policy and do not claim Profile facts", async () => {
+test("privacy and reading notices defer to the server authority check without local keyword approval", async () => {
   for (const text of [
     "I agree to the Privacy Policy.",
     "I consent to processing my personal data for this application.",
@@ -36,11 +36,9 @@ test("required privacy and reading notices share one policy and do not claim Pro
     "I accept the application agreement.",
   ]) {
     const answer = api.resolve(text, {}, question(text));
-    assert.equal(answer.answer, "Yes");
-    assert.equal(answer.source, "rule");
+    assert.equal(answer, null);
     const result = await resolve([question(text)], {});
-    assert.equal(result[0].answer, "Yes");
-    assert.equal(result[0].reason, "authorized_consent");
+    assert.equal(result.length, 0);
   }
 });
 
@@ -53,7 +51,7 @@ test("factual certifications, unrelated opt-ins and short labels never inherit a
     "I consent to biometric data processing.",
   ]) {
     const answer = api.resolve(text, {}, question(text));
-    assert.equal(answer.answer, null, text);
+    assert.equal(answer, null, text);
     const results = await resolve(
       [question(text)],
       {},
@@ -76,17 +74,17 @@ test("factual certifications, unrelated opt-ins and short labels never inherit a
     {},
     { onDecision: (value) => (decision = value) },
   );
-  assert.equal(decision.status, "omit");
+  assert.equal(decision.status, "unmatched");
 });
 
-test("each registered theme declares fact paths, matching strictness and saved-answer policy", () => {
+test("each retained type declares fact paths and option functions without a question classifier", () => {
   for (const [name, theme] of Object.entries(api.topicRegistry)) {
     assert(Array.isArray(theme.facts), name);
     assert(theme.strictness, name);
     assert.equal(typeof theme.resolve, "function", name);
     assert.equal(typeof theme.optionSpec, "function", name);
-    assert.equal(typeof theme.saved, "function", name);
-    assert(theme.recognize.length, name);
+    assert.equal(theme.saved, undefined, name);
+    assert.equal(theme.recognize, undefined, name);
   }
 });
 

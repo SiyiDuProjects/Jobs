@@ -1,3 +1,4 @@
+import { fixtureAnswers } from "./helpers/fixture-provider.mjs";
 import { readModule } from "./helpers/module-source.mjs";
 import { installAnswerResolver } from "./helpers/answer-resolver.mjs";
 import fs from "node:fs/promises";
@@ -155,7 +156,7 @@ test("all modules preserve iCIMS/SF canonical fields and suppress tag editor sea
   }
 });
 
-test("a custom month picker uses the Profile month without a model request or fabricated day", async () => {
+test("a custom month picker commits a verified Profile month without a fabricated day", async () => {
   const h = await choiceFixture("tiktok-month");
   const profile = {
     profileName: "Fixture",
@@ -175,7 +176,15 @@ test("a custom month picker uses the Profile month without a model request or fa
           return { data: { id: "fixture", profile } };
         if (message.type === "jobs:auto-answers") {
           calls++;
-          throw Error("Known Profile month must not reach AI");
+          return {
+            data: {
+              answers: fixtureAnswers(
+                h.w.JobsProfileAnswers,
+                message.fields,
+                profile,
+              ),
+            },
+          };
         }
         return {};
       },
@@ -184,6 +193,9 @@ test("a custom month picker uses the Profile month without a model request or fa
   try {
     all(h.w);
     for (const name of [
+      "prepare-answers",
+      "request-answers",
+      "search-answer",
       "automatic-flow",
       "autofill-preferences",
       "automatic-field-policy",
@@ -215,7 +227,7 @@ test("a custom month picker uses the Profile month without a model request or fa
       true,
     );
     assert.equal(h.reader.scan()[0].raw, "2027-05");
-    assert.equal(calls, 0);
+    assert.equal(calls, 1);
   } finally {
     h.close();
   }

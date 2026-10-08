@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -73,9 +76,9 @@ const profile = (extra = {}) => ({
   ...extra,
 });
 const answer = (question, p = profile(), context) =>
-  api.resolve(question, p, context)?.answer ?? null;
+  typedAnswer(api, question, p, context)?.answer ?? null;
 
-test("observed disclosure wording uses explicit Profile facts without AI or broader identity guesses", async () => {
+test("typed answers: observed disclosure wording uses explicit Profile facts without AI or broader identity guesses", async () => {
   const questions = [
     {
       question:
@@ -100,16 +103,14 @@ test("observed disclosure wording uses explicit Profile facts without AI or broa
     questions,
     profile(),
   );
-  assert.equal(resolved.length, 3);
-  assert.deepEqual(
-    Array.from(resolved, (x) => x.source),
-    ["profile", "profile", "profile"],
+  assert.equal(
+    resolved.length,
+    0,
+    "full disclosure questions require the server evidence decision",
   );
   assert.deepEqual(
-    Array.from(
-      resolved,
-      (x, i) =>
-        sandbox.JobsOptionMatch.pick(questions[i].options, x.optionSpec)?.label,
+    questions.map((q) =>
+      api.select(typedAnswer(api, q.question, profile(), q), q.options),
     ),
     ["I am not a protected veteran", "No", "Asian"],
   );
@@ -139,7 +140,7 @@ test("observed disclosure wording uses explicit Profile facts without AI or broa
     assert.equal(answer(question), null, question);
 });
 
-test("existing identity/contact/address/links fields use actual values, including preferred-name switch", () => {
+test("typed answers: existing identity/contact/address/links fields use actual values, including preferred-name switch", () => {
   for (const [question, expected] of [
     ["First name", "Alex"],
     ["Last name", "Example"],
@@ -166,7 +167,10 @@ test("existing identity/contact/address/links fields use actual values, includin
     ),
     null,
   );
-  assert.equal(api.select(api.resolve("State", profile()), ["CA", "NY"]), "CA");
+  assert.equal(
+    api.select(typedAnswer(api, "State", profile()), ["CA", "NY"]),
+    "CA",
+  );
   assert.equal(
     answer(
       "Current location",
@@ -191,10 +195,10 @@ test("existing identity/contact/address/links fields use actual values, includin
     "Country where your school is located",
     "Have you ever used another legal name?",
   ])
-    assert.equal(api.resolve(question, profile()), null, question);
+    assert.equal(typedAnswer(api, question, profile()), null, question);
 });
 
-test("graduation day precision is opt-in and is never invented from a month", () => {
+test("typed answers: graduation day precision is opt-in and is never invented from a month", () => {
   assert.equal(answer("Graduation date"), "May 2027");
   assert.equal(
     answer("Graduation date", profile(), { inputType: "date" }),
@@ -210,7 +214,7 @@ test("graduation day precision is opt-in and is never invented from a month", ()
   assert.equal(answer("Graduation date", month), "May 2027");
   assert.equal(answer("Graduation date", month, { inputType: "date" }), null);
   assert.equal(
-    api.resolve("Graduation date", month, { inputType: "date" }).reason,
+    typedAnswer(api, "Graduation date", month, { inputType: "date" }).reason,
     "missing_day_precision",
   );
   assert.equal(
@@ -242,8 +246,8 @@ test("graduation day precision is opt-in and is never invented from a month", ()
   ); // preserve original selection until explicit education scoping is supplied
 });
 
-test("graduation ranges and enrollment dates retain previous component-independent selection", () => {
-  const result = api.resolve("Graduation date", profile());
+test("typed answers: graduation ranges and enrollment dates retain previous component-independent selection", () => {
+  const result = typedAnswer(api, "Graduation date", profile());
   for (const label of [
     "May/June 2027",
     "May–Aug 2027",
@@ -258,7 +262,7 @@ test("graduation ranges and enrollment dates retain previous component-independe
   );
 });
 
-test("completed degree and attending are independent facts with conflicts blocked", () => {
+test("typed answers: completed degree and attending are independent facts with conflicts blocked", () => {
   assert.equal(answer("Highest completed education"), "High School");
   assert.equal(
     answer("What is the highest degree you have completed?"),
@@ -270,7 +274,7 @@ test("completed degree and attending are independent facts with conflicts blocke
     educationData: [{ currentlyAttending: false, endDate: "2027-05" }],
   });
   assert.equal(
-    api.resolve("Are you currently a student?", contradictory, {
+    typedAnswer(api, "Are you currently a student?", contradictory, {
       now: "2026-09",
     }).reason,
     "education_status_conflict",
@@ -285,7 +289,7 @@ test("completed degree and attending are independent facts with conflicts blocke
   );
 });
 
-test("new direct factual and preference fields do not turn qualifications into guesses", () => {
+test("typed answers: new direct factual and preference fields do not turn qualifications into guesses", () => {
   for (const [question, expected] of [
     ["What is your earliest available start date?", "2027-06-01"],
     ["When can you start working?", "2027-06-01"],
@@ -304,10 +308,10 @@ test("new direct factual and preference fields do not turn qualifications into g
     "Are you an advanced Python programmer?",
     "Are you eligible for STEM OPT?",
   ])
-    assert.equal(api.resolve(question, profile()), null, question);
+    assert.equal(typedAnswer(api, question, profile()), null, question);
 });
 
-test("sponsorship current/future/combined semantics use tri-state data and only scoped legacy fallback", () => {
+test("typed answers: sponsorship current/future/combined semantics use tri-state data and only scoped legacy fallback", () => {
   const p = profile();
   assert.equal(answer("Do you currently need sponsorship?", p), "No");
   assert.equal(answer("Will you need sponsorship in the future?", p), "Yes");
@@ -358,7 +362,7 @@ test("sponsorship current/future/combined semantics use tri-state data and only 
   );
 });
 
-test("sponsorship long options need the actual timing, not the first Yes", () => {
+test("typed answers: sponsorship long options need the actual timing, not the first Yes", () => {
   const question = "Will you now or in the future require sponsorship?";
   const now =
     "Yes, I will require immigration sponsorship now to legally work in the country where the job is located.";
@@ -367,11 +371,11 @@ test("sponsorship long options need the actual timing, not the first Yes", () =>
   const no =
     "No, I do not and will not require immigration sponsorship now or in the future.";
   assert.equal(
-    api.select(api.resolve(question, profile()), [now, future, no]),
+    api.select(typedAnswer(api, question, profile()), [now, future, no]),
     future,
   );
   assert.equal(
-    api.select(api.resolve(question, profile({ applicationData: {} })), [
+    api.select(typedAnswer(api, question, profile({ applicationData: {} })), [
       now,
       future,
       no,
@@ -380,7 +384,8 @@ test("sponsorship long options need the actual timing, not the first Yes", () =>
   );
   assert.equal(
     api.select(
-      api.resolve(
+      typedAnswer(
+        api,
         question,
         profile({
           applicationData: { sponsorshipNow: true, sponsorshipFuture: false },
@@ -392,7 +397,8 @@ test("sponsorship long options need the actual timing, not the first Yes", () =>
   );
   assert.equal(
     api.select(
-      api.resolve(
+      typedAnswer(
+        api,
         question,
         profile({
           applicationData: { sponsorshipNow: false, sponsorshipFuture: false },
@@ -404,7 +410,7 @@ test("sponsorship long options need the actual timing, not the first Yes", () =>
   );
 });
 
-test("US work authorization uses named fact, rejects different countries and compound permissions", () => {
+test("typed answers: US work authorization uses named fact, rejects different countries and compound permissions", () => {
   assert.equal(answer("Are you eligible to work in the United States?"), "Yes");
   assert.equal(
     answer(
@@ -420,7 +426,8 @@ test("US work authorization uses named fact, rejects different countries and com
     null,
   );
   assert.equal(
-    api.resolve(
+    typedAnswer(
+      api,
       "Are you legally authorized to work without restrictions?",
       profile(),
     ),
@@ -433,7 +440,8 @@ test("US work authorization uses named fact, rejects different countries and com
   ])
     assert.equal(
       api.select(
-        api.resolve(
+        typedAnswer(
+          api,
           "Are you eligible to work in the United States?",
           profile(),
         ),
@@ -443,7 +451,8 @@ test("US work authorization uses named fact, rejects different countries and com
     );
   assert.equal(
     api.select(
-      api.resolve(
+      typedAnswer(
+        api,
         "Are you legally authorized to work in the United States?",
         profile(),
       ),
@@ -460,16 +469,16 @@ test("US work authorization uses named fact, rejects different countries and com
   ); // explicit unknown place must not inherit the home country
 });
 
-test("additional authorization wording preserves the original stored-country boundary", () => {
+test("typed answers: additional authorization wording preserves the original stored-country boundary", () => {
   const canada = profile({ addressData: { country: "Canada" } }),
     unknown = profile({ addressData: { country: "" } });
   for (const p of [canada, unknown]) {
     assert.equal(
-      api.resolve("Are you eligible to work in the United States?", p),
+      typedAnswer(api, "Are you eligible to work in the United States?", p),
       null,
     );
     assert.equal(
-      api.resolve("Are you eligible to work?", p, { country: "US" }),
+      typedAnswer(api, "Are you eligible to work?", p, { country: "US" }),
       null,
     );
     assert.equal(
@@ -494,7 +503,7 @@ test("additional authorization wording preserves the original stored-country bou
   );
 });
 
-test("salary preserves units/currency/ranges and refuses conversion or number-only ambiguity", () => {
+test("typed answers: salary preserves units/currency/ranges and refuses conversion or number-only ambiguity", () => {
   assert.equal(
     answer("What are your salary expectations?"),
     "USD 100000–120000 annual base salary",
@@ -537,12 +546,12 @@ test("salary preserves units/currency/ranges and refuses conversion or number-on
     answer("Minimum expected annual base salary in USD", fixed),
     "USD 105000 annual base salary",
   );
-  assert.equal(api.resolve("What is your current salary?", fixed), null);
+  assert.equal(typedAnswer(api, "What is your current salary?", fixed), null);
   assert.equal(
-    api.resolve("Would you accept a salary of USD 80000?", fixed),
+    typedAnswer(api, "Would you accept a salary of USD 80000?", fixed),
     null,
   );
-  const result = api.resolve("Expected annual base salary in USD", fixed);
+  const result = typedAnswer(api, "Expected annual base salary in USD", fixed);
   assert.equal(
     api.select(result, [
       "USD 80000–100000 annual base salary",
@@ -556,7 +565,7 @@ test("salary preserves units/currency/ranges and refuses conversion or number-on
   );
 });
 
-test("negotiable/posted salary preferences never invent numeric salary values", () => {
+test("typed answers: negotiable/posted salary preferences never invent numeric salary values", () => {
   for (const [salaryPreference, expected] of [
     ["negotiable", "Negotiable"],
     ["posted_range", "Within the posted salary range"],
@@ -571,9 +580,9 @@ test("negotiable/posted salary preferences never invent numeric salary values", 
   }
 });
 
-test("demographic and age facts remain separate from related sensitive definitions", () => {
+test("typed answers: demographic and age facts remain separate from related sensitive definitions", () => {
   assert.equal(
-    api.select(api.resolve("Gender", profile()), ["Woman", "Man"]),
+    api.select(typedAnswer(api, "Gender", profile()), ["Woman", "Man"]),
     "Man",
   );
   assert.equal(answer("Ethnicity"), "Asian");
@@ -595,7 +604,7 @@ test("demographic and age facts remain separate from related sensitive definitio
     "Have you ever had a disability?",
     "Are you 18 and authorized to work?",
   ])
-    assert.equal(api.resolve(question, profile()), null, question);
+    assert.equal(typedAnswer(api, question, profile()), null, question);
   assert.equal(
     answer(
       "Are you at least 18?",
@@ -605,7 +614,7 @@ test("demographic and age facts remain separate from related sensitive definitio
   );
 });
 
-test("employment is ordered by dates with positive-only incomplete history evidence", () => {
+test("typed answers: employment is ordered by dates with positive-only incomplete history evidence", () => {
   const p = profile({
     jobData: [
       { company: "Older", jobTitle: "Engineering Intern", endDate: "2024-08" },
@@ -615,7 +624,7 @@ test("employment is ordered by dates with positive-only incomplete history evide
   assert.equal(answer("Most recent employer", p), "Newer");
   assert.equal(answer("Current employer", p), null);
   assert.equal(
-    api.resolve("Have you completed an internship?", p, { now: "2026-09" })
+    typedAnswer(api, "Have you completed an internship?", p, { now: "2026-09" })
       .answer,
     "Yes",
   );
@@ -632,10 +641,10 @@ test("employment is ordered by dates with positive-only incomplete history evide
     ),
     null,
   );
-  assert.equal(api.resolve("Have you ever worked at Example?", p), null);
+  assert.equal(typedAnswer(api, "Have you ever worked at Example?", p), null);
 });
 
-test("one public resolver preserves old sponsorship while explicit new facts stay isolated by Profile", () => {
+test("typed answers: one public resolver preserves old sponsorship while explicit new facts stay isolated by Profile", () => {
   const legacy = profile({ applicationData: {} }),
     first = profile(),
     second = profile({
@@ -659,35 +668,34 @@ test("one public resolver preserves old sponsorship while explicit new facts sta
   );
 });
 
-test("actual shared matcher retains Saved Answer fallback when newly added optional fields are empty", async () => {
+test("canonical fields stay local while saved free-form answers wait for the evidence decision", async () => {
   const context = vm.createContext({});
   vm.runInContext(code, context);
   vm.runInContext(
-    resolverWith(`[
-  {origin:'person',question:'Preferred interview programming language',response:'Rust',keywords:['interview','language'],appearances:2},
-  {origin:'person',question:'When can you start working?',response:'2027-07-01',keywords:['start','working'],appearances:2}
- ]`),
+    resolverWith(
+      '[{origin:"person",question:"When can you start working?",response:"2027-07-01",keywords:["start"],appearances:1}]',
+    ),
     context,
   );
   const questions = [
     { question: "Preferred interview programming language" },
     { question: "When can you start working?" },
   ];
-  const unchanged = await context.JobsAnswerResolver.resolve(
-    questions,
-    profile({ applicationData: {} }),
+  assert.equal(
+    (
+      await context.JobsAnswerResolver.resolve(
+        questions,
+        profile({ applicationData: {} }),
+      )
+    ).length,
+    0,
   );
-  assert.equal(unchanged[0].answer, "Rust");
-  assert.equal(unchanged[1].answer, "2027-07-01");
-  const explicitlyFilled = await context.JobsAnswerResolver.resolve(
-    questions,
-    profile(),
-  );
-  assert.equal(explicitlyFilled[0].answer, "Python");
-  assert.equal(explicitlyFilled[1].answer, "2027-06-01");
+  const filled = await context.JobsAnswerResolver.resolve(questions, profile());
+  assert.equal(filled.length, 1);
+  assert.equal(filled[0].answer, "Python");
 });
 
-test("actual shared matcher respects calendar precision and explicit employment sponsorship timing", async () => {
+test("typed answers: actual shared matcher respects calendar precision and explicit employment sponsorship timing", async () => {
   const context = vm.createContext({});
   vm.runInContext(code, context);
   vm.runInContext(resolverWith("[]"), context);
@@ -712,95 +720,56 @@ test("actual shared matcher respects calendar precision and explicit employment 
   );
   const question =
     "Will your employment require sponsorship now or in the future?";
-  assert.equal(api.classify(question).topic, "sponsorship"); // One classifier for old and expanded Profiles.
-  assert.equal(
-    (
-      await context.JobsAnswerResolver.resolve(
-        [{ question }],
-        profile({ applicationData: {} }),
-      )
-    )[0].answer,
-    "Yes",
-  );
-  assert.equal(
-    (
-      await context.JobsAnswerResolver.resolve(
-        [{ question }],
-        profile({
-          applicationData: { sponsorshipNow: false, sponsorshipFuture: false },
-        }),
-      )
-    )[0].answer,
-    "No",
-  );
-  assert.equal(
-    (
-      await context.JobsAnswerResolver.resolve(
-        [{ question }],
-        profile({ applicationData: { sponsorshipNow: false } }),
-      )
-    ).length,
-    0,
-  );
+  assert.equal(api.classify(question), null);
+  for (const current of [
+    profile({ applicationData: {} }),
+    profile({
+      applicationData: { sponsorshipNow: false, sponsorshipFuture: false },
+    }),
+    profile({ applicationData: { sponsorshipNow: false } }),
+  ])
+    assert.equal(
+      (await context.JobsAnswerResolver.resolve([{ question }], current))
+        .length,
+      0,
+    );
   for (const compound of [
     "Will your employment require sponsorship and authorization to work?",
     "Will your employment require sponsorship without permanent residency?",
   ]) {
-    assert.equal(api.resolve(compound, profile()), null, compound);
+    assert.equal(typedAnswer(api, compound, profile()), null, compound);
     assert.equal(
-      api.resolve(compound, profile({ applicationData: {} })),
+      typedAnswer(api, compound, profile({ applicationData: {} })),
       null,
       compound,
     );
   }
 });
 
-test("unrecognized sponsorship wording requires exact memory for every Profile version", async () => {
+test("unrecognized wording and exact saved answers cannot override updated sponsorship facts locally", async () => {
   const context = vm.createContext({});
   vm.runInContext(code, context);
   const question = "Will this role require sponsorship from our company?";
   vm.runInContext(
     resolverWith(
-      `[{origin:"person",question:${JSON.stringify(question)},response:'Yes',keywords:['require','sponsorship'],appearances:2}]`,
+      '[{origin:"person",question:"Will this role require sponsorship from our company?",response:"Yes",keywords:["sponsorship"],appearances:1}]',
     ),
     context,
   );
-  const legacy = profile({ applicationData: {} }),
-    explicit = profile({
+  for (const current of [
+    profile({ applicationData: {} }),
+    profile({
       applicationData: { sponsorshipNow: false, sponsorshipFuture: false },
-    });
-  assert.equal(api.resolve(question, legacy), null);
-  assert.equal(
-    (await context.JobsAnswerResolver.resolve([{ question }], legacy))[0]
-      .answer,
-    "Yes",
-  );
-  assert.equal(api.resolve(question, explicit), null);
-  const exact = await context.JobsAnswerResolver.resolve(
-    [{ question }],
-    explicit,
-  );
-  assert.equal(exact[0].answer, "Yes");
-  assert.equal(exact[0].reason, "saved_exact_question");
-  for (const compound of [
-    "Will you require sponsorship and be legally authorized to work?",
-    "Can you work without visa sponsorship?",
-  ]) {
-    assert.equal(api.resolve(compound, explicit), null);
+    }),
+  ])
     assert.equal(
-      (
-        await context.JobsAnswerResolver.resolve(
-          [{ question: compound }],
-          explicit,
-        )
-      ).length,
+      (await context.JobsAnswerResolver.resolve([{ question }], current))
+        .length,
       0,
     );
-  }
-  assert.equal(api.resolve("When can you start working?", legacy), null); // Other absent new fields retain their old fallback.
 });
 
-test("capture equivalence preserves corrections and precision even after wider field coverage", () => {
+test("typed answers: capture equivalence preserves corrections and precision even after wider field coverage", () => {
   const p = profile();
   for (const record of [
     { question: "Will you need sponsorship?", response: "No" },
@@ -828,7 +797,7 @@ test("capture equivalence preserves corrections and precision even after wider f
   );
 });
 
-test("search terms belong to the answer rule: a school tries its full name, campus, then a distinctive word; a place its city in its state", () => {
+test("typed answers: search terms belong to the answer rule: a school tries its full name, campus, then a distinctive word; a place its city in its state", () => {
   assert.deepEqual(
     Array.from(api.schoolSpec("University of California, Berkeley").queries),
     ["University of California, Berkeley", "Berkeley", "California"],
@@ -848,11 +817,12 @@ test("search terms belong to the answer rule: a school tries its full name, camp
     ),
     ["Sample City, California", "Sample City"],
   );
-  const place = api.resolve("Location (City)", profile());
+  const place = typedAnswer(api, "Location (City)", profile());
   assert.equal(place.answer, "Sample City, California");
   assert.equal(place.optionSpec.topic, "location");
   assert.equal(
-    api.resolve(
+    typedAnswer(
+      api,
       "Location (City)",
       profile({ addressData: { city: "Sample City" } }),
     ).optionSpec,
@@ -861,7 +831,7 @@ test("search terms belong to the answer rule: a school tries its full name, camp
   );
 });
 
-test("the education entry of a page section picks that entry; without one, several entries stay unresolved", () => {
+test("typed answers: the education entry of a page section picks that entry; without one, several entries stay unresolved", () => {
   const two = profile({
     educationData: [
       { school: "First University", fieldOfStudy: "Physics" },
@@ -874,13 +844,13 @@ test("the education entry of a page section picks that entry; without one, sever
     "Second University",
   );
   assert.equal(
-    api.resolve("School", two, { educationIndex: 1 }).optionSpec.topic,
+    typedAnswer(api, "School", two, { educationIndex: 1 }).optionSpec.topic,
     "school",
   );
   assert.equal(answer("Field of study", two, { educationIndex: 0 }), "Physics");
 });
 
-test("geography compound labels require the matching city and state, never just a postal prefix", () => {
+test("typed answers: geography compound labels require the matching city and state, never just a postal prefix", () => {
   const context = {
     geography: { kind: "postalCode", city: "San Leandro", state: "CA" },
   };

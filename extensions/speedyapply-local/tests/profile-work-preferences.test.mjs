@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readModule } from "./helpers/module-source.mjs";
@@ -26,9 +29,9 @@ const profile = {
   },
 };
 const answer = (question, p = profile) =>
-  api.resolve(question, p)?.answer ?? null;
+  typedAnswer(api, question, p)?.answer ?? null;
 
-test("explicit work preferences answer variable companies and office schedules", () => {
+test("typed answers: explicit work preferences answer variable companies and office schedules", () => {
   for (const q of [
     "Are you willing to relocate?",
     "Are you available to relocate to Boston for this position?*",
@@ -47,7 +50,7 @@ test("explicit work preferences answer variable companies and office schedules",
     assert.equal(answer(q), "Yes", q);
 });
 
-test("confirmed absence of relevant relationships works across names, definitions and job scopes", () => {
+test("typed answers: confirmed absence of relevant relationships works across names, definitions and job scopes", () => {
   for (const q of [
     "Do you have any relatives employed at Example Corp?",
     "Are you related to, or in a close personal relationship with, anyone who currently works for Example or any affiliated studios?",
@@ -66,7 +69,7 @@ test("confirmed absence of relevant relationships works across names, definition
   );
 });
 
-test("preferences do not invent residence, dates, hours, work authorization or personal job history", () => {
+test("typed answers: preferences do not invent residence, dates, hours, work authorization or personal job history", () => {
   for (const q of [
     "Do you currently live within 50 miles of the office?",
     "Which office location do you prefer?",
@@ -114,11 +117,11 @@ test("preferences do not invent residence, dates, hours, work authorization or p
       { question: "Are you willing to relocate?", response: "Yes" },
       profile,
     ),
-    true,
+    false,
   );
 });
 
-test("office policy dates are distinguished from work availability dates", () => {
+test("typed answers: office policy dates are distinguished from work availability dates", () => {
   assert.equal(
     answer(
       "As of January 1st, 2024, all onsite employees are required to be onsite 3x/week. Are you able to comply, or are you seeking fully remote opportunities?",

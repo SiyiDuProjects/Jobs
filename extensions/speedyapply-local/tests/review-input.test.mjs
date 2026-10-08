@@ -499,7 +499,8 @@ test("a populated replacement keeps its review and ledger, rejects the old revis
     assert.equal(h.shadow().querySelector("input").value, "Example County");
     assert.equal(book.peek(fresh), record, "one field keeps one ledger record");
     assert.equal(book.carded().length, 1);
-    assert.equal(record.decider, "user");
+    assert.equal(record.decider, "agent");
+    assert(h.w.JobsFormPipeline.answered(root).has(record.node));
     assert(
       (
         await h.w.JobsAIReview.remoteAnswer(
@@ -908,11 +909,11 @@ test("an Ashby search dropdown with no loaded options stays visible as an unreso
     assert.equal(h.w.JobsAIReview.pending(), true);
     assert.equal(h.shadow().querySelectorAll(".review-row").length, 1);
     assert.match(
-      h.shadow().textContent,
+      h.w.document.querySelector("label").textContent,
       /Which country do you intend to work from/,
     );
     assert.match(h.shadow().textContent, /待补充/);
-    assert.equal(h.requests(), 0);
+    assert.equal(h.requests(), 1);
     assert.equal(h.clicks(), 0);
   } finally {
     h.close();

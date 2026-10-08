@@ -5,8 +5,10 @@ This module performs no network requests and never logs personal quotations.
 """
 import hashlib
 import json
+import fnmatch
 
 VERSION = 2
+from .answer_policy import POLICY
 
 
 def facts(profile):
@@ -33,6 +35,8 @@ def citation_schema(profile):
          'required': ['profilePath'], 'additionalProperties': False},
         {'type': 'object', 'properties': {'noteQuote': {'type': 'string'}},
          'required': ['noteQuote'], 'additionalProperties': False},
+        {'type': 'object', 'properties': {'authorization': {'type': 'string', 'enum': list(POLICY['standingAuthorizations'])}},
+         'required': ['authorization'], 'additionalProperties': False},
     ]}}
 
 
@@ -52,6 +56,8 @@ def resolve(citations, profile):
             if not 4 <= len(quote.strip()) <= 3000 or not isinstance(notes, str) or quote not in notes:
                 return None
             resolved.append({'noteQuote': quote})
+        elif set(item) == {'authorization'} and isinstance(item['authorization'], str) and item['authorization'] in POLICY['standingAuthorizations']:
+            resolved.append({'authorization': item['authorization'], 'scope': POLICY['standingAuthorizations'][item['authorization']]})
         else:
             return None
     return resolved
@@ -74,30 +80,50 @@ def candidates(rows, fields, profile):
     return result
 
 
-def decide(row, field, profile, profile_id, profile_version):
-    from .answer_semantics import supported, topic_for, field_key, VOCABULARY, classification
+def decide(row, field, profile, profile_id, profile_version, check=None):
+    from .answer_semantics import field_key, VOCABULARY, classification
     meaning = classification(row.get('meaning'))
     if meaning is None:
-        meaning = {'topic': topic_for(field), 'country': '', 'company': '', 'timeframe': ''}
+        meaning = {'topic': 'unknown', 'country': '', 'company': '', 'timeframe': ''}
+    if check and classification(check.get('meaning')):
+        meaning = classification(check['meaning'])
     evidence = resolve(row.get('evidence'), profile)
-    verified = (row['state'] == 'answer' and row['source'] == 'profile' and bool(evidence)
-                and supported(field, row['value'], evidence, meaning, profile))
+    verdict = check.get('verdict') if check else None
+    spec = VOCABULARY['topics'][meaning['topic']]
+    def compatible(item):
+        if 'profilePath' in item:
+            return any(fnmatch.fnmatchcase(item['profilePath'], pattern) for pattern in spec['paths'])
+        if 'noteQuote' in item:
+            return spec['notes']
+        return 'authorization' in item and meaning['topic'] == 'acknowledgment'
+    compatible_evidence = bool(evidence) and all(compatible(item) for item in evidence)
+    verified = (compatible_evidence and (field['required'] or all('authorization' not in item for item in evidence))
+                and row['state'] == 'answer' and verdict == 'write')
+    # Date precision is a value invariant, independent of question wording or
+    # how many education records the Profile contains. A selected exact date
+    # cannot borrow a day from a month-only structured fact. Notes still need
+    # the semantic verdict for their stated date.
+    if verified and field['type'] == 'date' and all('profilePath' in item for item in evidence):
+        verified = any(item['value'] == row['value'] for item in evidence)
+    draft = (row['state'] == 'answer' and field['required'] and verdict == 'draft'
+             and meaning['topic'] in VOCABULARY['draftTopics']
+             and (not evidence or compatible_evidence))
     proof = {'version': VERSION, 'vocabularyVersion': VOCABULARY['version'],
              'profileId': profile_id, 'profileVersion': profile_version,
              'field': field_key(field), 'value': row['value'],
-             'status': 'verified' if verified else 'unverified',
+             'status': 'verified' if verified or draft else 'unverified',
              'id': evidence_id(field, row['value'], row.get('evidence')),
              'paths': [item['profilePath'] for item in evidence or [] if 'profilePath' in item]}
-    draft = row['state'] == 'answer' and row['source'] == 'suggestion' and field['required']
-    reason = 'control_failure' if row.get('invalidValue') else 'new_commitment' if meaning['topic'] == 'acknowledgment' else 'missing_fact'
+    reason = ('control_failure' if row.get('invalidValue') or verdict == 'unavailable' else
+              'new_commitment' if verdict == 'new_commitment' or meaning['topic'] == 'acknowledgment' else 'missing_fact')
     decision = 'write' if verified else 'draft' if draft else 'ask'
     result = {**row, 'meaning': meaning, 'proof': proof, 'decision': decision,
-              'needsConfirmation': not verified}
+              'needsConfirmation': not verified, 'source': 'profile' if verified else 'suggestion' if draft else row['source']}
     if decision == 'ask':
         result.update(state='needs_input', source='unknown', value=None, interruptionReason=reason)
         result.pop('answerZh', None)
     # Citations are transient review data. Never put them in diagnostics or cache.
     result.pop('invalidValue', None)
-    if not verified:
+    if not verified and not draft:
         result.pop('evidence', None)
     return result

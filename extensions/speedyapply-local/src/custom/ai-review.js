@@ -44,6 +44,7 @@ export function initializeAiReview() {
         reader,
         url: location.href,
         items: new Map(),
+        summary: [],
         onConfirm: null,
         validate: null,
         busy: false,
@@ -239,18 +240,30 @@ export function initializeAiReview() {
             error: item.error || "",
           });
         }
+        for (const [index, item] of own.summary.entries())
+          items.push({
+            id: "summary-" + index,
+            question: item.question,
+            originalQuestion: item.question,
+            answer: item.answer,
+            source: "提交前核对的草稿",
+            reviewState: "pending",
+            error: "",
+          });
         // Acknowledging AI answers is not whole-form validation. Missing or
         // replaced controls must never lock both Confirm and native Continue.
         own.canConfirm = !own.busy && !!own.onConfirm;
         if (own.hidden || !render) return rows;
         present(own, {
           id: own.id,
-          title:
-            filled || omitted
+          title: own.summary.length
+            ? "提交前核对草稿"
+            : filled || omitted
               ? `AI 补填 · ${filled} 项${omitted ? ` · 留空 ${omitted} 项` : ""}${unresolved ? ` · 待补 ${unresolved} 项` : ""}`
               : `需要你补充 · ${own.items.size} 项`,
-          status:
-            unresolved && own.onConfirm
+          status: own.summary.length
+            ? "统一检查这些草稿；需修改前面步骤时可先返回。"
+            : unresolved && own.onConfirm
               ? `还有 ${unresolved} 项待补或需检查，可直接在这里作答。`
               : own.status,
           canConfirm: own.canConfirm,
@@ -452,7 +465,7 @@ export function initializeAiReview() {
           {
             ledger: JobsFormPipeline.ledgerFor(own.root),
             root: own.root,
-            decider: "user",
+            decider: origin === "person" ? "user" : origin,
             source: "review-card",
             replace: true,
             canProceed: current,
@@ -606,8 +619,15 @@ export function initializeAiReview() {
         }
         active.add(row, options);
       },
+      summary(root, reader, items) {
+        if (active && active.root !== root) throw Error("上一页审核尚未结束");
+        if (!active) active = create(root, reader);
+        active.summary = items;
+        active.refresh();
+      },
       canAutoConfirm(root) {
-        if (!active || active.root !== root) return false;
+        if (!active || active.root !== root || active.summary.length)
+          return false;
         const rows = active.refresh(false, false);
         return [...active.items].every(([node, item]) => {
           const row = rows.find((row) => row.node === node);

@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -35,8 +38,12 @@ const versions = [
     },
   ],
 ];
-const resolve = (question, options, profile) =>
-  c.JobsAnswerResolver.decide({ question, options }, profile, { options }, []);
+const resolve = (question, options, profile) => ({
+  answer: c.JobsProfileAnswers.select(
+    typedAnswer(c.JobsProfileAnswers, question, profile, { options }),
+    options,
+  ),
+});
 
 for (const [version, profile] of versions) {
   for (const question of [
@@ -87,7 +94,7 @@ for (const [version, profile] of versions) {
   });
 }
 
-test("timed sponsorship options still distinguish now, future and combined negative facts", () => {
+test("typed answers: timed sponsorship options still distinguish now, future and combined negative facts", () => {
   const question = "Will you require sponsorship now or in the future?";
   const now =
     "Yes, I will require immigration sponsorship now to legally work in the country where the job is located.";

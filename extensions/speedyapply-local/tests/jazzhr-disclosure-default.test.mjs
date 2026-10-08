@@ -151,5 +151,5 @@ for (const value of [undefined, ""])
       p.traces.some((entry) => entry.result === "committed"),
       false,
     );
-    assert.equal(p.requests.length, 0);
+    assert.equal(p.requests.length, 1);
   });

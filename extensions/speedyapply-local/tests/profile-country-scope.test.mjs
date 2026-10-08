@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -21,7 +24,7 @@ const api = c.JobsProfileAnswers,
     employmentData: { eligibilityUS: true, sponsorship: true },
   };
 
-test("one country catalog retains aliases and covers additional known countries", () => {
+test("typed answers: one country catalog retains aliases and covers additional known countries", () => {
   for (const [label, code] of [
     ["United States", "US"],
     ["U.S.", "US"],
@@ -48,7 +51,7 @@ test("one country catalog retains aliases and covers additional known countries"
   assert.equal(api.country("US or Mexico"), "MIXED");
 });
 
-test("known and unrecognized named countries never inherit US home facts", () => {
+test("typed answers: known and unrecognized named countries never inherit US home facts", () => {
   for (const [place, expected] of [
     ["India", "IN"],
     ["Mexico", "MX"],
@@ -67,7 +70,7 @@ test("known and unrecognized named countries never inherit US home facts", () =>
         question,
       );
       assert.equal(
-        api.resolve(question, profile)?.answer ?? null,
+        typedAnswer(api, question, profile)?.answer ?? null,
         null,
         question,
       );
@@ -79,7 +82,7 @@ test("known and unrecognized named countries never inherit US home facts", () =>
   }
 });
 
-test("mixed or partly unknown jurisdictions remain conservative across individual questions and batch scope", () => {
+test("typed answers: mixed or partly unknown jurisdictions remain conservative across individual questions and batch scope", () => {
   for (const question of [
     "Are you authorized to work in India or Mexico?",
     "Are you authorized to work in US and Canada?",
@@ -122,7 +125,7 @@ test("mixed or partly unknown jurisdictions remain conservative across individua
   );
 });
 
-test("timing and generic job wording are not mistaken for named countries", () => {
+test("typed answers: timing and generic job wording are not mistaken for named countries", () => {
   for (const question of [
     "Will you require sponsorship in the future?",
     "Do you require sponsorship for this role?",
@@ -155,11 +158,15 @@ test("timing and generic job wording are not mistaken for named countries", () =
   );
 });
 
-test("employer suffixes do not become part of a country name or erase unknown and mixed countries", () => {
+test("typed answers: employer suffixes do not become part of a country name or erase unknown and mixed countries", () => {
   for (const suffix of ["for any employer", "for any company"]) {
     const known = `Are you legally authorized to work in the United States ${suffix}?`;
     assert.equal(api.requestedCountry(known, {}, "CA"), "US");
-    assert.equal(api.resolve(known, profile)?.answer, "Yes");
+    assert.equal(
+      api.resolve(known, profile),
+      null,
+      "qualified wording belongs to the service decision",
+    );
     for (const [place, expected] of [
       ["Canada", "CA"],
       ["Chile", "UNKNOWN"],
@@ -173,7 +180,7 @@ test("employer suffixes do not become part of a country name or erase unknown an
         question,
       );
       assert.equal(
-        api.resolve(question, profile)?.answer ?? null,
+        typedAnswer(api, question, profile)?.answer ?? null,
         null,
         question,
       );
@@ -181,7 +188,7 @@ test("employer suffixes do not become part of a country name or erase unknown an
   }
 });
 
-test("what sponsorship is for and parenthetical visa examples are not places", () => {
+test("typed answers: what sponsorship is for and parenthetical visa examples are not places", () => {
   for (const question of [
     "Will you now or in the future require sponsorship for work authorization (e.g., H-1B, TN)?",
     "Do you require sponsorship for an employment visa?",
@@ -205,7 +212,8 @@ test("what sponsorship is for and parenthetical visa examples are not places", (
     "UNKNOWN",
   );
   assert.equal(
-    api.resolve(
+    typedAnswer(
+      api,
       "Will you now or in the future require sponsorship for work authorization (e.g., H-1B, TN)?",
       profile,
     )?.answer,
@@ -213,23 +221,24 @@ test("what sponsorship is for and parenthetical visa examples are not places", (
   );
 });
 
-test("GTS job-country wording uses page scope without granting unrestricted work rights", () => {
+test("typed answers: GTS job-country wording uses page scope without granting unrestricted work rights", () => {
   const question =
     "Are you eligible to work in the country you are applying for the job?*";
   assert.equal(api.requestedCountry(question, { country: "US" }, "US"), "US");
   assert.equal(
-    api.resolve(question, profile, { country: "US" })?.answer,
+    typedAnswer(api, question, profile, { country: "US" })?.answer,
     "Yes",
   );
   for (const country of ["CA", "UNKNOWN", "MIXED"]) {
     assert.equal(api.requestedCountry(question, { country }, "US"), country);
     assert.equal(
-      api.resolve(question, profile, { country })?.answer ?? null,
+      typedAnswer(api, question, profile, { country })?.answer ?? null,
       null,
     );
   }
   assert.equal(
-    api.resolve(
+    typedAnswer(
+      api,
       question,
       { addressData: profile.addressData },
       { country: "US" },
@@ -239,7 +248,7 @@ test("GTS job-country wording uses page scope without granting unrestricted work
   const unrestricted =
     "Do you have the unrestricted right to work in the United States? (For clarification: Persons in OPT, H-1, L-1 and TN status do not have unrestricted right to work.)*";
   assert.equal(
-    api.resolve(unrestricted, profile, { country: "US" })?.answer ?? null,
+    typedAnswer(api, unrestricted, profile, { country: "US" })?.answer ?? null,
     null,
   );
   assert.equal(

@@ -129,7 +129,7 @@ export function initializeFormPipeline() {
           // The person may always replace an automatic answer.
           if (
             decider !== "user" &&
-            !(decider === "remote" && replace) &&
+            !(["remote", "agent", "page-tool"].includes(decider) && replace) &&
             ["claimed", "decided"].includes(record.state)
           ) {
             note(
@@ -166,7 +166,7 @@ export function initializeFormPipeline() {
             decider + ": " + String(reason || "").slice(0, 120),
           );
         },
-        // Binding and rule answers are not saved again as the person's own
+        // Automatic and agent answers are not saved again as the person's own
         // answers, including a field whose element the page has since replaced.
         answered() {
           if ([...records.values()].some((record) => !record.node.isConnected))
@@ -177,7 +177,7 @@ export function initializeFormPipeline() {
                 (record) =>
                   known(record.node) === record &&
                   record.state === "decided" &&
-                  !["ai", "user"].includes(record.decider),
+                  record.decider !== "user",
               )
               .map((record) => record.node),
           );

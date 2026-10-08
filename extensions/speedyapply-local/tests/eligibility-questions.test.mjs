@@ -83,7 +83,7 @@ test("authorization country and reversed age wording are decided from the full q
     assert.equal(await answer(t, question, current), expected, question);
 });
 
-test("Tesla legal questions stay blank without facts and take exact saved answers", async (t) => {
+test("Tesla legal controls stay blank without facts and accept explicit verified replies", async (t) => {
   const questions = [
     [
       "legalConsiderOtherPositions",
@@ -142,7 +142,7 @@ test("Tesla legal questions stay blank without facts and take exact saved answer
     site: "tesla",
     html,
     url: "https://www.tesla.com/careers/search/job/apply/1",
-    saved,
+    replies: saved,
   });
   await known.fill((w) => w.teslaFillLegalPage(oldProfile), {
     current: oldProfile,

@@ -1,8 +1,8 @@
-from .answer_policy import FIELD_INSTRUCTIONS as INSTRUCTIONS, POLICY, needs_confirmation
+from .answer_policy import FIELD_INSTRUCTIONS as INSTRUCTIONS, needs_confirmation
 """Structured field answers. This contract contains no navigation commands."""
 from datetime import date
 import re
-TYPES = {'text','textarea','email','tel','url','number','date','month','search',
+TYPES = {'text','textarea','email','tel','url','number','date','month','search','search-choice',
          'radio','yesno','custom-radio','select-one','select-multiple','checkbox','custom-checkbox','combobox'}
 CHOICES = {'radio','yesno','custom-radio','select-one','select-multiple','combobox'}
 
@@ -33,6 +33,7 @@ def fields_input(payload):
                 raise ValueError('Ambiguous option value: '+field['fieldId'])
             unique[option['value']]=option
         field['options']=list(unique.values())
+        if item['type'] == 'search-choice' and options: raise ValueError('Search query cannot include offered choices')
         if item['type'] in CHOICES and not options: raise ValueError('选择题缺少可用选项')
         fields.append(field)
     if len({f['fieldId'] for f in fields})!=len(fields): raise ValueError('Duplicate fields')
@@ -76,19 +77,7 @@ def _date_fact_error(field, value, profile):
     exact = _exact_date(value)
     if not exact:
         return '此题需要有效的完整日期；AI 未返回可用日期，请补充。'
-    if profile is None or not POLICY['rules']['exactDatesRequireExactFacts']:
-        return None
-    question = field['question'] + ' ' + field.get('description', '')
-    for rule in POLICY['rules']['exactDateFacts']:
-        if not re.search(rule['question'], question, re.I):
-            continue
-        section, key = rule['profilePath'].split('.')
-        records = profile.get(section, [])
-        values = [_exact_date(row.get(key)) for row in records]
-        # Missing and ambiguous facts both abstain. A day borrowed from another
-        # education record cannot repair the incomplete record requested here.
-        if not values or any(v is None for v in values) or set(values) != {exact}:
-            return 'Profile 没有能支持此答案的唯一明确毕业日期；不能从月份猜测日期，请补充。'
+
     return None
 
 
@@ -100,7 +89,7 @@ def checked_answers(body,fields,profile=None):
         if not isinstance(row,dict) or row.get('fieldId') not in expected or row['fieldId'] in seen:
             raise ValueError('Luna 返回了未知或重复字段')
         field=expected[row['fieldId']];seen.add(row['fieldId']);value=row.get('value')
-        state=row.get('state');source=row.get('source','unknown')
+        state=row.get('state');source=row.get('source','unknown');invalid_value=False
         if source not in {'profile','suggestion','unknown'}:source='unknown'
         try:
             reason=_string(row.get('reason'),600,'reason',True)
@@ -120,6 +109,7 @@ def checked_answers(body,fields,profile=None):
         except ValueError:
             # Keep correctly identified, valid answers usable. Invalid values
             # stay unfilled and visible in the existing review card.
+            invalid_value=True
             state,value,reason='needs_input',None,'这题的 AI 答案格式或选项不符，未填入；请检查此题。其他有效答案可正常填入。'
         if state == 'answer':
             date_error = _date_fact_error(field, value, profile)
@@ -137,6 +127,7 @@ def checked_answers(body,fields,profile=None):
                 result[key]=display.strip()
         for key in ['evidence','meaning']:
             if key in row: result[key] = row[key]
+        if invalid_value: result['invalidValue'] = True
         if state=='needs_input':result.pop('answerZh',None)
         checked.append(result)
     return checked

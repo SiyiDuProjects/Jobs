@@ -13,7 +13,7 @@ const privateKey = (key) =>
   key === "jobsDiagnosticsV1" ||
   key === "jobsBrowserControlV1" ||
   key === "jobsDiagnosticSaltV2" ||
-  /^(?:profile_|job_|jobsResponses:|jobsTabBinding:|jobsResponseTab:)/.test(
+  /^(?:profile_|job_|jobsDrafts:|jobsResponses:|jobsTabBinding:|jobsResponseTab:)/.test(
     key,
   );
 /** @template T @param {()=>Promise<T>} action @returns {Promise<T>} */

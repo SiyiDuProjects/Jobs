@@ -136,6 +136,13 @@ test("a free-text tag is its own option: the rule accepts the query or nothing i
 test("Indeed demographic questions run as one page run: ordinary privacy consent and Profile rules, with no navigation", async (t) => {
   const p = await adapterPage(t, {
     site: "indeed",
+    replies: [
+      {
+        question:
+          "I agree to the privacy policy for processing my personal data",
+        response: "Yes",
+      },
+    ],
     url: "https://smartapply.indeed.com/beta/indeedapply/form/demographic-questions/1",
     html: `<main><form>
     <div class="ia-Questions-item"><fieldset><legend>Gender</legend><label><input type="radio" name="gender" value="Female">Female</label><label><input type="radio" name="gender" value="Male">Male</label></fieldset></div>
@@ -159,8 +166,8 @@ test("Indeed demographic questions run as one page run: ordinary privacy consent
   );
   assert.deepEqual(p.checked('input[name="gender"]'), ["Male"]);
   assert(
-    p.traces.some((entry) => entry.decider === "rule"),
-    "the consent answer is decided by the shared rule",
+    p.traces.some((entry) => entry.decider === "ai"),
+    "the required consent passes through verified standing authority",
   );
   // The run ends with the page filled and no continuation of its own.
   await until(
@@ -177,6 +184,13 @@ test("Indeed demographic questions run as one page run: ordinary privacy consent
 test("the Indeed review page names the job that is recorded once the application is sent", async (t) => {
   const p = await adapterPage(t, {
     site: "indeed",
+    replies: [
+      {
+        question:
+          "I agree to the privacy policy for processing my personal data",
+        response: "Yes",
+      },
+    ],
     url: "https://smartapply.indeed.com/beta/indeedapply/form/review",
     html: '<div class="ia-JobHeader"><h1>Research Engineer</h1><span>Example Labs - Boston, MA</span></div><script>window.data={"jk":"abc123"}</script>',
   });

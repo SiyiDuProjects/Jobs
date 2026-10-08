@@ -108,13 +108,13 @@ test("actual Workday Review callback submits once when autoSubmit is enabled and
     h.close();
   }
 });
-test("disabled autoSubmit reports waiting for manual submit without reading Profile or remaining in progress", async () => {
+test("disabled autoSubmit checks the bound Profile for draft review and waits for manual submit", async () => {
   const h = setup({ autoSubmit: false });
   try {
     await h.run();
     await settle(h, () => h.messages.includes("ready-submit"));
     assert.equal(h.clicks(), 0);
-    assert.equal(h.profiles(), 0);
+    assert.equal(h.profiles(), 1);
   } finally {
     h.close();
   }

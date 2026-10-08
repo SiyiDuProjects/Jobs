@@ -1,6 +1,5 @@
 """Published answer boundaries shared by the deterministic rules and AI prompt."""
 import json
-import re
 from pathlib import Path
 
 POLICY = json.loads(Path(__file__).with_name("answer-policy.json").read_text(encoding="utf-8"))

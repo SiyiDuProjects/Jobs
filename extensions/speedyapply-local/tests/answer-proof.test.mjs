@@ -77,4 +77,11 @@ test("only exact field value and pinned Profile evidence can remove confirmation
     true,
   );
   assert.equal(verifiedAnswer(valid, { ...field, required: false }), false);
+  assert.equal(
+    verifiedAnswer(
+      { ...valid, decision: "draft", source: "suggestion" },
+      field,
+    ),
+    false,
+  );
 });

@@ -1,3 +1,4 @@
+import { confirmedAnswer, confirmedDraft } from "./helpers/verified-answer.mjs";
 import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
@@ -66,11 +67,8 @@ function setup() {
           return {
             data: {
               answers: msg.fields.map((field) => ({
-                fieldId: field.fieldId,
-                state: "answer",
-                value: "No",
+                ...confirmedDraft(field, "No"),
                 reason: "Synthetic test",
-                source: "suggestion",
                 questionZh: "测试问题",
                 answerZh: "否",
               })),
@@ -220,8 +218,11 @@ test("explicit manual review: four Workday button questions fill exact options a
     );
     assert.equal(await h.w.JobsAIReview.confirm(), true);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(h.saved.length, 4);
-    assert(h.saved.every((row) => row.response === "No"));
+    assert.equal(
+      h.saved.length,
+      0,
+      "confirming unchanged generated text does not turn it into a personal fact",
+    );
     assert.equal(h.clicks(), 0);
   } finally {
     h.close();
@@ -647,10 +648,13 @@ test("explicit manual review: Workday exclusive choice produces one readable ite
       return {
         data: {
           answers: msg.fields.map((field) => ({
-            fieldId: field.fieldId,
-            state: "answer",
-            value: field.options.find((o) => o.label === "Choice B").value,
-            source: "profile",
+            ...confirmedAnswer(field, {
+              fieldId: field.fieldId,
+              state: "answer",
+              value: field.options.find((o) => o.label === "Choice B").value,
+              source: "profile",
+              needsConfirmation: false,
+            }),
             questionZh: "测试选择",
             answerZh: "选项乙",
           })),

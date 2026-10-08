@@ -1,3 +1,4 @@
+import { fixtureReply } from "./helpers/fixture-provider.mjs";
 import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { installPageLifecycle } from "./helpers/page-lifecycle.mjs";
 import { inspectAnswerers } from "./helpers/one-answerer.mjs";
@@ -72,8 +73,15 @@ test("Workday declarations wait for country and preferred-name redraws; saveResp
   w.chrome = {
     runtime: {
       sendMessage: async (message) => {
-        assert.equal(message.type, "jobs:tab-profile");
-        return { data: { id: "fixture", profile: p } };
+        if (message.type === "jobs:tab-profile")
+          return { data: { id: "fixture", profile: p } };
+        return {
+          data: {
+            answers: (message.fields || []).map((field) =>
+              fixtureReply(w.JobsProfileAnswers, field, p),
+            ),
+          },
+        };
       },
     },
   };
@@ -179,13 +187,8 @@ test("a Workday step is one pipeline run: rule answers, AI for the gap, then one
           return {
             data: {
               answers: message.fields.map((field) =>
-                confirmedAnswer(field, {
-                  fieldId: field.fieldId,
-                  state: "answer",
-                  value: "The mission and the team.",
-                  source: "ai",
-                  reason: "fixture",
-                  needsConfirmation: false,
+                fixtureReply(w.JobsProfileAnswers, field, profile, {
+                  text: "The mission and the team.",
                 }),
               ),
             },
@@ -274,7 +277,10 @@ test("a Workday step is one pipeline run: rule answers, AI for the gap, then one
     JSON.parse(
       JSON.stringify(requests[0].fields.map((field) => field.question)),
     ),
-    ["Why this company? *"],
+    [
+      "Are you legally authorized to work in the United States?",
+      "Why this company? *",
+    ],
   );
   assert.equal(
     notes.filter((note) => note.type === "auto_step_started").length,
@@ -285,7 +291,7 @@ test("a Workday step is one pipeline run: rule answers, AI for the gap, then one
   inspected.check(
     doc.querySelector('[data-automation-id="applyFlowPrimaryQuestionsPage"]'),
   );
-  assert.equal(inspected.claims.get(button)?.[0], "rule");
+  assert.equal(inspected.claims.get(button)?.[0], "ai");
 });
 
 test("a run without the step fill (queue resume, remote command) never swallows the adapter step fill", async (t) => {
@@ -309,13 +315,8 @@ test("a run without the step fill (queue resume, remote command) never swallows 
           return {
             data: {
               answers: message.fields.map((field) =>
-                confirmedAnswer(field, {
-                  fieldId: field.fieldId,
-                  state: "answer",
-                  value: "The mission and the team.",
-                  source: "ai",
-                  reason: "fixture",
-                  needsConfirmation: false,
+                fixtureReply(w.JobsProfileAnswers, field, profile, {
+                  text: "The mission and the team.",
                 }),
               ),
             },
@@ -441,13 +442,8 @@ test("status reports from a single-pipeline adapter never start another run", as
           return {
             data: {
               answers: message.fields.map((field) =>
-                confirmedAnswer(field, {
-                  fieldId: field.fieldId,
-                  state: "answer",
-                  value: "The mission and the team.",
-                  source: "ai",
-                  reason: "fixture",
-                  needsConfirmation: false,
+                fixtureReply(w.JobsProfileAnswers, field, profile, {
+                  text: "The mission and the team.",
                 }),
               ),
             },

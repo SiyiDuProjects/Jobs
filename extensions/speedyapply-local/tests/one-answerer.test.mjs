@@ -1,3 +1,5 @@
+import { fixtureAnswers } from "./helpers/fixture-provider.mjs";
+import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -47,11 +49,17 @@ function fixture(t, html, saved = []) {
         requests.push(message);
         return {
           data: {
-            answers: message.fields.map((field) => ({
-              fieldId: field.fieldId,
-              state: "needs_input",
-              reason: "Unknown",
-            })),
+            answers: message.fields.map((field) =>
+              field.question === "Conditional answer"
+                ? confirmedAnswer(field, {
+                    fieldId: field.fieldId,
+                    state: "answer",
+                    value: "Confirmed",
+                    source: "profile",
+                    needsConfirmation: false,
+                  })
+                : fixtureAnswers(w.JobsProfileAnswers, [field], profile)[0],
+            ),
           },
         };
       },
@@ -122,7 +130,7 @@ test("bindings precede one resolver visit, including newly revealed questions; o
   assert.equal(f.root.querySelector("#child").value, "Confirmed");
   assert.equal(f.root.querySelector("#optional").value, "");
   assert([...f.calls.values()].every((count) => count === 1));
-  assert.equal(f.requests.length, 0);
+  assert.equal(f.requests.length, 2);
   for (const id of ["name", "auth", "child"])
     assert.equal(
       f.traces.filter((e) => e.node.id === id && e.result === "decided").length,
@@ -151,7 +159,7 @@ test("a second deciding binding is refused without overwriting or blocking the r
     1,
   );
 });
-test("unknown optional answers are never sent to AI", async (t) => {
+test("unknown optional answers share one batch but never create a blocking card", async (t) => {
   const f = fixture(
     t,
     "<label>Unknown optional<input></label><label>Unknown required<input required></label>",
@@ -160,7 +168,7 @@ test("unknown optional answers are never sent to AI", async (t) => {
   assert.equal(f.requests.length, 1);
   assert.deepEqual(
     Array.from(f.requests[0].fields, (x) => x.question),
-    ["Unknown required"],
+    ["Unknown optional", "Unknown required"],
   );
   assert([...f.calls.values()].every((count) => count === 1));
 });

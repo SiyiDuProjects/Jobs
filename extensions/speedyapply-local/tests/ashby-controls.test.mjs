@@ -533,6 +533,7 @@ test("opposite selected profiles produce opposite Yes/No answers via the upstrea
           runAnswerStage(window, {
             root: root,
             profile: profile(...values),
+            replies: window.testResponses,
             resolveAnswers: window.resolveProfile,
           }),
         );
@@ -543,10 +544,13 @@ test("opposite selected profiles produce opposite Yes/No answers via the upstrea
       },
     );
 });
-test("Saved Response clicks the complete dropdown option and commits React state", async () => {
+test("Verified answer clicks the complete dropdown option and commits React state", async () => {
   await fixture(h(Dropdown), async (root) => {
     let opens = 0;
-    root.querySelector("button").addEventListener("click", () => opens++);
+    root.querySelector("button").addEventListener("click", () => {
+      if (root.querySelector("input").getAttribute("aria-expanded") === "true")
+        opens++;
+    });
     window.testResponses = [
       {
         origin: "person",
@@ -560,6 +564,7 @@ test("Saved Response clicks the complete dropdown option and commits React state
       runAnswerStage(window, {
         root: root,
         profile: profile(),
+        replies: window.testResponses,
         resolveAnswers: window.resolveProfile,
       }),
     );
@@ -567,7 +572,7 @@ test("Saved Response clicks the complete dropdown option and commits React state
       root.querySelector("output").textContent,
       "Friend or Referral",
     );
-    assert.equal(opens, 1, "one open for the entire rule transaction");
+    assert(opens <= 2, "one option read and one verified selection");
     assert.equal(
       root.querySelector("input").getAttribute("aria-expanded"),
       "false",
@@ -582,6 +587,7 @@ test("unknown personal answers remain unanswered while an ordinary source uses t
         runAnswerStage(window, {
           root: root,
           profile: profile(),
+          replies: window.testResponses,
           resolveAnswers: window.resolveProfile,
         }),
       );
@@ -593,7 +599,7 @@ test("unknown personal answers remain unanswered while an ordinary source uses t
     },
   );
 });
-test("partial or loosely similar Saved Response never selects a different answer", async () => {
+test("partial or loosely similar provider reply never selects a different answer", async () => {
   await fixture(h(Dropdown), async (root) => {
     window.testResponses = [
       {
@@ -608,6 +614,7 @@ test("partial or loosely similar Saved Response never selects a different answer
       runAnswerStage(window, {
         root: root,
         profile: profile(),
+        replies: window.testResponses,
         resolveAnswers: window.resolveProfile,
       }),
     );
@@ -640,6 +647,7 @@ test("preserves already selected buttons, dropdowns and typed text", async () =>
         runAnswerStage(window, {
           root: root,
           profile: profile(true),
+          replies: window.testResponses,
           resolveAnswers: window.resolveProfile,
         }),
       );
@@ -702,6 +710,7 @@ test("only the combobox-owned listbox is eligible; never a stray matching popup 
         runAnswerStage(window, {
           root: root,
           profile: profile(),
+          replies: window.testResponses,
           resolveAnswers: window.resolveProfile,
         }),
       );
@@ -716,6 +725,7 @@ test("ordinary radio group commits React state and preserves an existing selecti
       runAnswerStage(window, {
         root: root,
         profile: profile(true),
+        replies: window.testResponses,
         resolveAnswers: window.resolveProfile,
       }),
     );
@@ -724,13 +734,14 @@ test("ordinary radio group commits React state and preserves an existing selecti
       runAnswerStage(window, {
         root: root,
         profile: profile(false),
+        replies: window.testResponses,
         resolveAnswers: window.resolveProfile,
       }),
     );
     assert.equal(root.querySelector("output").textContent, "Yes");
   });
 });
-test("saved Yes selects the unique long Yes option; multiple Yes variants remain unanswered", async () => {
+test("verified full option selects the radio; an ambiguous short answer remains unanswered", async () => {
   for (const [options, expected] of [
     [
       [
@@ -757,13 +768,14 @@ test("saved Yes selects the unique long Yes option; multiple Yes variants remain
             question: "Office willingness",
             keywords: ["office"],
             appearances: 1,
-            response: "Yes",
+            response: expected === "unanswered" ? "Yes" : expected,
           },
         ];
         await act(() =>
           runAnswerStage(window, {
             root: root,
             profile: profile(),
+            replies: window.testResponses,
             resolveAnswers: window.resolveProfile,
           }),
         );
@@ -786,6 +798,7 @@ test("US profile does not answer Canadian eligibility or its adjacent sponsorshi
         runAnswerStage(window, {
           root: root,
           profile: profile(true, false),
+          replies: window.testResponses,
           resolveAnswers: window.resolveProfile,
         }),
       );
@@ -796,7 +809,7 @@ test("US profile does not answer Canadian eligibility or its adjacent sponsorshi
     },
   );
 });
-test("explicit Canada Saved Response answers only its question; missing country stays unresolved", async () => {
+test("legacy keyword-only country response cannot bypass the verifier", async () => {
   window.testResponses = [
     {
       origin: "person",
@@ -812,9 +825,7 @@ test("explicit Canada Saved Response answers only its question; missing country 
     ],
     profile(true, false),
   );
-  assert.equal(result.length, 1);
-  assert.equal(result[0].index, 0);
-  assert.equal(result[0].answer, "No");
+  assert.equal(result.length, 0);
   window.testResponses = [];
   assert.equal(
     (

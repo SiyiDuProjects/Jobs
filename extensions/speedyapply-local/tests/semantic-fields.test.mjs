@@ -1,3 +1,4 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -129,7 +130,7 @@ test("language matching is independent of display order and cannot infer fluency
       languageData: [{ language: "English", proficiency: "Intermediate" }],
     };
     assert.equal(
-      api.select(api.resolve("English proficiency", profile), [
+      api.select(typedAnswer(api, "English proficiency", profile), [
         "Elementary",
         "Limited working",
       ]),
@@ -303,7 +304,7 @@ test("Paylocity actual education adapter does not infer graduation or vocational
     ]);
     assert.equal(h.api.value(h.control), "Bachelor");
     assert.equal(
-      h.w.JobsProfileAnswers.resolve("Have you graduated?", {
+      typedAnswer(h.w.JobsProfileAnswers, "Have you graduated?", {
         educationData: [{ endDate: "2020-05" }],
       }).answer,
       null,

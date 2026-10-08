@@ -16,7 +16,6 @@ import {
   blankEducation,
   blankJob,
   defaultProfile,
-  questionKeywords,
   safeHref,
   type Profile as ProfileData,
   type ProfileRecord,

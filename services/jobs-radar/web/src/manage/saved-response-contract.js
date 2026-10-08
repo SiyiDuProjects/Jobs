@@ -1,7 +1,7 @@
 // One Saved Response contract for content, worker, the legacy editor and website.
 // The generated copies embed the server-owned declarative field contract.
 export const JobsResponseContract = (() => {
-  const rules = {"version":2,"keywordNormalization":"NFKC","keywordCategoryPrefixes":["L","N"],"keywordCharacters":"_","keywordWhitespace":true,"fields":{"keywords":{"type":"keywords","required":true,"minItems":1},"ignore":{"type":"strings"},"key":{"type":"string","required":true,"nonempty":true},"appearances":{"type":"integer","required":true,"minimum":1},"response":{"type":"string","required":true,"trim":true,"nonempty":true},"fromAutofill":{"type":"boolean","default":false},"question":{"type":"string"},"id":{"type":"string"},"jobKey":{"type":"string","nonempty":true},"origin":{"type":"string","enum":["person","agent","page-tool","legacy"]},"ruleVersion":{"type":"integer","minimum":1},"context":{"type":"object","fields":{"jobKey":{"type":"string","maxLength":3000},"companyKey":{"type":"string","maxLength":3000},"country":{"type":"string","maxLength":100},"capturedAt":{"type":"string","maxLength":100}}}},"appearancesCannotExceedKeywords":true,"questionKeywords":{"categories":["L","N"],"characters":"_","stopWords":["am","an","as","at","be","by","co","do","eg","et","ex","go","he","hi","ie","if","in","is","it","me","mr","my","nd","of","oh","ok","on","or","qv","rd","re","so","th","to","un","up","us","vs","we"],"minimumLetters":2}};
+  const rules = {"version":3,"keywordNormalization":"NFKC","keywordCategoryPrefixes":["L","N"],"keywordCharacters":"_","keywordWhitespace":true,"fields":{"keywords":{"type":"keywords","required":false,"minItems":1},"ignore":{"type":"strings"},"key":{"type":"string","required":true,"nonempty":true},"appearances":{"type":"integer","required":false,"minimum":1},"response":{"type":"string","required":true,"trim":true,"nonempty":true},"fromAutofill":{"type":"boolean","default":false},"question":{"type":"string"},"id":{"type":"string"},"jobKey":{"type":"string","nonempty":true},"origin":{"type":"string","enum":["person","agent","page-tool","legacy"]},"ruleVersion":{"type":"integer","minimum":1},"context":{"type":"object","fields":{"jobKey":{"type":"string","maxLength":3000},"companyKey":{"type":"string","maxLength":3000},"country":{"type":"string","maxLength":100},"capturedAt":{"type":"string","maxLength":100}}},"scope":{"type":"string","enum":["job","company","global"]}},"appearancesCannotExceedKeywords":true};
   const cleanPattern = new RegExp(
     "[^" +
       rules.keywordCategoryPrefixes
@@ -20,34 +20,6 @@ export const JobsResponseContract = (() => {
       .replace(cleanPattern, "")
       .replace(/\s+/gu, " ")
       .trim();
-  const questionRules = rules.questionKeywords;
-  const questionPattern = new RegExp(
-    "[" +
-      questionRules.categories
-        .map((category) => "\\p{" + category + "}")
-        .join("") +
-      questionRules.characters +
-      "]+",
-    "gu",
-  );
-  const questionStopWords = new Set(questionRules.stopWords);
-  function questionKeywords(question) {
-    return [
-      ...new Set(
-        (
-          String(question)
-            .normalize(rules.keywordNormalization)
-            .toLowerCase()
-            .match(questionPattern) || []
-        ).filter(
-          (word) =>
-            ([...word].length >= questionRules.minimumLetters ||
-              /^[0-9]+$/.test(word)) &&
-            !questionStopWords.has(word),
-        ),
-      ),
-    ];
-  }
   function normalizeField(value, rule, name) {
     if (value === undefined) {
       if ("default" in rule) return rule.default;
@@ -98,7 +70,8 @@ export const JobsResponseContract = (() => {
     }
     if (
       rules.appearancesCannotExceedKeywords &&
-      result.appearances > result.keywords.length
+      result.appearances !== undefined &&
+      (!Array.isArray(result.keywords) || result.appearances > result.keywords.length)
     )
       throw Error("Appearances exceed distinct keywords");
     return result;
@@ -181,22 +154,13 @@ export const JobsResponseContract = (() => {
     // Cross-field validation runs at every persistence/import/read boundary.
     return z.object(shape).passthrough();
   }
-  // "Why" also introduces stable personal history (leaving a previous job,
-  // choosing a major). Only an explicit current employer/role reference makes
-  // a manually saved answer local to this application.
-  const jobSpecific = (question) =>
-    /\b(?:our|this) (?:company|team|role|position|organization|organisation)\b|\b(?:work(?:ing)?|apply(?:ing)?) here\b|\b(?:join(?:ing)?|work(?:ing)? (?:for|with)) us\b/i.test(
-      question,
-    );
   return Object.freeze({
     version: rules.version,
-    questionKeywords,
     normalizeKeyword,
     normalizeRecord,
     readList,
     parseList,
     preserveRejected,
     schema,
-    jobSpecific,
   });
 })();

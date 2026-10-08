@@ -1,6 +1,6 @@
 """Explicit live-provider rehearsal using only the shared synthetic policy cases.
 
-Uses the production Answers path, temporary database and at most three requests.
+Uses the production Answers path, temporary database and at most three batches, each with one generation and one verification request.
 It never opens JOBS_DB or reads any owner Profile. Provider credentials remain in
 the existing environment/file mount; neither requests nor credentials are logged.
 """
@@ -78,7 +78,7 @@ async def run(client, *, live=False):
                                 'guardChanged': any(received[case['id']].get(key) != provider_answers[case['id']].get(key)
                                                     for key in ('state', 'value', 'source', 'needsConfirmation'))})
     return {'evidence': 'live_provider' if live else 'mocked_provider', 'syntheticOnly': True,
-            'model': result['model'], 'requests': len(groups), 'usage': usages, 'cases': results,
+            'model': result['model'], 'batches': len(groups), 'requests': len(usages), 'usage': usages, 'cases': results,
             'passed': all(row['passed'] for row in results)}
 
 

@@ -58,7 +58,15 @@ function setup(local = {}, session = {}) {
   });
   for (const source of scripts) vm.runInContext(source, c);
   vm.runInContext(writer, c);
+  const readSaved = async () => {
+    const reply = await c.chrome.runtime.sendMessage({
+      type: "jobs:responses-read",
+    });
+    if (reply.error) throw Error(reply.error);
+    return reply.data;
+  };
   return {
+    readSaved,
     c,
     local,
     session,
@@ -78,11 +86,9 @@ function setup(local = {}, session = {}) {
         { id: "extension", tab: { id: tab } },
       ),
     sendAs: (value) => (sender = value),
-    answer: async () =>
-      c.JobsAnswerResolver.matchSaved(
-        { question },
-        await c.JobsAnswerResolver.readSaved(),
-      ),
+    storedAnswer: async () =>
+      (await readSaved()).find((row) => row.question === question)?.response ??
+      null,
   };
 }
 test("retired global answers are never migrated or used as a new source of personal facts", async () => {
@@ -93,23 +99,23 @@ test("retired global answers are never migrated or used as a new source of perso
     h = setup(local);
   await h.scope.ready;
   assert.deepEqual(h.session, {});
-  assert.equal(await h.answer(), null);
+  assert.equal(await h.storedAnswer(), null);
   assert.deepEqual(Object.keys(local), ["lastSyncProfile", "responseList"]);
 });
 test("opposite answers remain separated by the active tab Profile and session-only cache", async () => {
   const h = setup();
   await h.save("Yes", 1);
   await h.save("No", 2);
-  assert.equal(await h.answer(), "Yes");
+  assert.equal(await h.storedAnswer(), "Yes");
   h.sendAs({ id: "extension", tab: { id: 2 } });
-  assert.equal(await h.answer(), "No");
+  assert.equal(await h.storedAnswer(), "No");
   assert.deepEqual(h.local, {});
   assert.equal(h.session["jobsResponses:" + A][0].response, "Yes");
   assert.equal(h.session["jobsResponses:" + B][0].response, "No");
   h.session["jobsResponses:" + B] = [];
-  assert.equal(await h.answer(), null);
+  assert.equal(await h.storedAnswer(), null);
   h.sendAs({ id: "extension", tab: { id: 1 } });
-  assert.equal(await h.answer(), "Yes");
+  assert.equal(await h.storedAnswer(), "Yes");
 });
 test("switching one tab changes only that tab saved-answer scope", async () => {
   const h = setup();
@@ -127,10 +133,7 @@ test("concurrent saves in separate Profiles do not overwrite each other and fore
   assert.equal(h.session["jobsResponses:" + A][0].response, "Alpha");
   assert.equal(h.session["jobsResponses:" + B][0].response, "Beta");
   h.sendAs({ id: "other-extension", tab: { id: 1 } });
-  await assert.rejects(
-    h.c.JobsAnswerResolver.readSaved(),
-    /Invalid response caller/,
-  );
+  await assert.rejects(h.readSaved(), /Invalid response caller/);
 });
 
 test("operator changes while a save waits for its Profile cannot promote stale input", async () => {

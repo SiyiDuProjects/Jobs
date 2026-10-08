@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 // Regressions from the 2026-09-23 live verification (notes/archive/live-verification-2026-09-23.md).
 import test from "node:test";
@@ -98,9 +101,8 @@ test('JazzHR "No answer" (value 0) is an empty required answer, not a completed 
     // "Completed" education is its own confirmed fact, never a degree in progress.
     const answers = h.w.JobsProfileAnswers;
     assert.equal(
-      answers.classify("What's your highest level of education completed?")
-        .topic,
-      "completed_education",
+      answers.classify("What's your highest level of education completed?"),
+      null,
     );
     const labels = [
       "Some College",
@@ -109,7 +111,8 @@ test('JazzHR "No answer" (value 0) is an empty required answer, not a completed 
     ];
     assert.equal(
       answers.select(
-        answers.resolve(
+        typedAnswer(
+          answers,
           "What's your highest level of education completed?",
           { applicationData: { highestCompletedEducation: "Some College" } },
           { options: labels },
@@ -119,7 +122,8 @@ test('JazzHR "No answer" (value 0) is an empty required answer, not a completed 
       "Some College",
     );
     assert.equal(
-      answers.resolve(
+      typedAnswer(
+        answers,
         "What's your highest level of education completed?",
         {
           educationData: [{ degree: "Bachelor of Arts" }],
@@ -134,7 +138,7 @@ test('JazzHR "No answer" (value 0) is an empty required answer, not a completed 
   }
 });
 
-test("a real first option is never taken for a placeholder", () => {
+test("typed answers: a real first option is never taken for a placeholder", () => {
   const h = page(
     '<label>Answer<select><option value="0">No</option><option value="1">Yes</option></select></label>',
     "https://example.applytojob.com/apply/x",
@@ -146,7 +150,7 @@ test("a real first option is never taken for a placeholder", () => {
   }
 });
 
-test("Ashby required questions marked only by the title class are required", () => {
+test("typed answers: Ashby required questions marked only by the title class are required", () => {
   const h = page(
     `<div class="_fieldEntry_1e3gg_28 ashby-application-form-field-entry">
       <label class="_heading_f7cvd_52 _required_f7cvd_91 _label_1e3gg_42 ashby-application-form-question-title" for="auth">Are you authorized to work in the United States&nbsp; without restriction?</label>
@@ -170,7 +174,7 @@ test("Ashby required questions marked only by the title class are required", () 
   }
 });
 
-test("Ashby and Greenhouse pages keep their own history; fill records mask contact data only", async () => {
+test("typed answers: Ashby and Greenhouse pages keep their own history; fill records mask contact data only", async () => {
   const ashby =
     "https://jobs.ashbyhq.com/g2/64dcc04a-a0e7-493b-b899-dd4c56e561fd/application";
   const h = page(
@@ -248,7 +252,7 @@ test("Ashby and Greenhouse pages keep their own history; fill records mask conta
   }
 });
 
-test("a supplement or remote write records the options it chose from and its readback", async () => {
+test("typed answers: a supplement or remote write records the options it chose from and its readback", async () => {
   const h = page(
     '<label>Willing to relocate to NYC?<select id="q"><option value="">Select...</option><option value="y">Yes</option><option value="n">No</option></select></label>',
     "https://job-boards.greenhouse.io/acme/jobs/4114318009",

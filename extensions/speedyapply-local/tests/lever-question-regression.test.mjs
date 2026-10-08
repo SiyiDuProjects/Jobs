@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+import { fixtureAnswers } from "./helpers/fixture-provider.mjs";
+import { confirmedAnswer, confirmedDraft } from "./helpers/verified-answer.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -79,24 +82,24 @@ function fixture() {
         assert.equal(message.type, "jobs:auto-answers");
         return {
           data: {
-            answers: message.fields.map((f) => ({
-              fieldId: f.fieldId,
-              state: "answer",
-              source: "unknown",
-              needsConfirmation: false,
-              value:
-                f.type === "textarea"
-                  ? "A grounded fixture motivation."
-                  : f.options.find(
-                      (o) =>
-                        o.label === "Prefer not to say" ||
-                        o.label ===
-                          "I have read and understand the selection criteria.",
-                    ).value,
-              questionZh: f.question,
-              answerZh: "",
-              reason: "Fixture provider boundary",
-            })),
+            answers: message.fields.map((f) =>
+              f.type === "textarea"
+                ? confirmedDraft(f, "A grounded fixture motivation.")
+                : f.question.replace(/✱$/, "").trim() === q.ack
+                  ? confirmedAnswer(f, {
+                      fieldId: f.fieldId,
+                      state: "answer",
+                      value: f.options[0].value,
+                      source: "profile",
+                      needsConfirmation: false,
+                    })
+                  : fixtureAnswers(
+                      w.JobsProfileAnswers,
+                      [f],
+                      profile,
+                      message.formContext,
+                    )[0],
+            ),
           },
         };
       },
@@ -197,10 +200,10 @@ test("the Lever run answers the current degree and source and cannot reuse Type/
       "LinkedIn",
     );
     assert.equal(h.root.querySelector('[name="other"]').value, "");
-    assert.equal(
-      h.records[0].decisions.find((d) => d.field === "educationData.degree")
-        .source,
-      "profile",
+    assert(
+      h.requests[0].fields.some(
+        (field) => field.question.replace(/✱$/, "").trim() === q.degree,
+      ),
     );
   } finally {
     h.close();
@@ -222,12 +225,15 @@ test("supplement drafts required essay and export acknowledgment for review; opt
     assert.equal(h.w.JobsAIReview.pending(), true);
     assert.equal(h.requests.length, 1);
     const sent = h.requests[0].fields;
-    assert.equal(sent.length, 2);
+    assert.equal(sent.length, 7);
     assert.deepEqual(
-      Array.from(sent, (f) => f.question.replace(/✱$/, "")).sort(),
-      [q.essay, q.ack].sort(),
+      Array.from(
+        sent.filter((f) => f.required),
+        (f) => f.question.replace(/✱$/, ""),
+      ).sort(),
+      [q.essay, q.ack, q.degree, q.source].sort(),
     );
-    assert(!sent.some((f) => f.question === q.survey));
+    assert(sent.some((f) => f.question === q.survey && !f.required));
     assert.equal(
       h.root.querySelector('[name="degree"]:checked').value,
       "Bachelor's",
@@ -279,14 +285,14 @@ test("currently enrolled degree excludes finished education and remains distinct
         { degree: "Bachelor's", currentlyAttending: true },
       ],
     };
-    assert.equal(api.resolve(q.degree, p)?.answer, "Bachelor's");
+    assert.equal(typedAnswer(api, q.degree, p)?.answer, "Bachelor's");
     assert.equal(
-      api.resolve("What is your highest level of education achieved?", p)
+      typedAnswer(api, "What is your highest level of education achieved?", p)
         ?.answer,
       "High School",
     );
     assert.equal(
-      api.resolve(q.degree, {
+      typedAnswer(api, q.degree, {
         ...p,
         educationData: [{ degree: "Bachelor's", currentlyAttending: false }],
       })?.answer ?? null,

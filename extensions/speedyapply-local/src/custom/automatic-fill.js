@@ -1,3 +1,9 @@
+import { requestAnswerBatch } from "./request-answers.js";
+import { searchAnswerSpec } from "./search-answer.js";
+import { prepareAnswerBatch } from "./prepare-answers.js";
+import { createDraftReview } from "./draft-review.js";
+import { JobsOperator } from "./operator-state.js";
+import { verifiedAnswer } from "./answer-proof.js";
 import { createRunState } from "./run-state.js";
 import { createFlow } from "./automatic-flow.js";
 import { diagnosticGuard } from "./diagnostic-evidence.js";
@@ -44,7 +50,8 @@ export function initializeAutomaticFill() {
     ]);
     const transitionPhases = new Set(["submitting", "awaiting-transition"]);
     const needsReview = () => JobsAIReview.pending();
-    const supplement = (row) => JobsControlFields.needsAnswer(row.public);
+    const supplement = (row) =>
+      JobsControlFields.needsAnswer({ ...row.public, required: true });
     const fieldKey = (root) =>
       JobsControlFields.create(document, () => root)
         .scan()
@@ -532,6 +539,16 @@ export function initializeAutomaticFill() {
         canProceed,
       });
       const { current, assertCurrent, stamp } = operation;
+      const drafts = createDraftReview?.(
+        root,
+        reader,
+        JobsAIReview,
+        assertCurrent,
+      );
+      if (drafts)
+        operation.signal.addEventListener("abort", drafts.dispose, {
+          once: true,
+        });
       const started = Date.now(),
         scans = JobsControlFields.scans?.() || 0,
         structuralScans = JobsControlFields.structuralScans?.() || 0;
@@ -628,6 +645,17 @@ export function initializeAutomaticFill() {
           target = next.target;
           review = next.review;
           prepared = null;
+        }
+        if (
+          await drafts?.beforeFinish({
+            action,
+            review,
+            button: target || (selector && document.querySelector(selector)),
+          })
+        ) {
+          flow.move("review");
+          setMessage("ai-review");
+          return false;
         }
         // Every step uses the same readiness barrier, including Review and a
         // fill-only step. Wait for stable committed values, never retry a click.
@@ -740,6 +768,7 @@ export function initializeAutomaticFill() {
           // navigation lock even if another answer still needs manual repair.
           if (automatic) JobsAnswerMemory?.discardReview?.(nodes);
           else JobsAnswerMemory?.confirmReview(accepted);
+          await drafts?.confirm();
           release();
           note("auto_review_confirmed", null, String(nodes.length));
           if (incomplete()) {
@@ -781,7 +810,10 @@ export function initializeAutomaticFill() {
           if (needsReview()) {
             if (flow.state === "verifying") flow.move("review");
             attachReview();
-          } else operation.release();
+          } else {
+            operation.release();
+            drafts?.dispose();
+          }
         }
       }
       function attachReview() {
@@ -881,17 +913,7 @@ export function initializeAutomaticFill() {
             if (result.status === "omit") {
               if (row.public.required)
                 omit(row, { ...result, needsConfirmation: false });
-              continue;
-            }
-            if (
-              result.status === "needs-input" &&
-              result.profileAnswer?.profileOnly
-            ) {
-              if (!row.public.required) continue;
-              // A choice gets an AI proposal to confirm; exact text the Profile lacks stays with the person.
-              if (isChoice(row) || isCheckbox(row))
-                book.entry(row).confirm = true;
-              else leave(row, result.reason);
+              else book.entry(row).state = "omitted";
               continue;
             }
             if (
@@ -940,82 +962,18 @@ export function initializeAutomaticFill() {
             await JobsFormPipeline.settled(root, { canProceed: current });
           return written;
         }
-        // Assemble only unresolved required fields with fresh, exact options.
         async function prepareSupplement(candidates) {
-          let submitted = [];
-          for (let row of candidates) {
-            book.entry(row).aiTried = true;
-            // A decided value that is gone again is the person's to check.
-            if (book.peek(row.node).state === "decided") {
-              leave(row, "Decided value missing");
-              continue;
-            }
-            let options =
-              row.public.options?.filter(
-                (option) => option.value && option.label,
-              ) || [];
-            if (isChoice(row) && JobsControlFields.component(row.node)) {
-              await binding();
-              options = await operation.write(() =>
-                reader.readOptions(
-                  row,
-                  current,
-                  book.peek(row.node)?.hint || {},
-                ),
-              );
-              row = reader.scan().find((item) => item.node === row.node);
-              if (!row || row.public.filled) {
-                note("auto_answer_obsolete", row?.node, "options_changed");
-                continue;
-              }
-            }
-            assertCurrent();
-            // A searchable field may have no options until the user types.
-            if (isChoice(row) && !options.length) {
-              note("auto_unhandled_control", row.node, "No exact options");
-              leave(row, "No exact options");
-              continue;
-            }
-            submitted.push({
-              row,
-              shape: shape(row),
-              field: {
-                fieldId: row.public.id,
-                question: row.public.question,
-                type:
-                  row.public.type === "search-choice"
-                    ? "combobox"
-                    : row.public.type,
-                required: row.public.required,
-                options,
-                description: (row.node.getAttribute("aria-describedby") || "")
-                  .split(/\s+/)
-                  .filter(Boolean)
-                  .map((id) => document.getElementById(id)?.textContent || "")
-                  .join(" ")
-                  .slice(0, 2000),
-              },
-            });
-          }
-          const fresh = reader.scan();
-          submitted = submitted.filter((item) => {
-            const row = fresh.find(
-              (candidate) => candidate.node === item.row.node,
-            );
-            if (row && !row.public.filled && shape(row) === item.shape)
-              return true;
-            if (row && !row.public.filled) book.entry(row).aiTried = false;
-            note(
-              "auto_answer_obsolete",
-              row?.node,
-              row?.public.filled ? "already_filled" : "control_changed",
-            );
-            return false;
+          return prepareAnswerBatch(candidates, {
+            book,
+            reader,
+            binding,
+            operation,
+            current,
+            assertCurrent,
+            isChoice,
+            leave,
+            note,
           });
-          for (const item of submitted.slice(30))
-            book.entry(item.row).aiTried = false;
-          submitted = submitted.slice(0, 30);
-          return submitted;
         }
         // Request one bounded batch and commit each answer through the shared ledger.
         async function applySupplement(submitted) {
@@ -1033,7 +991,7 @@ export function initializeAutomaticFill() {
             note("auto_luna_requested", row.node);
           flow.move("resolving");
           setMessage("ai-thinking");
-          const reply = await chrome.runtime.sendMessage({
+          const answers = await requestAnswerBatch({
             type: "jobs:auto-answers",
             profileStamp: stamp,
             fields: submitted.map((item) => item.field),
@@ -1046,19 +1004,9 @@ export function initializeAutomaticFill() {
               .trim()
               .slice(0, 500),
           });
-          if (reply?.error) throw Error(reply.error);
           await binding();
           flow.move("writing");
           setMessage("ai-filling");
-          const answers = reply?.data?.answers;
-          if (
-            !Array.isArray(answers) ||
-            answers.length !== initial.size ||
-            new Set(answers.map((answer) => answer.fieldId)).size !==
-              initial.size ||
-            answers.some((answer) => !initial.has(answer.fieldId))
-          )
-            throw Error("Luna 返回的字段不完整");
           for (const answer of answers) {
             const rationale = [
               "missing_fact",
@@ -1077,6 +1025,20 @@ export function initializeAutomaticFill() {
             const row = await unchanged(previous.row, previous.shape);
             if (!row) {
               book.entry(previous.row).aiTried = false;
+              continue;
+            }
+            if (
+              !row.public.required &&
+              (answer.state !== "answer" ||
+                answer.decision !== "write" ||
+                !verifiedAnswer(answer, previous.field))
+            ) {
+              book.entry(row).state = "omitted";
+              note(
+                "auto_optional_skipped",
+                row.node,
+                answer.interruptionReason || "unsupported_optional",
+              );
               continue;
             }
             if (answer.state === "needs_input") {
@@ -1100,7 +1062,7 @@ export function initializeAutomaticFill() {
               omit(row, answer);
               continue;
             }
-            if (isChoice(row)) {
+            if (isChoice(row) && previous.field.type !== "search-choice") {
               const values =
                 row.public.type === "select-multiple"
                   ? answer.value
@@ -1118,6 +1080,15 @@ export function initializeAutomaticFill() {
                 continue;
               }
             }
+            if (!verifiedAnswer(answer, previous.field)) {
+              leave(row, "control_failure", { questionZh: answer.questionZh });
+              continue;
+            }
+            const searchSpec = searchAnswerSpec(answer, previous.field);
+            if (previous.field.type === "search-choice" && !searchSpec) {
+              leave(row, "control_failure");
+              continue;
+            }
             const needsConfirmation = answerNeedsReview(
               answer,
               row,
@@ -1127,7 +1098,7 @@ export function initializeAutomaticFill() {
             const outcome = await operation.write(() =>
               JobsFormPipeline.write(
                 row.node,
-                { value: answer.value },
+                searchSpec ? { specs: [searchSpec] } : { value: answer.value },
                 {
                   ledger: book,
                   root,
@@ -1158,6 +1129,23 @@ export function initializeAutomaticFill() {
               row.node,
               `${answer.decision || "legacy"}:${answer.verification?.id || "unverified"}`,
             );
+            const deferredDraft =
+              !!drafts &&
+              answer.decision === "draft" &&
+              verifiedAnswer(answer, previous.field) &&
+              JobsOperator?.read().mode === "person";
+            if (deferredDraft) {
+              try {
+                await drafts?.add(previous.field, after);
+                assertCurrent();
+              } catch {
+                leave(after, "control_failure", {
+                  questionZh: answer.questionZh,
+                });
+                continue;
+              }
+              continue;
+            }
             toCard(after, {
               reason: rationale,
               source: answer.source,
@@ -1195,7 +1183,6 @@ export function initializeAutomaticFill() {
               const record = book.peek(row.node);
               return (
                 canFill(row.node) &&
-                row.public.required &&
                 supplement(row) &&
                 !record?.aiTried &&
                 !record?.card &&
@@ -1294,7 +1281,10 @@ export function initializeAutomaticFill() {
           )
             flow.move("review");
           attachReview();
-        } else operation.release();
+        } else {
+          operation.release();
+          drafts?.dispose();
+        }
       }
     }
     JobsAutomatic = Object.freeze({

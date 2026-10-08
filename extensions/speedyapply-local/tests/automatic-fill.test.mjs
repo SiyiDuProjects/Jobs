@@ -1,4 +1,4 @@
-import { confirmedAnswer } from "./helpers/verified-answer.mjs";
+import { confirmedAnswer, confirmedDraft } from "./helpers/verified-answer.mjs";
 import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
@@ -108,13 +108,7 @@ function setup(html, answer) {
     close: () => w.close(),
   };
 }
-const reply = (field, value) => ({
-  fieldId: field.fieldId,
-  state: "answer",
-  value,
-  reason: "",
-  source: "suggestion",
-});
+const reply = confirmedDraft;
 
 for (const question of [
   "Have you ever been convicted of a felony?",
@@ -134,7 +128,7 @@ for (const question of [
     );
     try {
       assert.equal(await h.run({ action: "next", autoConfirm: true }), false);
-      assert.equal(h.w.document.querySelector("select").value, "no");
+      assert.equal(h.w.document.querySelector("select").value, "");
       assert.equal(h.clicks(), 0);
       assert.equal(
         h.events.some(([type]) => type === "auto_review_automatic"),
@@ -149,11 +143,11 @@ for (const question of [
 for (const scenario of [
   { prior: "binding", continues: true },
   { prior: "rule", continues: true },
-  { prior: "binding", confirmation: true },
+  { prior: "binding", source: "suggestion", confirmation: true },
   { prior: "binding", source: "suggestion" },
   { prior: "binding", outcome: "lost" },
   { prior: "binding", outcome: "invalid" },
-  { prior: "missing-fact" },
+  { prior: "missing-fact", continues: true },
 ])
   test(`AI recovery after ${scenario.prior}: ${scenario.outcome || scenario.source || (scenario.confirmation ? "explicit review" : scenario.continues ? "continue" : "fact review")}`, async () => {
     const h = setup(
@@ -163,7 +157,9 @@ for (const scenario of [
           confirmedAnswer(field, {
             ...reply(field, "high"),
             source: scenario.source || "profile",
-            needsConfirmation: scenario.confirmation === true,
+            needsConfirmation:
+              scenario.source === "suggestion" ||
+              scenario.confirmation === true,
           }),
         ),
     );
@@ -600,11 +596,10 @@ test("unsupported fields and malformed option answers never reach Submit", async
   }
 });
 
-test("iCIMS native combobox uses saved answers for required gaps and skips optional salary", async () => {
+test("iCIMS native combobox fills a known answer while unsupported optional salary remains blank", async () => {
   const h = setup(
     '<label>Visa*<select role="combobox" required><option value="yes" selected>Yes</option><option value="no">No</option></select></label><label>Previously employed here?*<select role="combobox" required><option value="">— Make a Selection —</option><option value="Y">Yes</option><option value="N">No</option></select></label><label>Salary expectations<input></label>',
     async (message) => {
-      assert.fail("Optional salary must not reach AI");
       assert(
         message.formContext.some(
           (row) =>
@@ -636,7 +631,7 @@ test("iCIMS native combobox uses saved answers for required gaps and skips optio
     );
     assert.equal(h.w.document.querySelectorAll("select")[0].value, "yes");
     assert.equal(h.w.document.querySelectorAll("select")[1].value, "N");
-    assert.equal(h.calls(), 0);
+    assert.equal(h.calls(), 1);
     assert.equal(h.clicks(), 1);
     assert.equal(h.saved.length, 0);
     assert.equal(h.w.JobsAIReview.pending(), false);
@@ -847,16 +842,16 @@ test("TRC replay: optional salary is skipped, missing employment fact is visibly
   const h = setup(
     '<label>Are you currently or have you previously been employed by TRC Companies?*<select role="combobox"><option value="">— Make a Selection —</option><option value="Yes">Yes</option><option value="No">No</option></select></label><label>What are your salary expectations?<input></label>',
     async (message) => {
-      assert.equal(message.fields.length, 1);
+      assert.equal(message.fields.length, 2);
       assert.match(message.fields[0].question, /TRC/);
-      return [
-        confirmedAnswer(message.fields[0], {
-          fieldId: message.fields[0].fieldId,
+      return message.fields.map((field) =>
+        confirmedAnswer(field, {
+          fieldId: field.fieldId,
           state: "needs_input",
           value: null,
           reason,
         }),
-      ];
+      );
     },
   );
   try {
@@ -903,24 +898,35 @@ test("TRC education replay: exact major and school fill while conditional extra 
       `<label>School*<select required><option value="">Choose</option>${schools}<option>University of California Berkeley</option><option>Not In List</option></select></label><label>Please add your School if it is not in the list<input></label>` +
       '<label>Expected Graduation Date*<select required><option value="">Choose</option><option>Spring 2027</option><option>Fall 2027</option></select></label>',
     async (message) => {
-      assert.equal(message.fields.length, 3);
+      assert.equal(message.fields.length, 5);
+      const choices = message.fields.filter((f) => f.options.length);
       assert.equal(
-        message.fields[0].options.filter((o) => o.value === "Data Science")
-          .length,
+        choices[0].options.filter((o) => o.value === "Data Science").length,
         1,
       );
-      assert.equal(message.fields[1].options.length, 318);
-      return message.fields.map((f, i) =>
-        confirmedAnswer(f, {
-          ...reply(
-            f,
-            ["Physics", "University of California Berkeley", "Spring 2027"][i],
-          ),
-          source: "profile",
-          needsConfirmation: false,
-          reason:
-            f.type === "text" ? "已在列表中，无需补充。" : "档案对应的选项。",
-        }),
+      assert.equal(choices[1].options.length, 318);
+      return message.fields.map((f) =>
+        f.options.length
+          ? confirmedAnswer(f, {
+              ...reply(
+                f,
+                ["Physics", "University of California Berkeley", "Spring 2027"][
+                  choices.indexOf(f)
+                ],
+              ),
+              source: "profile",
+              needsConfirmation: false,
+              reason:
+                f.type === "text"
+                  ? "已在列表中，无需补充。"
+                  : "档案对应的选项。",
+            })
+          : {
+              fieldId: f.fieldId,
+              state: "needs_input",
+              value: null,
+              source: "unknown",
+            },
       );
     },
   );
@@ -1097,7 +1103,7 @@ test("optional binding failure does not create a blocking review card", async ()
     });
     assert.equal(result, true);
     assert.equal(h.w.JobsAIReview.pending(), false);
-    assert.equal(h.calls(), 0);
+    assert.equal(h.calls(), 1);
   } finally {
     h.close();
   }
@@ -1205,7 +1211,7 @@ test("Helion: registered saved text, textarea and Yes-No controls all reach supp
       1,
       JSON.stringify(h.events.filter((e) => /blocked|options/.test(e[0]))),
     );
-    assert.equal(fields.length, 4);
+    assert.equal(fields.length, 5);
     assert.deepEqual(
       [...fields.find((f) => f.type === "yesno").options].map((o) => o.label),
       ["Yes", "No"],
@@ -1321,6 +1327,142 @@ test("required controls revealed during review return to the same answer pipelin
       h.w.document.querySelector("#jobs-ai-review").shadowRoot.textContent,
       /Follow-up/,
     );
+  } finally {
+    h.close();
+  }
+});
+
+test("verified subjective drafts cross a Next step and appear once before manual submission", async () => {
+  const { createDraftReview } = await import("../src/custom/draft-review.js");
+  const { createDraftChecklist } =
+    await import("../src/custom/draft-checklist.js");
+  const { updateDraftJournal, approveDraftJournal } =
+    await import("../src/custom/draft-journal.js");
+  const { bindAnswerEvidence } = await import("../src/custom/answer-proof.js");
+  let journal = updateDraftJournal(null, []);
+  const connect = (h) => {
+    h.w.createDraftReview = (root, reader, surface, current) =>
+      createDraftReview(
+        root,
+        reader,
+        surface,
+        current,
+        createDraftChecklist(root, reader, async (action, data) => {
+          if (action === "put")
+            journal = updateDraftJournal(journal, data.items);
+          if (action === "approve")
+            journal = approveDraftJournal(journal, data.revision);
+          return journal;
+        }),
+      );
+  };
+  const h = setup(
+    "<label>Why this role?<textarea required></textarea></label>",
+    async (message) =>
+      message.fields.map((field) =>
+        bindAnswerEvidence(
+          {
+            ...reply(field, "I would like to work on reliable systems."),
+            decision: "draft",
+            needsConfirmation: true,
+            proof: {
+              version: 2,
+              status: "verified",
+              profileId: "fixture",
+              profileVersion: "v1",
+              field,
+              value: "I would like to work on reliable systems.",
+              id: "c".repeat(24),
+              paths: [],
+            },
+          },
+          field,
+          { id: "fixture", lastSync: "v1" },
+        ),
+      ),
+  );
+  connect(h);
+  try {
+    h.w.document.querySelector("#submit").textContent = "Next";
+    assert.equal(await h.run({ action: "next", autoConfirm: true }), true);
+    assert.equal(h.w.JobsAIReview.pending(), false);
+    assert.equal(h.clicks(), 1);
+    assert.equal(
+      h.saved.length,
+      0,
+      "generated drafts never become learned person facts",
+    );
+    assert.equal(journal.items.length, 1);
+    const final = setup("<h2>Review</h2>", async () => []);
+    connect(final);
+    try {
+      assert.equal(
+        await final.run({ action: "fill", review: true, autoConfirm: true }),
+        false,
+      );
+      assert.equal(final.w.JobsAIReview.pending(), true);
+      assert.equal(final.clicks(), 0);
+      assert.equal(await final.w.JobsAIReview.confirm(), true);
+      assert.equal(journal.approved, journal.revision);
+      assert.equal(
+        final.clicks(),
+        0,
+        "manual submission setting remains authoritative",
+      );
+    } finally {
+      final.close();
+    }
+  } finally {
+    h.close();
+  }
+});
+
+test("AI-owned verified drafts stay on the shared self-review card", async () => {
+  const { createDraftReview } = await import("../src/custom/draft-review.js");
+  const { bindAnswerEvidence } = await import("../src/custom/answer-proof.js");
+  const h = setup(
+    "<label>Why this team?<textarea required></textarea></label>",
+    async (message) =>
+      message.fields.map((field) =>
+        bindAnswerEvidence(
+          {
+            ...reply(field, "A subjective draft."),
+            decision: "draft",
+            needsConfirmation: true,
+            proof: {
+              version: 2,
+              status: "verified",
+              profileId: "p",
+              profileVersion: "v",
+              field,
+              value: "A subjective draft.",
+              id: "d".repeat(24),
+              paths: [],
+            },
+          },
+          field,
+          { id: "p", lastSync: "v" },
+        ),
+      ),
+  );
+  let recorded = 0;
+  h.w.createDraftReview = (root, reader, surface, current) =>
+    createDraftReview(root, reader, surface, current, {
+      add: async () => {
+        recorded++;
+      },
+      read: async () => ({ revision: 0, approved: -1, items: [] }),
+      approve: async () => {},
+      dispose: () => {},
+    });
+  try {
+    h.w.JobsOperator.update({ mode: "agent", epoch: "agent", since: 2 });
+    assert.equal(await h.run({ action: "next", autoConfirm: true }), false);
+    assert.equal(h.w.JobsAIReview.pending(), true);
+    assert.equal(recorded, 0);
+    assert.equal(h.clicks(), 0);
+    assert.equal(await h.w.JobsAIReview.confirm(), true);
+    assert.equal(h.clicks(), 1);
   } finally {
     h.close();
   }

@@ -28,10 +28,7 @@ const writer = await readModule(
   "utf8",
 );
 const responseKey = "jobsResponses:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
-const matcher = await readModule(
-  new URL("../src/custom/answer-resolver.js", import.meta.url),
-  "utf8",
-);
+
 const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
 const storeCode = await readWithDependencies(
   new URL("../src/custom/document-store.js", import.meta.url),
@@ -51,8 +48,8 @@ function setup(data, company = "example", kind = "radio") {
   w.structuredClone = structuredClone;
   w.JobsControlConfig = { observe: true };
   w.readSaved = async () => structuredClone(data[responseKey] ?? []);
-  // Test the unchanged original keyword writer/matcher; scope routing has its
-  // own tests with the real response-scope module.
+  // Exercise the original background writer and inspect its stored context.
+  // This fixture does not claim semantic verification or automatic reuse.
   w.JobsResponseScope = {
     scopeFor: async () => "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
     storageKey: async () => responseKey,
@@ -87,10 +84,18 @@ function setup(data, company = "example", kind = "radio") {
     writer +
       "\nwindow.saveOriginal=entries=>saveResponses(entries.map(entry=>({origin:'person',operatorEpoch:'fixture',jobKey:JobsJobMatch.key(location.href),...entry})),{id:'fixture',tab:{id:1}});",
   );
-  w.eval(
-    matcher +
-      "\nwindow.matchOriginal = async question => JobsAnswerResolver.matchSaved({question}, await window.readSaved());",
-  );
+  // A test-only view of stored records, not an answer resolver.
+  w.inspectRecord = async (question) => {
+    const company = w.JobsJobMatch.companyFromKey(
+      w.JobsJobMatch.key(w.location.href),
+    );
+    return (
+      (await w.readSaved()).findLast(
+        (row) =>
+          row.question === question && row.context?.companyKey === company,
+      )?.response ?? null
+    );
+  };
   w.document.body.innerHTML =
     `<fieldset class="ashby-application-form-input-radio-group ashby-application-form-field-entry"><label class="ashby-application-form-question-title">${question}</label>` +
     (kind === "radio"
@@ -148,13 +153,12 @@ test("radio selection records its company and does not silently expand across em
   assert.equal(data[responseKey].length, 1);
   assert.equal(data[responseKey][0].question, question);
   assert.equal(data[responseKey][0].response, "Yes, willing");
-  assert.equal(
-    data[responseKey][0].appearances,
-    data[responseKey][0].keywords.length,
-  );
+  assert.equal(data[responseKey][0].keywords, undefined);
+  assert.equal(data[responseKey][0].origin, "person");
+  assert.equal(data[responseKey][0].scope, "company");
   assert.equal(data[responseKey][0].fromAutofill, true);
   const b = setup(data, "another-company");
-  assert.equal(await b.w.matchOriginal(question), null);
+  assert.equal(await b.w.inspectRecord(question), null);
   assert.deepEqual(Object.keys(data), [responseKey]);
   a.dom.window.close();
   b.dom.window.close();
@@ -186,15 +190,15 @@ test("manual answers retain capture context without guessing cross-company scope
         data[responseKey].find((row) => row.question === question).jobKey,
         a.w.JobsJobMatch.key(a.w.location.href),
       );
-      assert.equal(await b.w.matchOriginal(question), null);
+      assert.equal(await b.w.inspectRecord(question), null);
     }
     const motivation = "Why do you want to work here?";
     assert.equal(
       data[responseKey].find((row) => row.question === motivation).jobKey,
       a.w.JobsJobMatch.key(a.w.location.href),
     );
-    assert.equal(await a.w.matchOriginal(motivation), values[2]);
-    assert.equal(await b.w.matchOriginal(motivation), null);
+    assert.equal(await a.w.inspectRecord(motivation), values[2]);
+    assert.equal(await b.w.inspectRecord(motivation), null);
   } finally {
     a.dom.window.close();
     b.dom.window.close();
@@ -243,7 +247,7 @@ test("manual correction updates the same Saved Response instead of creating a du
     await a.settle();
   }
   assert.equal(data[responseKey].length, 1);
-  assert.equal(await a.w.matchOriginal(question), "No, unwilling");
+  assert.equal(await a.w.inspectRecord(question), "No, unwilling");
   a.dom.window.close();
 });
 test("Saved Responses edits and deletions are effective immediately without a private cache", async () => {
@@ -253,9 +257,9 @@ test("Saved Responses edits and deletions are effective immediately without a pr
     { origin: "person", question, response: "Yes, willing" },
   ]);
   data[responseKey][0].response = "No, unwilling";
-  assert.equal(await a.w.matchOriginal(question), "No, unwilling");
+  assert.equal(await a.w.inspectRecord(question), "No, unwilling");
   data[responseKey] = [];
-  assert.equal(await a.w.matchOriginal(question), null);
+  assert.equal(await a.w.inspectRecord(question), null);
   a.dom.window.close();
 });
 test("rapid concurrent saves retain both answers and preserve existing rule metadata", async () => {
@@ -275,7 +279,7 @@ test("rapid concurrent saves retain both answers and preserve existing rule meta
   ]);
   assert.equal(data[responseKey].length, 2);
   assert.equal(
-    await a.w.matchOriginal("Have you previously worked for Gecko?"),
+    await a.w.inspectRecord("Have you previously worked for Gecko?"),
     null,
   );
   const original = data[responseKey].find((row) => row.question === question);
@@ -480,7 +484,7 @@ test("failed saving stays diagnosable and retries on the next flush, then avoids
   a.dom.window.close();
 });
 
-test("exact saved questions survive short or non-English labels and take precedence over generic defaults", async () => {
+test("stored records retain complete short and non-English questions without keyword extraction", async () => {
   const data = {};
   const a = setup(data);
   await a.w.saveOriginal([
@@ -491,12 +495,14 @@ test("exact saved questions survive short or non-English labels and take precede
       response: "No",
     },
   ]);
-  assert.equal(await a.w.matchOriginal("工作地点？"), "上海");
-  a.w.eval(
-    'window.matchWithDefaults = () => JobsAnswerResolver.matchSaved({question:"Are you authorized to work? *"}, [{keywords:["authorized"],appearances:1,response:"Yes"}, ...window.currentSaved]);',
+  assert.equal(await a.w.inspectRecord("工作地点？"), "上海");
+  assert.equal(
+    data[responseKey].find(
+      (row) => row.question === "Are you authorized to work?",
+    ).response,
+    "No",
   );
-  a.w.currentSaved = data[responseKey];
-  assert.equal(a.w.matchWithDefaults(), "No");
+  assert(data[responseKey].every((row) => !row.keywords));
   a.dom.window.close();
 });
 
@@ -523,8 +529,8 @@ test("same question drafts for two companies survive the actual background write
       },
     ]);
     assert.equal(data[responseKey].length, 2);
-    assert.equal(await a.w.matchOriginal(question), "Company A corrected");
-    assert.equal(await b.w.matchOriginal(question), "Company B draft");
+    assert.equal(await a.w.inspectRecord(question), "Company A corrected");
+    assert.equal(await b.w.inspectRecord(question), "Company B draft");
     assert.notEqual(data[responseKey][0].key, data[responseKey][1].key);
   } finally {
     a.dom.window.close();
@@ -532,7 +538,7 @@ test("same question drafts for two companies survive the actual background write
   }
 });
 
-test("confirmed review answers refill a sibling role and update one company answer", async () => {
+test("explicit person review records one company answer and sibling edits update it", async () => {
   const data = {},
     a = setup(data, "company-a"),
     b = setup(data, "company-a"),
@@ -548,14 +554,14 @@ test("confirmed review answers refill a sibling role and update one company answ
     memory.remember(question, node, { requireReview: true, learn: true });
     await a.settle();
     assert.equal(
-      await b.w.matchOriginal(question),
+      await b.w.inspectRecord(question),
       null,
       "unconfirmed answers stay private to the review",
     );
     memory.confirmReview([node]);
     await a.settle();
-    assert.equal(await b.w.matchOriginal(question), "Confirmed answer");
-    assert.equal(await other.w.matchOriginal(question), null);
+    assert.equal(await b.w.inspectRecord(question), "Confirmed answer");
+    assert.equal(await other.w.inspectRecord(question), null);
     await b.w.saveOriginal([
       {
         origin: "person",
@@ -569,8 +575,8 @@ test("confirmed review answers refill a sibling role and update one company answ
       1,
       "sibling roles update the same company answer",
     );
-    assert.equal(await a.w.matchOriginal(question), "Corrected answer");
-    assert.equal(await other.w.matchOriginal(question), null);
+    assert.equal(await a.w.inspectRecord(question), "Corrected answer");
+    assert.equal(await other.w.inspectRecord(question), null);
   } finally {
     a.dom.window.close();
     b.dom.window.close();
@@ -578,7 +584,7 @@ test("confirmed review answers refill a sibling role and update one company answ
   }
 });
 
-test("saved text, select, checkbox and custom radio refill a fresh Ashby form without learning autofill again", async () => {
+test("verified text, select, checkbox and custom radio writes do not learn autofill again", async () => {
   const data = {},
     a = setup(data);
   for (const name of ["ashby-controls", "form-pipeline"])
@@ -613,20 +619,8 @@ test("saved text, select, checkbox and custom radio refill a fresh Ashby form wi
   await runAnswerStage(a.w, {
     root: a.doc,
     profile: {},
-    resolveAnswers: async (questions) => {
-      const answers = [];
-      for (const [index, item] of questions.entries()) {
-        const answer = await a.w.matchOriginal(item.question);
-        if (answer)
-          answers.push({
-            index,
-            answer,
-            source: "saved",
-            reason: "saved_exact_question",
-          });
-      }
-      return answers;
-    },
+    replies: data[responseKey],
+    resolveAnswers: async () => [],
   });
   assert.equal(a.doc.querySelector("textarea").value, "Specific motivation");
   assert.equal(a.doc.querySelector("select").value, "ref");

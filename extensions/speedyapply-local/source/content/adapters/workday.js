@@ -633,17 +633,16 @@ async function workdayHandleReviewPage(settings, jobsProfile, setMessage) {
   );
   if (!settings.autoSubmit) setMessage("ready-submit");
   (await workdayTrackReviewSubmitClick(Boolean(settings.saveApplications)),
-    settings.autoSubmit &&
-      (await JobsAutomatic.advance({
-        root: document.querySelector(
-          JobsPlatformConfig.structure.workday.reviewRoot,
-        ),
-        profile: jobsProfile,
-        review: true,
-        action: "submit",
-        selector: JobsPlatformConfig.structure.workday.next,
-        setMessage,
-      })));
+    await JobsAutomatic.advance({
+      root: document.querySelector(
+        JobsPlatformConfig.structure.workday.reviewRoot,
+      ),
+      profile: jobsProfile,
+      review: true,
+      action: settings.autoSubmit ? "submit" : "fill",
+      selector: JobsPlatformConfig.structure.workday.next,
+      setMessage,
+    }));
 }
 async function workdayTrackReviewSubmitClick(record = true) {
   let e = document.querySelector(`h3, [data-automation-id='jobTitleHeading']`),
@@ -884,7 +883,7 @@ async function workdayRunApplication({
       try {
         await workdayHandleReviewPage(
           autofillSettings,
-          autofillSettings.autoSubmit ? await getProfile() : null,
+          await getProfile(),
           setMessage,
         );
       } catch (error) {

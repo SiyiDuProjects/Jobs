@@ -153,7 +153,7 @@ test("captured corrections that disagree with Profile retain their original answ
   }
 });
 
-test("equivalent captures do not become a second stale copy of Profile facts", async () => {
+test("canonical equivalent captures are deduplicated; free-form person answers retain their context", async () => {
   for (const [question, value] of [
     ["Will you require sponsorship?", "Yes"],
     ["Graduation year", "2027"],
@@ -164,7 +164,18 @@ test("equivalent captures do not become a second stale copy of Profile facts", a
     try {
       h.remember(value);
       await settle();
-      assert.deepEqual(h.saved, []);
+      assert.deepEqual(
+        h.saved,
+        question === "Will you require sponsorship?"
+          ? [
+              {
+                question,
+                response: value,
+                jobKey: h.w.JobsJobMatch.key(h.w.location.href),
+              },
+            ]
+          : [],
+      );
     } finally {
       h.close();
     }

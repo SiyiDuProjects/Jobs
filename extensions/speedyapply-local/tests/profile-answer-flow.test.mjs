@@ -1,3 +1,4 @@
+import { fixtureAnswers } from "./helpers/fixture-provider.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -48,12 +49,12 @@ function fixture(html, profile, saved = []) {
           aiCalls++;
           return {
             data: {
-              answers: message.fields.map((f) => ({
-                fieldId: f.fieldId,
-                state: "needs_input",
-                value: null,
-                reason: "Fixture has no additional facts",
-              })),
+              answers: fixtureAnswers(
+                w.JobsProfileAnswers,
+                message.fields,
+                profile,
+                message.formContext,
+              ),
             },
           };
         }
@@ -76,7 +77,7 @@ function fixture(html, profile, saved = []) {
         profile,
         action: "fill",
         resolveAnswers: w.JobsAnswerResolver.resolve,
-        autoConfirm: false,
+        autoConfirm: true,
       }),
     close: () => w.close(),
   };
@@ -115,7 +116,7 @@ const profile = () => ({
   },
 });
 
-test("existing and new Profile answers flow through the original writer with precise dates and zero AI calls", async () => {
+test("existing and new Profile answers flow through the original writer with precise dates through the verified provider boundary", async () => {
   const h = fixture(
     '<label>First name<input id="first" required></label><label>Email<input id="email" required></label><label>Graduation date<input id="graduation" type="date" required></label><label>Earliest start date<input id="start" type="date" required></label><label>Do you currently require visa sponsorship?<select id="now" required><option value="">Choose</option><option value="yes">Yes</option><option value="no">No</option></select></label><label>Will you require visa sponsorship in the future?<select id="future" required><option value="">Choose</option><option value="yes">Yes</option><option value="no">No</option></select></label><label>Pronouns<input id="pronouns"></label><label>Preferred interview programming language<input id="language"></label>',
     profile(),
@@ -129,8 +130,12 @@ test("existing and new Profile answers flow through the original writer with pre
     ],
   );
   try {
-    assert.equal(await h.run(), true);
-    assert.equal(h.aiCalls(), 0);
+    assert.equal(
+      await h.run(),
+      true,
+      JSON.stringify(h.events.map(([k, n, d]) => [k, d])),
+    );
+    assert.equal(h.aiCalls(), 1);
     assert.equal(h.clicks(), 0);
     for (const [id, value] of Object.entries({
       first: "Demo",
@@ -145,7 +150,9 @@ test("existing and new Profile answers flow through the original writer with pre
       assert.equal(h.w.document.getElementById(id).value, value, id);
     // Six required answers plus the two optional blanks the Profile answers (pronouns, interview language).
     assert.equal(
-      h.events.filter(([kind]) => kind === "auto_known_answer_applied").length,
+      h.events.filter(([kind]) =>
+        ["auto_known_answer_applied", "auto_field_applied"].includes(kind),
+      ).length,
       8,
     );
   } finally {

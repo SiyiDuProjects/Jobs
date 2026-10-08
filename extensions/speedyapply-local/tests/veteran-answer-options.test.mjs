@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -20,25 +23,24 @@ vm.runInContext(
     )),
   c,
 );
-const answer = (veteran, options) =>
-  c.JobsAnswerResolver.decide(
-    { question: "Veteran status", options },
+const decideTyped = (question, veteran, options) => {
+  const row = typedAnswer(
+    c.JobsProfileAnswers,
+    question,
     { employmentData: { veteran } },
     { options },
-    [],
   );
+  return { ...row, answer: c.JobsProfileAnswers.select(row, options) };
+};
+const answer = (veteran, options) =>
+  decideTyped("Veteran status", veteran, options);
 
-test("full veteran status questions use existing facts without inferring protected status", () => {
+test("typed answers: full veteran status questions use existing facts without inferring protected status", () => {
   const question =
     "Please select the veteran status which most accurately describes your status.";
   const options = ["I am a veteran", "I am not a veteran", "Prefer not to say"];
   const decide = (veteran, labels = options, q = question) =>
-    c.JobsAnswerResolver.decide(
-      { question: q, options: labels },
-      { employmentData: { veteran } },
-      { options: labels },
-      [],
-    );
+    decideTyped(q, veteran, labels);
   assert.equal(decide(false).answer, options[1]);
   assert.equal(decide(true).answer, options[0]);
   assert.equal(decide(undefined).answer, null);
@@ -54,7 +56,7 @@ test("full veteran status questions use existing facts without inferring protect
   );
 });
 
-test("ordinary veteran facts select explicit positive and negative ATS options including sentence punctuation", () => {
+test("typed answers: ordinary veteran facts select explicit positive and negative ATS options including sentence punctuation", () => {
   for (const yes of ["I am a veteran", "I identify as a veteran"])
     for (const no of ["I am not a veteran", "I do not identify as a veteran"])
       for (const period of ["", "."]) {
@@ -65,7 +67,7 @@ test("ordinary veteran facts select explicit positive and negative ATS options i
       }
 });
 
-test("ordinary veteran aliases never establish protected veteran status from singular or plural option text", () => {
+test("typed answers: ordinary veteran aliases never establish protected veteran status from singular or plural option text", () => {
   for (const protectedLabel of [
     "I identify as a protected veteran",
     "I identify as one or more of the classifications of protected veterans listed above",

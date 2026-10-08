@@ -1,3 +1,6 @@
+import { typedAnswer } from "./helpers/typed-answer.mjs";
+// Tests below exercise retained answer functions with explicit fixture types.
+// Free-form classification is tested at the service decision boundary.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -65,9 +68,10 @@ const p = {
   },
 };
 const answer = (q, profile = p, context = {}) =>
-  api.resolve(q, profile, { now: "2026-09-19", ...context })?.answer ?? null;
+  typedAnswer(api, q, profile, { now: "2026-09-19", ...context })?.answer ??
+  null;
 
-test("observed identity, education and experience wording resolves from existing fields", () => {
+test("typed answers: observed identity, education and experience wording resolves from existing fields", () => {
   for (const [q, expected] of [
     ["What is your current location?*", "Example, California"],
     ["Are you in school?*", "Yes"],
@@ -132,13 +136,13 @@ test("observed identity, education and experience wording resolves from existing
   const term = "What term did you (or will you) graduate in?*",
     options = ["Spring (April - June)", "Fall (September - December)"];
   assert.equal(
-    api.select(api.resolve(term, p, { options }), options),
+    api.select(typedAnswer(api, term, p, { options }), options),
     "Spring (April - June)",
   );
   assert.equal(answer(term), null);
 });
 
-test("new fields handle observed prompts without turning availability into commitments", () => {
+test("typed answers: new fields handle observed prompts without turning availability into commitments", () => {
   for (const q of [
     "When can you start a new job?*",
     "What's your earliest start date?*",
@@ -171,7 +175,8 @@ test("new fields handle observed prompts without turning availability into commi
     "If you previously answered Yes to requiring sponsorship, select your visa type",
   ])
     assert.equal(answer(q), null, q);
-  const result = api.resolve(
+  const result = typedAnswer(
+    api,
     "If offered employment, how soon could you start work?*",
     p,
     { now: "2026-09-19" },
@@ -199,7 +204,7 @@ test("new fields handle observed prompts without turning availability into commi
   );
 });
 
-test("school abbreviations retain exact campus identity and reject ambiguous catalogs", () => {
+test("typed answers: school abbreviations retain exact campus identity and reject ambiguous catalogs", () => {
   const q = "Current University*",
     profile = {
       ...p,
@@ -210,7 +215,7 @@ test("school abbreviations retain exact campus identity and reject ambiguous cat
         },
       ],
     };
-  const result = api.resolve(q, profile);
+  const result = typedAnswer(api, q, profile);
   assert.equal(
     api.select(result, ["UC Los Angeles", "UC Berkeley"]),
     "UC Los Angeles",
@@ -230,7 +235,10 @@ test("school abbreviations retain exact campus identity and reject ambiguous cat
     ]),
     null,
   );
-  assert(api.covers({ question: q, response: "UC Los Angeles" }, profile));
+  assert(
+    !api.covers({ question: q, response: "UC Los Angeles" }, profile),
+    "free-form equivalence is no longer inferred locally",
+  );
   assert(
     !api.schoolMatches(
       "Berkeley College",
@@ -239,8 +247,9 @@ test("school abbreviations retain exact campus identity and reject ambiguous cat
   );
 });
 
-test("known numeric scales and demographic aliases do not infer different facts", () => {
-  const result = api.resolve(
+test("typed answers: known numeric scales and demographic aliases do not infer different facts", () => {
+  const result = typedAnswer(
+    api,
     "For Your Current / Most Recent Education Please provide Result Scale*",
     p,
   );
@@ -253,14 +262,14 @@ test("known numeric scales and demographic aliases do not infer different facts"
     ),
     null,
   );
-  const ethnicity = api.resolve("Please select race/ethnicity:*", p);
+  const ethnicity = typedAnswer(api, "Please select race/ethnicity:*", p);
   assert.equal(
     api.select(ethnicity, ["Asian (not Hispanic or Latino)", "White"]),
     "Asian (not Hispanic or Latino)",
   );
   assert.equal(
     api.select(
-      api.resolve("Please select race/ethnicity:*", {
+      typedAnswer(api, "Please select race/ethnicity:*", {
         ...p,
         employmentData: { ethnicity: "Asian" },
       }),
@@ -284,7 +293,8 @@ test("known numeric scales and demographic aliases do not infer different facts"
     api.select(ethnicity, ["Asian or Asian American", "White"]),
     "Asian or Asian American",
   );
-  const english = api.resolve(
+  const english = typedAnswer(
+    api,
     "Indicate your proficiency of the English language:*",
     p,
   );
@@ -309,7 +319,7 @@ test("known numeric scales and demographic aliases do not infer different facts"
   );
 });
 
-test("required preferred-name fields reuse legal names only with an explicit no-alternate-name setting", () => {
+test("typed answers: required preferred-name fields reuse legal names only with an explicit no-alternate-name setting", () => {
   assert.equal(
     answer("Preferred First Name*", p, { required: true }),
     "Sample",
@@ -330,7 +340,7 @@ test("required preferred-name fields reuse legal names only with an explicit no-
   );
 });
 
-test("moving-from address gives only the requested parts and makes no relocation promise", () => {
+test("typed answers: moving-from address gives only the requested parts and makes no relocation promise", () => {
   const q =
     "Relocation assistance may be available for this role. If you would need to relocate, please tell us the city, state, and zip code you’d be moving from*";
   assert.equal(answer(q), "Example, California, 12345");
