@@ -9,7 +9,7 @@ ENUMS = {
 
 
 def evidence(value):
-    from .browser_control import shape, text, integer, boolean, sequence
+    from .validation import shape, text, integer, boolean, sequence
     counters = ('operation', 'item', 'total', 'committed', 'dropped')
     flags = ('focused', 'hidden')
     shape(value, (), (*ENUMS, *counters, *flags))
@@ -27,13 +27,13 @@ def evidence(value):
 
 
 def decision(value, now):
-    from .browser_control import shape, text, integer, boolean, sequence
+    from .validation import shape, text, integer, boolean, sequence
     d = shape(value, (), ('status', 'source', 'reason', 'field', 'ruleId', 'at'))
     return {k: integer(v, now + 60_000) if k == 'at' else text(v, 80) for k, v in d.items()}
 
 
 def trace(value, now):
-    from .browser_control import shape, text, integer, boolean, sequence
+    from .validation import shape, text, integer, boolean, sequence
     t = shape(value, (), ('source', 'topic', 'result', 'method', 'reason', 'answer', 'chosen',
                           'alias', 'readback', 'optionCount', 'options', 'at'))
     result = {k: text(t[k], 40) for k in ('source', 'topic', 'result', 'method', 'reason') if k in t}

@@ -7,6 +7,9 @@ import { readModule } from "./module-source.mjs";
 // Manifest ordering has its own contract test.
 const custom = new URL("../../src/custom/", import.meta.url);
 const dependencies = {
+  "review-presenter.js": ["operator-state.js", "page-review.js"],
+  "page-review.js": ["review-view.js"],
+  "review-view.js": ["calendar-date.js"],
   "automatic-field-policy.js": ["answer-policy.js"],
   "form-pipeline.js": ["page-actions.js", "dom-wait.js", "page-commit.js"],
   "manual-answer.js": ["form-pipeline.js"],
@@ -81,6 +84,7 @@ export async function readWithDependencies(path, encoding, ancestors = []) {
   const name = String(path)
     .replaceAll("\\", "/")
     .match(/\/src\/custom\/([^/]+)$/)?.[1];
+  if (name === "operator-state.js") return "if (!globalThis.JobsOperator) {" + value + "}";
   if (!name || name === "page-actions.js") return value;
   if (ancestors.includes(name)) return "";
   const needed = [

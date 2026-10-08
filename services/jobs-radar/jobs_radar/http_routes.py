@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.responses import JSONResponse, Response
 
 from .profiles import ProfileConflict
-from .browser_control import ControlConflict
+from .validation import ControlConflict
 
 
 class RequestModel(BaseModel):
