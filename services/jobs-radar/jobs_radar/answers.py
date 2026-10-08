@@ -44,10 +44,20 @@ class Answers:
         calendar = calendar_fact(data['additionalContext']) if batch else {}
         evidence_profile = {**profile, 'calendar': calendar}
         if calendar: data['calendar'] = calendar
+        saved = {}; memory = None; memory_context = {}
         if batch:
+            from .answer_memory import AnswerMemory, request_context
+            job_context = request_context(payload)
+            memory_context = {**job_context, 'profileVersion': payload['profileVersion'], **calendar}
+            memory = AnswerMemory(self.store, pid, field_data['fields'], memory_context)
+            saved = memory.by_field
+            if memory.prompt():
+                data['recordedAnswers'] = memory.prompt()
+                data['answerContext'] = memory_context
             from .answer_semantics import MeaningCache, VOCABULARY
             meanings = MeaningCache(self.store)
             meaning_context = {key: data[key] for key in ['additionalContext','jobTitle','jobDescription']}
+            meaning_context['jobContext'] = job_context
             data['meaningHints'] = meanings.read(field_data['fields'], meaning_context, MODEL)
             data['topicVocabulary'] = {key: VOCABULARY[key] for key in ['version','topics','optionConcepts','draftTopics']}
             from .answer_policy import POLICY
@@ -62,7 +72,7 @@ class Answers:
         async def call(active):
             result=await active.post('https://api.openai.com/v1/responses',json={'model':MODEL,'store':False,'instructions':INSTRUCTIONS+('\n'+field_answers.INSTRUCTIONS if batch else ''),'input':raw,
                 'reasoning':{'effort':'low'},'max_output_tokens':6000 if batch else 1800,
-                'text':{'format':{'type':'json_schema','name':'job_answer','strict':True,'schema':field_answers.schema(field_data['fields'], evidence_profile) if batch else SCHEMA}}})
+                'text':{'format':{'type':'json_schema','name':'job_answer','strict':True,'schema':field_answers.schema(field_data['fields'], evidence_profile, {key: item for matches in saved.values() for key, item in matches.items()}) if batch else SCHEMA}}})
             if result.status_code!=200: raise ValueError('Luna 暂时不可用（HTTP '+str(result.status_code)+'）')
             body=result.json()
             if body.get('status')!='completed': raise ValueError('Luna 回答未完成，请重试')
@@ -72,10 +82,14 @@ class Answers:
                 rows=field_answers.checked_answers(answer,field_data['fields'],profile)
                 from .answer_evidence import decide
                 from .answer_verification import verify
-                checks = await verify(active, rows, field_data['fields'], evidence_profile, MODEL)
+                if memory.prompt() and not memory.current():
+                    raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
+                checks = await verify(active, rows, field_data['fields'], evidence_profile, MODEL, saved, memory_context)
+                if memory.prompt() and not memory.current():
+                    raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
                 meanings.save(field_data['fields'], [{**row, 'meaning': checks.get(row['fieldId'], {}).get('meaning', row.get('meaning'))} for row in rows], meaning_context, MODEL)
                 fields_by_id = {f['fieldId']: f for f in field_data['fields']}
-                rows = [decide(row, fields_by_id[row['fieldId']], evidence_profile, pid, payload['profileVersion'], checks.get(row['fieldId'], {'verdict': 'missing_fact'})) for row in rows]
+                rows = [decide(row, fields_by_id[row['fieldId']], evidence_profile, pid, payload['profileVersion'], checks.get(row['fieldId'], {'verdict': 'missing_fact'}), saved.get(row['fieldId'])) for row in rows]
                 self.profile_gaps.record(pid,profile,field_data['fields'],rows)
                 state='needs_input' if any(r['state']=='needs_input' for r in rows) else 'answer'
                 with self.store.connect(True) as c:c.execute('UPDATE answer_requests SET state=? WHERE id=?',(state,rid))

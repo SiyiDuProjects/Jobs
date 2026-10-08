@@ -233,3 +233,25 @@ test("answer company scope derives tenants from historical posting keys without 
   for (const key of [null, "bad", "{}", "[]", '["host","path",{}]'])
     assert.equal(matcher.companyFromKey(key), null);
 });
+
+test("saved answer company scope agrees with the server for every ATS fixture", () => {
+  const result = spawnSync(
+    "python3",
+    [
+      "-c",
+      "import json,sys;from jobs_radar.answer_memory import company_key;from jobs_radar.job_match import job_key;print(json.dumps([company_key(job_key(url)) for url in json.load(sys.stdin)]))",
+    ],
+    {
+      cwd: service,
+      input: JSON.stringify(urls),
+      encoding: "utf8",
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(
+    JSON.parse(result.stdout),
+    urls.map((url) =>
+      context.JobsJobMatch.companyFromKey(context.JobsJobMatch.key(url)),
+    ),
+  );
+});

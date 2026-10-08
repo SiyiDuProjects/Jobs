@@ -28,8 +28,8 @@ def facts(profile):
     return result
 
 
-def citation_schema(profile):
-    return {'type': 'array', 'items': {'anyOf': [
+def citation_schema(profile, saved=None):
+    choices = [
         {'type': 'object', 'properties': {'profilePath': {
             'type': 'string', 'enum': list(facts(profile)) or ['unavailable']}},
          'required': ['profilePath'], 'additionalProperties': False},
@@ -37,10 +37,14 @@ def citation_schema(profile):
          'required': ['noteQuote'], 'additionalProperties': False},
         {'type': 'object', 'properties': {'authorization': {'type': 'string', 'enum': list(POLICY['standingAuthorizations'])}},
          'required': ['authorization'], 'additionalProperties': False},
-    ]}}
+    ]
+    if saved:
+        choices.append({'type': 'object', 'properties': {'savedResponse': {'type': 'string', 'enum': sorted(saved)}},
+                        'required': ['savedResponse'], 'additionalProperties': False})
+    return {'type': 'array', 'items': {'anyOf': choices}}
 
 
-def resolve(citations, profile):
+def resolve(citations, profile, saved=None):
     if not isinstance(citations, list) or not 1 <= len(citations) <= 12:
         return None
     available = facts(profile)
@@ -58,6 +62,8 @@ def resolve(citations, profile):
             resolved.append({'noteQuote': quote})
         elif set(item) == {'authorization'} and isinstance(item['authorization'], str) and item['authorization'] in POLICY['standingAuthorizations']:
             resolved.append({'authorization': item['authorization'], 'scope': POLICY['standingAuthorizations'][item['authorization']]})
+        elif set(item) == {'savedResponse'} and isinstance(item['savedResponse'], str) and item['savedResponse'] in (saved or {}):
+            resolved.append(saved[item['savedResponse']])
         else:
             return None
     return resolved
@@ -68,26 +74,14 @@ def evidence_id(field, value, citations):
                                      ensure_ascii=False).encode()).hexdigest()[:24]
 
 
-def candidates(rows, fields, profile):
-    by_id = {field['fieldId']: field for field in fields}
-    result = []
-    for row in rows:
-        if row['state'] != 'answer' or row['source'] != 'profile':
-            continue
-        evidence = resolve(row.get('evidence'), profile)
-        if evidence:
-            result.append({'field': by_id[row['fieldId']], 'value': row['value'], 'evidence': evidence})
-    return result
-
-
-def decide(row, field, profile, profile_id, profile_version, check=None):
+def decide(row, field, profile, profile_id, profile_version, check=None, saved=None):
     from .answer_semantics import field_key, VOCABULARY, classification
     meaning = classification(row.get('meaning'))
     if meaning is None:
         meaning = {'topic': 'unknown', 'country': '', 'company': '', 'timeframe': ''}
     if check and classification(check.get('meaning')):
         meaning = classification(check['meaning'])
-    evidence = resolve(row.get('evidence'), profile)
+    evidence = resolve(row.get('evidence'), profile, saved)
     verdict = check.get('verdict') if check else None
     spec = VOCABULARY['topics'][meaning['topic']]
     def compatible(item):
@@ -95,6 +89,8 @@ def decide(row, field, profile, profile_id, profile_version, check=None):
             return any(fnmatch.fnmatchcase(item['profilePath'], pattern) for pattern in spec['paths'])
         if 'noteQuote' in item:
             return spec['notes']
+        if 'savedResponse' in item:
+            return meaning['topic'] not in {'unknown', 'acknowledgment'}
         return 'authorization' in item and meaning['topic'] == 'acknowledgment'
     compatible_evidence = bool(evidence) and all(compatible(item) for item in evidence)
     verified = (compatible_evidence and (field['required'] or all('authorization' not in item for item in evidence))

@@ -113,6 +113,12 @@ export function initializeAutomaticBackground() {
           const result = await JobsSync.generateAnswer({
             profileId: bound.id,
             profileVersion: bound.lastSync,
+            jobUrl: job?.appUrl || operation.url,
+            jobCountry:
+              JobsProfileAnswers.scope?.([
+                ...(message.fields || []),
+                ...(message.formContext || []),
+              ]) || "",
             fields: message.fields,
             formContext: message.formContext,
             // Calendar facts come from the extension, not page text or the model.

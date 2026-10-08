@@ -319,7 +319,12 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
       item.querySelector(".source").textContent = row.source;
       const evidence = item.querySelector(".evidence");
       evidence.textContent = (row.evidence || [])
-        .map((item) => item.profilePath || item.noteQuote || "")
+        .map(
+          (item) =>
+            item.profilePath ||
+            item.noteQuote ||
+            (item.savedResponse ? "本人已存回答（原题与范围匹配）" : ""),
+        )
         .join(" · ");
       evidence.hidden = !evidence.textContent;
       item.querySelector(".error").textContent = row.error || "";

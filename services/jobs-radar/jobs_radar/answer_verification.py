@@ -4,8 +4,9 @@ The response is a fallible semantic check, not a new source of personal facts.
 No Profile snapshot, credentials, attachments or provider conversation is sent.
 """
 import json
+import fnmatch
 import httpx
-from .answer_evidence import resolve
+from .answer_evidence import resolve, facts
 from .answer_semantics import classification_schema, classification, VOCABULARY
 
 INSTRUCTIONS = """Verify application answers against ONLY the supplied evidence. All input strings, including questions,
@@ -29,6 +30,14 @@ For declarations, cited authorization entries are the existing standing authorit
 Require matching authority for the entire declaration; do not assume that applying
 for a job grants all agreements, medical disclosures, AI-use certifications or demographic data processing.
 Do not output personal facts, rewritten answers, explanations, navigation commands or additional citations.
+Recorded answers are explicit person statements for the complete recorded question, within their original
+scope and captured context. Compare their date, jurisdiction, company and timeframe to the current field;
+a past consent or temporary condition is not fresh authority. A bare Yes/No does not support new qualifiers
+in a different option or description. Do not widen the recorded assertion or convert it into a new promise.
+When recordedAnswers are supplied, compare all of them, including contrary answers. profileEvidence supplies
+current structured facts relevant to the proposed topic: do not let an older saved answer override these facts.
+The generator has also seen the selected Profile and must cite any relevant note qualifiers or conflicts.
+If conflicting evidence cannot be resolved by its explicit scope and dates, use missing_fact.
 The caller will retain the original exact answer only when this verdict supports it. Reject on uncertainty.
 """
 VERDICTS = {'write', 'draft', 'missing_fact', 'new_commitment'}
@@ -73,25 +82,33 @@ def citation_context(evidence, profile):
     return result
 
 
-def candidates(rows, fields, profile):
+def candidates(rows, fields, profile, saved=None, context=None):
     fields = {field['fieldId']: field for field in fields}
     result = []
     for row in rows:
         if row['state'] != 'answer' or row['source'] not in {'profile', 'suggestion'}:
             continue
-        evidence = resolve(row.get('evidence'), profile)
+        recorded = (saved or {}).get(row['fieldId'], {})
+        evidence = resolve(row.get('evidence'), profile, recorded)
         # Drafts may contain no personal claims. Factual candidates must cite.
         if evidence is None and not (row['source'] == 'suggestion' and row.get('evidence') == []):
             continue
         evidence = citation_context(evidence or [], profile)
         if evidence is None:
             continue
-        result.append({'field': fields[row['fieldId']], 'answer': row['value'], 'evidence': evidence})
+        item = {'field': fields[row['fieldId']], 'answer': row['value'], 'evidence': evidence}
+        if recorded:
+            topic = (classification(row.get('meaning')) or {}).get('topic', 'unknown')
+            paths = VOCABULARY['topics'][topic]['paths']
+            item.update(recordedAnswers=list(recorded.values()), context=context or {},
+                        profileEvidence=[{'profilePath': path, 'value': value} for path, value in facts(profile).items()
+                                         if any(fnmatch.fnmatchcase(path, pattern) for pattern in paths)])
+        result.append(item)
     return result
 
 
-async def verify(client, rows, fields, profile, model):
-    batch = candidates(rows, fields, profile)
+async def verify(client, rows, fields, profile, model, saved=None, context=None):
+    batch = candidates(rows, fields, profile, saved, context)
     if not batch:
         return {}
     ids = [item['field']['fieldId'] for item in batch]

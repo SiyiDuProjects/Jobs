@@ -219,6 +219,8 @@ test("reusing a tab for a new job cannot send the previous employer context to A
   assert(result.data);
   assert.equal(payload.jobTitle, "Current company title");
   assert.equal(payload.jobDescription, "");
+  assert.equal(payload.jobUrl, url);
+  assert.equal(payload.jobCountry, "");
   const calendar = JSON.parse(payload.additionalContext);
   assert.equal(calendar.currentLocalDate, "2030-05-19");
   assert.equal(

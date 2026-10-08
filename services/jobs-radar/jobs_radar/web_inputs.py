@@ -75,6 +75,8 @@ class AnswerJobRequest(RequestModel):
     additionalContext: str | None = None
     jobTitle: str | None = None
     jobDescription: str | None = None
+    jobUrl: str | None = None
+    jobCountry: str | None = None
 
 
 class BoardAction(RequestModel):

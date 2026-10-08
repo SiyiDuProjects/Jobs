@@ -43,3 +43,5 @@ npm run update
 浏览器脚本使用合成资料和独立实例，不访问日常扩展或真实申请。合成速度和本地检查不能替代雇主页面验收。旧 `verify-popup-browser.mjs` 保留包内设置界面验证，原生侧边栏以 panel 脚本为入口。
 
 填表职责见[页面结构](source/content/README.md)，故障捕获与脱敏重放见[复现流程](source/REPRODUCTION.md)。未解决问题集中在[平台索引](../../notes/ats-platform-status.md)。本地合成测试通过后仍需分别记录浏览器重载与真实页面验收。
+
+Saved Responses are selected on the server from the application's bound Profile, using the complete question and original scope. Only explicit person answers with capture context can be evidence. Their reuse passes the same semantic verification as Profile facts; automatic writes are never learned as new person answers. See [answer decisions](../../services/jobs-radar/ANSWER-DECISIONS.md).

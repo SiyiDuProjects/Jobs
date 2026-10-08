@@ -19,6 +19,7 @@ class ProfileGaps:
         with self.store.connect(True) as c:
             for row in answers:
                 if row['state']!='answer' or row['source']!='profile' or row['value'] in (None,'',[]):continue
+                if any('savedResponse' in item for item in row.get('evidence', []) if isinstance(item, dict)):continue
                 field=by_id[row['fieldId']]
                 c.execute('''INSERT INTO answer_profile_gaps VALUES(?,?,?,?,?,?,?,?,?,1)
                   ON CONFLICT(profile_id,question,control_type) DO UPDATE SET
