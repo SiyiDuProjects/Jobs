@@ -1,3 +1,4 @@
+import { AnswerVocabulary } from "./answer-vocabulary.js";
 import { signatureAnswer } from "./signature-answer.js";
 import { JobsOptionMatch } from "./option-match.js";
 import { JobsAnswerPolicy } from "./answer-policy.js";
@@ -34,107 +35,15 @@ export function initializeProfileAnswers() {
     ];
     const degreeKey = (value) =>
       normalize(value)
+        .replace(/\s*\([±~]?\s*\d+ years? of education\)$/, "")
         .replace(/[.'()]/g, "")
         .replace(/\s+/g, " ")
         .trim();
-    const degreeLevels = {
-      bachelor: [
-        "Bachelor",
-        "Bachelor's",
-        "Bachelors",
-        "Bachelor's Degree",
-        "Bachelor Degree",
-        "Bachelors Degree",
-      ],
-      master: [
-        "Master",
-        "Master's",
-        "Masters",
-        "Master's Degree",
-        "Master Degree",
-        "Masters Degree",
-      ],
-      associate: [
-        "Associate",
-        "Associate's",
-        "Associates",
-        "Associate's Degree",
-        "Associate Degree",
-        "Associates Degree",
-      ],
-      doctorate: [
-        "Doctorate",
-        "Doctorate Degree",
-        "Doctoral Degree",
-        "Doctoral",
-      ],
-    };
+    const degreeLevels = AnswerVocabulary.degreeCatalog.levels;
     /** @type {Array<[string,string[]]>} */
-    const degreeTypes = [
-      [
-        "bachelor",
-        [
-          "Bachelor of Arts",
-          "Bachelor of Arts (B.A.)",
-          "Bachelor of Arts (BA)",
-          "BA",
-          "B.A.",
-        ],
-      ],
-      [
-        "bachelor",
-        [
-          "Bachelor of Science",
-          "Bachelor of Science (B.S.)",
-          "Bachelor of Science (BS)",
-          "BS",
-          "B.S.",
-          "BSc",
-          "B.Sc.",
-        ],
-      ],
-      ["master", ["Master of Arts", "Master of Arts (M.A.)", "MA", "M.A."]],
-      [
-        "master",
-        [
-          "Master of Science",
-          "Master of Science (M.S.)",
-          "MS",
-          "M.S.",
-          "MSc",
-          "M.Sc.",
-        ],
-      ],
-      [
-        "master",
-        [
-          "Master of Business Administration",
-          "Master of Business Administration (MBA)",
-          "MBA",
-        ],
-      ],
-      [
-        "associate",
-        ["Associate of Arts", "Associate of Arts (A.A.)", "AA", "A.A."],
-      ],
-      [
-        "associate",
-        ["Associate of Science", "Associate of Science (A.S.)", "AS", "A.S."],
-      ],
-      [
-        "doctorate",
-        [
-          "Doctor of Philosophy",
-          "Doctor of Philosophy (Ph.D.)",
-          "PhD",
-          "Ph.D.",
-        ],
-      ],
-      [
-        "doctorate",
-        ["Doctor of Pharmacy", "Doctor of Pharmacy (PharmD)", "PharmD"],
-      ],
-    ];
+    const degreeTypes = /** @type {any} */ (
+      AnswerVocabulary.degreeCatalog.types
+    );
     function degreeTiers(value) {
       const key = degreeKey(value),
         type = degreeTypes.find(([, labels]) =>
@@ -746,22 +655,13 @@ export function initializeProfileAnswers() {
       value = value || (fluent === true ? "Fluent" : "");
       const result = literalSpec("language_proficiency", value);
       if (!result) return null;
+      const catalog = AnswerVocabulary.optionConcepts.language_proficiency;
       const groups = [
-        ["Beginner", "Basic", "Elementary", "Elementary Proficiency"],
-        ["Intermediate", "Limited working", "Limited Working Proficiency"],
-        [
-          "Advanced",
-          "Professional working",
-          "Professional Working Proficiency",
-        ],
-        ["Full Professional Proficiency", "Full Professional"],
-        [
-          "Native",
-          "Native or bilingual",
-          "Native or Bilingual Proficiency",
-          "Native Speaker",
-          "Bilingual",
-        ],
+        catalog.elementary,
+        catalog.limited,
+        catalog.professional,
+        catalog.full_professional,
+        catalog.native,
       ];
       const level = groups.findIndex((group) =>
         group.some((alias) => normalize(alias) === normalize(value)),
@@ -778,7 +678,8 @@ export function initializeProfileAnswers() {
       // professional/native proficiency. It never implies native identity.
       if (level >= 3 || fluent === true || normalize(value) === "fluent")
         result.tiers.push(["Fluent", "High", "Fluent / Native Speaker"]);
-      if (level === 3) result.tiers.push(groups[2]);
+      if (level === 3 || fluent === true || normalize(value) === "fluent")
+        result.tiers.push(groups[2]);
       return result;
     }
     const sourceCategories = {

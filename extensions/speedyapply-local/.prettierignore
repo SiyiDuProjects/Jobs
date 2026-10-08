@@ -5,3 +5,4 @@ src/custom/response-contract.js
 src/custom/job-match-rules.js
 src/custom/brand.js
 src/custom/storage-migration-policy.js
+src/custom/answer-vocabulary.js
