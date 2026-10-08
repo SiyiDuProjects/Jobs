@@ -39,7 +39,8 @@ export function panelWorker({
   inject = async () => [],
 } = {}) {
   let listeners = [];
-  const storage = {},
+  const local = {},
+    storage = {},
     notifications = [],
     badges = [],
     opens = [];
@@ -71,8 +72,8 @@ export function panelWorker({
     scripting: { executeScript: inject },
     storage: {
       local: {
-        get: async () => ({}),
-        set: async () => {},
+        get: async (key) => ({ [key]: structuredClone(local[key]) }),
+        set: async (value) => Object.assign(local, structuredClone(value)),
       },
       session: {
         get: async (key) => ({ [key]: structuredClone(storage[key]) }),
@@ -109,6 +110,7 @@ export function panelWorker({
   return {
     chrome,
     storage,
+    local,
     tabs,
     notifications,
     badges,

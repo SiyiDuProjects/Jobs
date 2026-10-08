@@ -17,7 +17,7 @@ MAX_BYTES = 160_000
 
 def event_metrics(event):
     """Accept only named counters/durations and page visibility, never free text."""
-    from .browser_control import shape, integer
+    from .validation import shape, integer
     result = {}
     if 'visibility' in event:
         if event['type'] != 'visibility_changed' or event['visibility'] not in ('hidden', 'visible'):
@@ -81,7 +81,7 @@ def redact(item, salt, scope=''):
 
 
 def validate(value, now):
-    from .browser_control import shape, text, integer, boolean, sequence, safe_url
+    from .validation import shape, text, integer, boolean, sequence, safe_url
     from .public_job_url import public_job_url
     shape(value, ('schemaVersion', 'runId', 'build', 'url', 'ats', 'firstSeen', 'lastSeen', 'snapshots', 'events', 'truncated'), ('caseRetention',))
     if value['schemaVersion'] != 2:
@@ -251,7 +251,7 @@ class Diagnostics:
             initialize(c)
 
     def receive(self, device, payload):
-        from .browser_control import shape, sequence
+        from .validation import shape, sequence
         shape(payload, ('protocolVersion', 'history'))
         if payload['protocolVersion'] != 1:
             raise ValueError('Diagnostic transport version 1 is required')

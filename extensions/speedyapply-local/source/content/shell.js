@@ -1,3 +1,5 @@
+import { JobsPageSession } from "../../src/custom/control-content.js";
+import { JobsReviewPresenter } from "../../src/custom/review-presenter.js";
 import { JobsAvailability } from "../../src/custom/job-availability.js";
 import { JobsAppliedStatus } from "../../src/custom/applied-status.js";
 import { jobsAdapterRoutes, jobsRunAdapter } from "./routing.js";
@@ -57,7 +59,16 @@ export function statusPresenter(context) {
   let available,
     active = true,
     transport = Promise.resolve();
+  const perform = async (action) => {
+    if (!active || !["draft", "refill"].includes(action))
+      throw Error("当前操作不可用");
+    return JobsPageSession[action]();
+  };
   const publish = (text, extra = {}) => {
+    JobsReviewPresenter?.status?.(
+      { id, text, canFill: !!JobsPageSession, ...extra },
+      perform,
+    );
     transport = transport
       .catch(() => {})
       .then(async () => {
@@ -66,6 +77,7 @@ export function statusPresenter(context) {
             type: "jobs:panel-status",
             id,
             text,
+            canFill: !!JobsPageSession,
             ...extra,
           });
       })
@@ -78,10 +90,19 @@ export function statusPresenter(context) {
       !active ||
       sender.id !== chrome.runtime.id ||
       sender.tab ||
-      message.id !== id ||
-      !available
+      message.id !== id
     ) {
       reply({ error: "岗位提示已过期" });
+      return;
+    }
+    if (["draft", "refill"].includes(message.action)) {
+      perform(message.action).then(reply, (error) =>
+        reply({ error: error.message }),
+      );
+      return true;
+    }
+    if (!available) {
+      reply({ error: "当前操作不可用" });
       return;
     }
     if (message.action === "dismiss") {

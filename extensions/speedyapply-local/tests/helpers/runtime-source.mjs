@@ -7,6 +7,9 @@ import { readModule } from "./module-source.mjs";
 // Manifest ordering has its own contract test.
 const custom = new URL("../../src/custom/", import.meta.url);
 const dependencies = {
+  "review-presenter.js": ["operator-state.js", "page-review.js"],
+  "page-review.js": ["review-view.js"],
+  "review-view.js": ["calendar-date.js"],
   "submission-guard.js": [
     "job-match-rules.js",
     "job-match.js",
