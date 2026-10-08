@@ -169,8 +169,8 @@ for (const source of ["top", "frame"])
 test("navigation clears status/review and old review actions cannot target a new document", async () => {
   let commands = 0;
   const h = panelWorker({
-    send: async () => {
-      commands++;
+    send: async (_tab, message) => {
+      if (message.type !== "jobs:page-status") commands++;
       return { ok: true };
     },
   });
@@ -204,4 +204,54 @@ test("navigation clears status/review and old review actions cannot target a new
     (await h.call({ type: "jobs:panel-read", tabId: 1 })).status,
     null,
   );
+});
+
+test("AI page actions share document routing and reject person mode, other frames and stale routes", async () => {
+  const sent = [];
+  const h = panelWorker({
+    send: async (tab, message, target) => {
+      sent.push({ tab, message, target });
+      return { ok: true };
+    },
+  });
+  const review = { id: "review", items: [] };
+  await h.call(
+    { type: "jobs:review-present", id: review.id, data: review },
+    { ...h.page, frameId: 2, documentId: "form-doc" },
+  );
+  const message = {
+    type: "jobs:review-page-action",
+    id: "review",
+    documentId: "form-doc",
+    action: "confirm",
+  };
+  assert((await h.call(message, h.page)).error);
+  h.local["jobsOperator:1"] = { mode: "page-tool", epoch: "ai", since: 1 };
+  assert((await h.call(message, { ...h.page, frameId: 2 })).error);
+  assert((await h.call({ ...message, documentId: "old-doc" }, h.page)).error);
+  assert.equal((await h.call(message, h.page)).ok, true);
+  assert.equal(sent.at(-1).target.documentId, "form-doc");
+  assert.equal(sent.at(-1).message.type, "jobs:review-command");
+  await h.call(
+    { type: "jobs:panel-status", id: "status", text: "Ready", canFill: true },
+    { ...h.page, frameId: 2, documentId: "form-doc" },
+  );
+  assert.equal(
+    (
+      await h.call(
+        {
+          type: "jobs:page-status-action",
+          id: "status",
+          documentId: "form-doc",
+          action: "draft",
+        },
+        h.page,
+      )
+    ).ok,
+    true,
+  );
+  assert.equal(sent.at(-1).target.documentId, "form-doc");
+  assert.equal(sent.at(-1).message.action, "draft");
+  h.local["jobsOperator:1"] = { mode: "person", epoch: "back", since: 2 };
+  assert((await h.call(message, h.page)).error);
 });

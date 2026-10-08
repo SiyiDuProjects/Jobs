@@ -96,8 +96,6 @@ export async function readWithDependencies(path, encoding, ancestors = []) {
     .match(/\/src\/custom\/([^/]+)$/)?.[1];
   if (name === "operator-state.js")
     return "if (!globalThis.JobsOperator) {" + value + "}";
-  if (name === "operator-state.js")
-    return "if (!globalThis.JobsOperator) {" + value + "}";
   if (!name || name === "page-actions.js") return value;
   if (ancestors.includes(name)) return "";
   const needed = [

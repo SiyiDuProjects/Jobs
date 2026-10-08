@@ -22,7 +22,13 @@ async function presentReview(tabId, message) {
   return chrome.tabs.sendMessage(tabId, message, { documentId });
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (!["jobs:review-present", "jobs:review-action", "jobs:review-page-action"].includes(message?.type))
+  if (
+    ![
+      "jobs:review-present",
+      "jobs:review-action",
+      "jobs:review-page-action",
+    ].includes(message?.type)
+  )
     return;
   const run = async () => {
     if (sender.id !== chrome.runtime.id || typeof message.id !== "string")
@@ -70,10 +76,16 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     }
     const pageAction = message.type === "jobs:review-page-action";
     if (pageAction) {
-      if (!sender.tab?.id || sender.frameId !== 0 || !sender.documentId ||
-          !["agent", "page-tool"].includes((await readOperator(sender.tab.id)).mode))
+      if (
+        !sender.tab?.id ||
+        sender.frameId !== 0 ||
+        !sender.documentId ||
+        !["agent", "page-tool"].includes(
+          (await readOperator(sender.tab.id)).mode,
+        )
+      )
         throw Error("AI page operator required");
-      message = {...message, tabId: sender.tab.id};
+      message = { ...message, tabId: sender.tab.id };
     }
     if (
       (!pageAction && !isPanel(sender)) ||
