@@ -21,7 +21,7 @@ def fields_input(payload):
         field={'fieldId':_string(item.get('fieldId'),80,'fieldId'),
                'question':_string(item.get('question'),2000,'question'),
                'type':item['type'],'required':item['required'],
-               'description':_string(item.get('description',''),2000,'description',True)}
+               'description':_string(item.get('description',''),20000,'description',True)}
         options=item.get('options',[])
         if not isinstance(options,list) or len(options)>1000: raise ValueError('Invalid options: '+field['fieldId'])
         field['options']=[{'value':_string(option.get('value'),2000,'option value'),

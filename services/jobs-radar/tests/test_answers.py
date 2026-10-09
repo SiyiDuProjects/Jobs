@@ -22,6 +22,15 @@ class Client:
             def json(self):return response
         return Result()
 
+def test_complete_terms_description_is_retained_and_remains_bounded():
+    from jobs_radar.field_answers import fields_input
+    field = {'fieldId': 'terms', 'question': 'I consent to the above terms',
+             'type': 'checkbox', 'required': True, 'description': 'a' * 19980 + 'Final clause matters'}
+    assert len(field['description']) == 20000
+    assert fields_input({'fields': [field]})['fields'][0]['description'] == field['description']
+    with pytest.raises(ValueError, match='description'):
+        fields_input({'fields': [{**field, 'description': field['description'] + 'x'}]})
+
 def test_answer_uses_selected_snapshot_existing_luna_and_no_provider_storage(tmp_path):
     a,p=setup(tmp_path);c=Client();result=asyncio.run(a.generate(p,c))
     assert result['model']=='gpt-6-luna' and result['text']=='Python.'
