@@ -77,6 +77,7 @@ class AnswerJobRequest(RequestModel):
     jobDescription: str | None = None
     jobUrl: str | None = None
     jobCountry: str | None = None
+    reviewSuggestions: bool = False
 
 
 class BoardAction(RequestModel):

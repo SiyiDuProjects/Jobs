@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   bindAnswerEvidence,
   verifiedAnswer,
+  reviewProposal,
 } from "../src/custom/answer-proof.js";
 import { answerNeedsReview } from "../src/custom/automatic-field-policy.js";
 const field = {
@@ -82,6 +83,36 @@ test("only exact field value and pinned Profile evidence can remove confirmation
       { ...valid, decision: "draft", source: "suggestion" },
       field,
     ),
+    false,
+  );
+});
+
+test("proposed proof is bound to the exact field but never authorizes autofill", () => {
+  const proposal = {
+    ...answer,
+    source: "suggestion",
+    decision: "draft",
+    reviewOnly: true,
+    needsConfirmation: true,
+    proof: { ...answer.proof, status: "proposed" },
+  };
+  const boundProposal = bindAnswerEvidence(proposal, field, bound);
+  assert(reviewProposal(boundProposal, field));
+  assert.equal(verifiedAnswer(boundProposal, field), false);
+  assert.equal(
+    reviewProposal(boundProposal, { ...field, question: "Changed question" }),
+    false,
+  );
+  assert.equal(reviewProposal({ ...boundProposal, value: "y" }, field), false);
+  assert.equal(
+    reviewProposal(
+      bindAnswerEvidence(proposal, field, { ...bound, lastSync: "new" }),
+      field,
+    ),
+    false,
+  );
+  assert.equal(
+    verifiedAnswer({ ...boundProposal, reviewOnly: false }, field),
     false,
   );
 });

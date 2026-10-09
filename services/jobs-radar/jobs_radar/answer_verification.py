@@ -23,6 +23,11 @@ new_commitment: answering would enter a new agreement or certify something outsi
 Check the full field description and full selected option, not merely its leading Yes/No. A real quotation
 can still be irrelevant. Check company, jurisdiction, time period, quantifiers, negations, dates, degree subtype
 and language level. General US work eligibility does not establish unrestricted/permanent work rights.
+Work Authorization menus may mix employer-specific eligibility and sponsorship.
+Explicit current sponsorship supports the requires-sponsorship option; do not reject
+it because ordinary eligibility is also true. Classify against the actual selected
+option and full menu; the work_eligibility topic admits these related evidence paths.
+Visa status alone never proves any-employer eligibility or a sponsorship need.
 A visa category or residence does not establish citizenship or an entire compound export-control category.
 Month precision never supports an exact day. A resume is not an exhaustive employment/interview history.
 Current absence of a non-compete does not establish no agreement in the past three years or no other obligations.

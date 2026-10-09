@@ -48,6 +48,7 @@ export function initializeAiReview() {
         onConfirm: null,
         validate: null,
         busy: false,
+        confirming: false,
         hidden: false,
         status: "正在补填，完成后可确认。",
         transport: Promise.resolve(),
@@ -67,6 +68,7 @@ export function initializeAiReview() {
           row.public.conditional,
           row.public.required,
         ]);
+      own.fieldShape = fieldShape;
       own.rows = () => {
         const rows = reader.scan();
         if (!root.isConnected || location.href !== own.url) return rows;
@@ -91,6 +93,7 @@ export function initializeAiReview() {
           );
           item.signature = null;
           item.schema = null;
+          item.proposal = null;
           if (reader.response(row)?.response !== item.originalResponse)
             item.needsConfirmation = true;
           node.removeAttribute("data-jobs-ai-review");
@@ -112,12 +115,19 @@ export function initializeAiReview() {
           items = [];
         let unresolved = 0,
           omitted = 0,
-          filled = 0;
+          filled = 0,
+          proposed = 0;
         for (const [node, item] of own.items) {
           const row = rows.find((row) => row.node === node),
             record = row && reader.response(row);
           item.members = row ? [node, ...(row.group || [])] : [node];
-          if ((!record && !item.omitted) || row?.public.invalid) unresolved++;
+          const proposal =
+            row && !record && fieldShape(row) === item.fieldShape
+              ? item.proposal
+              : null;
+          if (proposal) proposed++;
+          if ((!record && !item.omitted && !proposal) || row?.public.invalid)
+            unresolved++;
           if (!record && item.omitted) omitted++;
           if (record) filled++;
           const basis = item.needsConfirmation
@@ -199,10 +209,11 @@ export function initializeAiReview() {
               };
             if (editor)
               Object.assign(editor, {
+                ...(proposal ? { value: proposal.value } : {}),
                 version: item.version,
                 schemaVersion: item.schemaVersion,
                 valid: !!record && !row.public.invalid,
-                disabled: own.busy || !own.onConfirm,
+                disabled: own.busy || own.confirming || !own.onConfirm,
               });
           }
           items.push({
@@ -210,17 +221,33 @@ export function initializeAiReview() {
             question: item.questionZh || item.question,
             originalQuestion: item.question,
             evidence: item.evidence,
-            answer: response
-              ? (unchanged && item.answerZh) ||
-                { Yes: "是", No: "否" }[response] ||
-                response
-              : node.isConnected
-                ? item.omitted
-                  ? "无需填写"
-                  : "待补充"
-                : "控件已变化，请检查",
-            source:
-              item.answerOrigin === "agent" || item.answerOrigin === "page-tool"
+            answer: proposal
+              ? item.answerZh ||
+                (Array.isArray(proposal.value)
+                  ? proposal.value
+                  : [proposal.value]
+                )
+                  .map(
+                    (value) =>
+                      row.public.options?.find((o) => o.value === value)
+                        ?.label ||
+                      ({ true: "是", false: "否" }[String(value)] ??
+                        String(value)),
+                  )
+                  .join(", ")
+              : response
+                ? (unchanged && item.answerZh) ||
+                  { Yes: "是", No: "否" }[response] ||
+                  response
+                : node.isConnected
+                  ? item.omitted
+                    ? "无需填写"
+                    : "待补充"
+                  : "控件已变化，请检查",
+            source: proposal
+              ? "AI 建议 · 待审核"
+              : item.answerOrigin === "agent" ||
+                  item.answerOrigin === "page-tool"
                 ? "AI 补答"
                 : item.userAnswered
                   ? "你的回答"
@@ -252,20 +279,22 @@ export function initializeAiReview() {
           });
         // Acknowledging AI answers is not whole-form validation. Missing or
         // replaced controls must never lock both Confirm and native Continue.
-        own.canConfirm = !own.busy && !!own.onConfirm;
+        own.canConfirm = !own.busy && !own.confirming && !!own.onConfirm;
         if (own.hidden || !render) return rows;
         present(own, {
           id: own.id,
           title: own.summary.length
             ? "提交前核对草稿"
-            : filled || omitted
-              ? `AI 补填 · ${filled} 项${omitted ? ` · 留空 ${omitted} 项` : ""}${unresolved ? ` · 待补 ${unresolved} 项` : ""}`
+            : filled || omitted || proposed
+              ? `AI 补填 · ${filled} 项${proposed ? ` · 建议 ${proposed} 项` : ""}${omitted ? ` · 留空 ${omitted} 项` : ""}${unresolved ? ` · 待补 ${unresolved} 项` : ""}`
               : `需要你补充 · ${own.items.size} 项`,
           status: own.summary.length
             ? "统一检查这些草稿；需修改前面步骤时可先返回。"
-            : unresolved && own.onConfirm
-              ? `还有 ${unresolved} 项待补或需检查，可直接在这里作答。`
-              : own.status,
+            : proposed && own.onConfirm
+              ? "已准备建议答案，可直接确认；需要修改时选择其他答案。"
+              : unresolved && own.onConfirm
+                ? `还有 ${unresolved} 项待补或需检查，可直接在这里作答。`
+                : own.status,
           canConfirm: own.canConfirm,
           items,
           expand,
@@ -281,6 +310,7 @@ export function initializeAiReview() {
           questionZh = "",
           answerZh = "",
           evidence = [],
+          proposal = null,
           needsConfirmation = true,
         } = {},
       ) => {
@@ -295,6 +325,7 @@ export function initializeAiReview() {
           questionZh,
           answerZh,
           evidence,
+          proposal,
           originalResponse: reader.response(row)?.response,
           needsInput,
           omitted,
@@ -355,6 +386,7 @@ export function initializeAiReview() {
               // draft; the fresh scan below still enforces website validation.
               item.error = "";
               item.needsInput = false;
+              item.proposal = null;
             }
           }
         }
@@ -410,12 +442,22 @@ export function initializeAiReview() {
     async function answer(
       id,
       payload,
-      { canProceed = () => true, source = "user" } = {},
+      {
+        canProceed = () => true,
+        source = "user",
+        acceptingProposal = false,
+      } = {},
     ) {
       const own = active;
       const rows = own?.refresh(false, false);
       const entry = own && [...own.items].find(([, item]) => item.id === id);
-      if (!own || !entry || own.busy || !own.onConfirm)
+      if (
+        !own ||
+        !entry ||
+        own.busy ||
+        (own.confirming && !acceptingProposal) ||
+        !own.onConfirm
+      )
         return { error: "当前不能修改，请稍候。" };
       const [node, item] = entry;
       const origin =
@@ -481,9 +523,10 @@ export function initializeAiReview() {
         item.userAnswered = origin === "person";
         item.needsInput = false;
         item.omitted = false;
+        item.proposal = null;
         JobsAnswerMemory?.remember(item.question, node, {
           requireReview: true,
-          learn: origin === "person",
+          learn: origin === "person" && !acceptingProposal,
           origin,
         });
         note(
@@ -504,15 +547,35 @@ export function initializeAiReview() {
         if (active === own) own.refresh();
       }
     }
-    async function confirm({ canProceed = () => true } = {}) {
+    async function confirm({ canProceed = () => true, source = "user" } = {}) {
       const own = active;
-      if (!own || own.busy || !own.onConfirm) return false;
+      if (!own || own.busy || own.confirming || !own.onConfirm) return false;
       own.refresh();
       if (!own.canConfirm) return false;
-      own.busy = true;
+      own.confirming = true;
       own.refresh();
       try {
         if (!canProceed()) throw Error("补答命令已过期或页面已变化");
+        for (const [node, item] of own.items) {
+          if (!item.proposal) continue;
+          const row = own
+            .refresh(false, false)
+            .find((row) => row.node === node);
+          if (row && own.reader.response(row)) continue;
+          if (!row || own.fieldShape(row) !== item.fieldShape)
+            throw Error("页面选项已变化，请重新检查建议答案。");
+          const written = await answer(
+            item.id,
+            { version: item.version, value: item.proposal.value },
+            {
+              canProceed,
+              source,
+              acceptingProposal: true,
+            },
+          );
+          if (!written.ok) throw Error(written.error);
+        }
+        own.busy = true;
         await own.onConfirm([...own.items.keys()], () => own.dispose(), {
           canProceed,
         });
@@ -523,6 +586,7 @@ export function initializeAiReview() {
         return false;
       } finally {
         own.busy = false;
+        own.confirming = false;
         if (active === own) own.refresh();
       }
     }
@@ -608,7 +672,7 @@ export function initializeAiReview() {
       },
       async remoteConfirm(root, reviewId, canProceed) {
         if (!onPage(root) || active.id !== reviewId) return false;
-        return confirm({ canProceed });
+        return confirm({ canProceed, source: "remote" });
       },
       add(root, reader, row, options) {
         if (active && active.root !== root)

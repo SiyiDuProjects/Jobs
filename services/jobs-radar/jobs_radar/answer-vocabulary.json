@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "ruleVersion": 4,
   "topics": {
     "noncompete": {
@@ -73,7 +73,11 @@
         "legally eligible to work"
       ],
       "paths": [
-        "employmentData.eligibilityUS"
+        "employmentData.eligibilityUS",
+        "applicationData.sponsorshipNow",
+        "applicationData.sponsorshipFuture",
+        "employmentData.sponsorship",
+        "applicationData.visaStatus"
       ],
       "notes": true
     },

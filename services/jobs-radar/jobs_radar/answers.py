@@ -29,6 +29,10 @@ class Answers:
             raise ValueError('Personal answer context must be migrated into the selected server Profile')
         from . import field_answers
         field_data=field_answers.fields_input(payload) if batch else None
+        review_suggestions = payload.get('reviewSuggestions', False)
+        if type(review_suggestions) is not bool:
+            raise ValueError('Invalid review suggestion policy')
+        from .review_proposals import INSTRUCTIONS as REVIEW_INSTRUCTIONS, proposed
         from .profiles import Profiles
         pid=Profiles.identifier(payload.get('profileId'))
         if 'profile' in payload:
@@ -104,7 +108,7 @@ class Answers:
                     usage['modelCalls'] += 1
                     return await active.post(*args, **kwargs)
             counted = CountedClient()
-            result=await counted.post('https://api.openai.com/v1/responses',json={'model':MODEL,'store':False,'instructions':INSTRUCTIONS+('\n'+field_answers.INSTRUCTIONS if batch else ''),'input':raw,
+            result=await counted.post('https://api.openai.com/v1/responses',json={'model':MODEL,'store':False,'instructions':INSTRUCTIONS+('\n'+field_answers.INSTRUCTIONS if batch else '')+('\n'+REVIEW_INSTRUCTIONS if batch and review_suggestions else ''),'input':raw,
                 'reasoning':{'effort':'low'},'max_output_tokens':6000 if batch else 1800,
                 'text':{'format':{'type':'json_schema','name':'job_answer','strict':True,'schema':field_answers.schema(field_data['fields'], evidence_profile, {key: item for matches in saved.values() for key, item in matches.items()}) if batch else SCHEMA}}})
             if result.status_code!=200: raise ValueError('Luna 暂时不可用（HTTP '+str(result.status_code)+'）')
@@ -123,7 +127,10 @@ class Answers:
                     raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
                 meanings.save(field_data['fields'], [{**row, 'meaning': checks.get(row['fieldId'], {}).get('meaning', row.get('meaning'))} for row in rows], meaning_context, MODEL)
                 fields_by_id = {f['fieldId']: f for f in field_data['fields']}
+                candidates = rows
                 rows = [decide(row, fields_by_id[row['fieldId']], evidence_profile, pid, payload['profileVersion'], checks.get(row['fieldId'], {'verdict': 'missing_fact'}), saved.get(row['fieldId'])) for row in rows]
+                if review_suggestions:
+                    rows = [proposed(candidate, fields_by_id[row['fieldId']], row) for candidate, row in zip(candidates, rows)]
                 bindings.save(field_data['fields'], rows, checks, meaning_context, MODEL, evidence_profile, pid, payload['profileVersion'], saved)
                 self.profile_gaps.record(pid,profile,field_data['fields'],rows)
                 state='needs_input' if any(r['state']=='needs_input' for r in rows) else 'answer'

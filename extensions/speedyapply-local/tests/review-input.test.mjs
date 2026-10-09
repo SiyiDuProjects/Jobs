@@ -1,4 +1,5 @@
 import { confirmedAnswer } from "./helpers/verified-answer.mjs";
+import { bindAnswerEvidence } from "../src/custom/answer-proof.js";
 import { mountReviewPanel } from "./helpers/review-panel.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
@@ -91,6 +92,42 @@ function setup(html, url = "https://fixture.myworkdayjobs.com/apply") {
           "session",
         );
     },
+    propose: () => {
+      const send = w.chrome.runtime.sendMessage;
+      w.chrome.runtime.sendMessage = async (msg) => {
+        if (msg.type !== "jobs:auto-answers") return send(msg);
+        return {
+          data: {
+            answers: msg.fields.map((field) =>
+              bindAnswerEvidence(
+                {
+                  fieldId: field.fieldId,
+                  state: "answer",
+                  value: "N",
+                  source: "suggestion",
+                  decision: "draft",
+                  reviewOnly: true,
+                  needsConfirmation: true,
+                  answerZh: "否",
+                  proof: {
+                    version: 2,
+                    status: "proposed",
+                    profileId: "fixture",
+                    profileVersion: "fixture-v1",
+                    field,
+                    value: "N",
+                    id: "a".repeat(24),
+                    paths: [],
+                  },
+                },
+                field,
+                { id: "fixture", lastSync: "fixture-v1" },
+              ),
+            ),
+          },
+        };
+      };
+    },
     run: (options = {}) =>
       w.JobsAutomatic.advance({
         root: w.document.querySelector("form"),
@@ -132,6 +169,65 @@ test("review Yes/No buttons write the original select and only confirmation cont
     assert.equal(h.clicks(), 1);
   } finally {
     h.close();
+  }
+});
+
+test("unverified suggestions are preselected only in the card and one confirmation writes all", async () => {
+  const h = setup(
+    '<label>Current clearance*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label><label>Prior government employment*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label>',
+  );
+  try {
+    h.propose();
+    assert.equal(await h.run(), false);
+    assert.deepEqual(
+      [...h.w.document.querySelectorAll("select")].map((n) => n.value),
+      ["", ""],
+    );
+    assert.equal(
+      h.shadow().querySelectorAll('.choice[aria-pressed="true"]').length,
+      2,
+    );
+    assert.match(h.shadow().querySelector(".source").textContent, /AI 建议/);
+    assert.equal(h.clicks(), 0);
+    assert.equal(await h.w.JobsAIReview.confirm(), true);
+    assert.deepEqual(
+      [...h.w.document.querySelectorAll("select")].map((n) => n.value),
+      ["N", "N"],
+    );
+    assert.equal(h.clicks(), 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("confirmation preserves a manual correction and never applies a changed proposal menu", async () => {
+  const h = setup(
+    '<label>Current clearance*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label>',
+  );
+  try {
+    h.propose();
+    await h.run();
+    const field = h.w.document.querySelector("select");
+    field.value = "Y";
+    field.dispatchEvent(new h.w.Event("change", { bubbles: true }));
+    assert.equal(await h.w.JobsAIReview.confirm(), true);
+    assert.equal(field.value, "Y");
+  } finally {
+    h.close();
+  }
+  const changed = setup(
+    '<label>Current clearance*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label>',
+  );
+  try {
+    changed.propose();
+    await changed.run();
+    changed.w.document.querySelector('option[value="N"]').textContent =
+      "No current or prior clearance";
+    assert.equal(await changed.w.JobsAIReview.confirm(), false);
+    assert.equal(changed.w.document.querySelector("select").value, "");
+    assert.equal(changed.clicks(), 0);
+  } finally {
+    changed.close();
   }
 });
 
