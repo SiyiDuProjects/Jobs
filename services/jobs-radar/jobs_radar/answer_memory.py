@@ -93,9 +93,13 @@ def applies(record, context):
 class AnswerMemory:
     def __init__(self, store, profile_id, fields, context):
         self.store, self.key = store, 'jobsResponses:' + profile_id
+        self.fields, self.context = fields, context
         self.revision, rows = self.read()
-        self.by_field = {}
-        for field in fields:
+        self.by_field = self.select(rows)
+
+    def select(self, rows):
+        by_field = {}
+        for field in self.fields:
             matches = {}
             for raw in rows:
                 try:
@@ -104,15 +108,16 @@ class AnswerMemory:
                     continue
                 if (row.get('origin') != 'person' or not isinstance(row.get('question'), str)
                         or not row['question'].strip() or len(row['question']) > 4000 or len(row['response']) > 4000
-                        or normalized(row['question']) != normalized(field['question']) or not applies(row, context)):
+                        or normalized(row['question']) != normalized(field['question']) or not applies(row, self.context)):
                     continue
-                ident = hashlib.sha256(json.dumps([self.key, self.revision, row], sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:24]
+                ident = hashlib.sha256(json.dumps([self.key, row], sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:24]
                 matches[ident] = {'savedResponse': ident, 'question': row['question'], 'response': row['response'],
                                   'origin': 'person', 'scope': row['scope'], 'context': row['context']}
             # Never truncate qualifiers or choose one of conflicting records by
             # keyword score. Excess data is not eligible for automatic reuse.
             if len(matches) <= 8 and len(json.dumps(matches, ensure_ascii=False).encode()) <= 24000:
-                self.by_field[field['fieldId']] = matches
+                by_field[field['fieldId']] = matches
+        return by_field
 
     def read(self):
         with self.store.connect() as c:
@@ -122,11 +127,9 @@ class AnswerMemory:
         return (row['revision'], json.loads(row['value'])) if row else (0, [])
 
     def current(self):
-        with self.store.connect() as c:
-            if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='management_documents'").fetchone():
-                return self.revision == 0
-            row = c.execute('SELECT revision FROM management_documents WHERE key=?', (self.key,)).fetchone()
-        return (row['revision'] if row else 0) == self.revision
+        revision, rows = self.read()
+        # Concurrent writes matter only when this batch's scoped evidence changes.
+        return revision == self.revision or self.select(rows) == self.by_field
 
     def prompt(self):
         return {field: list(rows.values()) for field, rows in self.by_field.items() if rows}

@@ -220,17 +220,26 @@ def test_uncached_work_keeps_sixty_model_batch_limit(tmp_path):
     assert client.calls==[]
 
 
-def test_new_person_statement_during_model_wait_invalidates_cached_result(tmp_path):
+@pytest.mark.parametrize('relevant', [True,False])
+def test_only_relevant_person_statement_during_model_wait_invalidates_cached_result(tmp_path, relevant):
     a, _, payload = setup(tmp_path); run(a,payload,Client())
+    statement=dict(key='new-person-answer',question=FIELD['question'] if relevant else 'Unrelated question',
+                   response='No',origin='person',scope='global',context={'capturedAt':'2026-10-01T00:00:00Z'})
     class Changed(Client):
         async def post(self,url,json):
             with a.store.connect(True) as c:
                 c.execute('CREATE TABLE management_documents(key TEXT PRIMARY KEY,value TEXT,revision INTEGER)')
-                c.execute('INSERT INTO management_documents VALUES(?,?,?)',('jobsResponses:'+payload['profileId'],'[]',1))
+                c.execute('INSERT INTO management_documents VALUES(?,?,?)',
+                          ('jobsResponses:'+payload['profileId'],__import__('json').dumps([statement]),1))
             raise httpx.ReadTimeout('synthetic')
     other=FIELD | {'fieldId':'other','question':'Another question'}
-    with pytest.raises(ValueError,match='已存答案在核验期间改变'):
-        run(a,payload | {'fields':[FIELD,other]},Changed())
+    if relevant:
+        with pytest.raises(ValueError,match='已存答案在核验期间改变'):
+            run(a,payload | {'fields':[FIELD,other]},Changed())
+    else:
+        result=run(a,payload | {'fields':[FIELD,other]},Changed())['answers']
+        assert result[0]['decision']=='write' and result[0]['value']=='y'
+        assert result[1]['decision']=='ask' and result[1]['value'] is None
 
 
 def test_verified_binding_survives_job_company_and_form_progress_changes(tmp_path):

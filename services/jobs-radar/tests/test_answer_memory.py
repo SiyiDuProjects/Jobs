@@ -164,6 +164,51 @@ def test_edit_after_generation_stops_before_another_provider_call(tmp_path):
     assert len(client.calls)==1
 
 
+@pytest.mark.parametrize('has_saved,stage', [(False,'generation'), (True,'generation'), (True,'verification')])
+@pytest.mark.parametrize('unrelated', ['company','question'])
+def test_unrelated_saved_answer_during_model_work_preserves_current_evidence(tmp_path, has_saved, stage, unrelated):
+    original = [record()] if has_saved else []
+    answers,payload,management,key=prepare(tmp_path,original)
+    memory=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
+    added=record(key='unrelated',question='A different question')
+    if unrelated=='company':
+        other_key=job_key('https://jobs.ashbyhq.com/unrelated/third/application')
+        added=record(key='unrelated',jobKey=other_key,
+                     context=record()['context'] | {'jobKey':other_key,'companyKey':company_key(other_key)})
+    class ChangingClient(Client):
+        async def post(self,url,json):
+            response=await super().post(url,json)
+            if len(self.calls)==(1 if stage=='generation' else 2):
+                management.write([dict(key=key,revision=1,value=original+[added])])
+            return response
+    client=ChangingClient()
+    result=asyncio.run(answers.generate(payload,client))['answers'][0]
+    assert result['decision']==('write' if has_saved else 'ask')
+    assert len(client.calls)==(2 if has_saved else 1)
+    assert memory.current()
+    after=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
+    assert after.by_field==memory.by_field
+    if has_saved:
+        reference=next(iter(memory.by_field['health']))
+        assert result['evidence']==[{'savedResponse':reference}]
+        assert json.loads(client.calls[1]['input'])['candidates'][0]['evidence'][0]['savedResponse']==reference
+
+
+@pytest.mark.parametrize('before,after', [
+    ([],[record()]),
+    ([record()],[record(),record(key='conflict',response='Yes')]),
+    ([record(key=str(i)) for i in range(8)],[record(key=str(i)) for i in range(9)]),
+    ([record(key=str(i),response='x'*3900) for i in range(5)],
+     [record(key=str(i),response='x'*3900) for i in range(6)]),
+])
+def test_relevant_additions_conflicts_and_evidence_limits_invalidate_current_batch(tmp_path, before, after):
+    answers,payload,management,key=prepare(tmp_path,before)
+    memory=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
+    assert 'health' in memory.by_field
+    management.write([dict(key=key,revision=1,value=after)])
+    assert not memory.current()
+
+
 def test_excess_matching_records_are_not_partially_selected(tmp_path):
     answers,payload,_,_=prepare(tmp_path,[record(key=str(i),response='No '+str(i)) for i in range(9)])
     memory=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
