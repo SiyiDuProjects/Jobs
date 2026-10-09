@@ -19,6 +19,20 @@ def event_metrics(event):
     """Accept only named counters/durations and page visibility, never free text."""
     from .validation import shape, integer
     result = {}
+    if 'answerUsage' in event:
+        if event['type'] != 'auto_answer_batch':
+            raise ValueError('Invalid answer usage event')
+        usage = event['answerUsage']
+        if usage == {'unavailable': True} and type(usage['unavailable']) is bool:
+            result['answerUsage'] = usage
+        else:
+            keys = ('fieldCount', 'cacheHits', 'modelFields', 'modelCalls')
+            shape(usage, keys)
+            usage = {key: integer(usage[key], 2 if key == 'modelCalls' else 30) for key in keys}
+            if (not usage['fieldCount'] or usage['cacheHits'] + usage['modelFields'] > usage['fieldCount']
+                    or (usage['modelCalls'] == 0) != (usage['modelFields'] == 0)):
+                raise ValueError('Invalid answer usage counts')
+            result['answerUsage'] = usage
     if 'visibility' in event:
         if event['type'] != 'visibility_changed' or event['visibility'] not in ('hidden', 'visible'):
             raise ValueError('Invalid diagnostic visibility')
@@ -132,7 +146,7 @@ def validate(value, now):
                                                  structure=text(entry['structure'], 800, empty=True)))
         result['snapshots'].append(item)
     for event in sequence(value['events'], 1500):
-        shape(event, ('at', 'document', 'type'), ('fieldId', 'phase', 'build', 'timing', 'visibility', 'sequence', 'evidence', 'trace', 'decision'))
+        shape(event, ('at', 'document', 'type'), ('fieldId', 'phase', 'build', 'timing', 'visibility', 'answerUsage', 'sequence', 'evidence', 'trace', 'decision'))
         item = dict(at=integer(event['at'], now + 60_000), document=text(event['document'], 128),
                     type=text(event['type'], 80))
         for key in ('fieldId', 'phase', 'build'):
@@ -199,9 +213,9 @@ def save(c, device, items, now=None):
                 # Keep the enriched event, preserving distinct measurements
                 # even if two events happened within the same millisecond.
                 def base(event):
-                    return encoded({k: v for k, v in event.items() if k not in ('timing', 'visibility')})
-                enriched = {base(v) for v in rows if 'timing' in v or 'visibility' in v}
-                rows = [v for v in rows if 'timing' in v or 'visibility' in v or base(v) not in enriched]
+                    return encoded({k: v for k, v in event.items() if k not in ('timing', 'visibility', 'answerUsage')})
+                enriched = {base(v) for v in rows if any(k in v for k in ('timing', 'visibility', 'answerUsage'))}
+                rows = [v for v in rows if any(k in v for k in ('timing', 'visibility', 'answerUsage')) or base(v) not in enriched]
             item['truncated'] |= len(rows) > limit
             if kind == 'events':
                 while len(rows) > limit:
@@ -259,7 +273,7 @@ class Diagnostics:
         items = [validate(v, now) for v in sequence(payload['history'], 10)]
         with self.store.connect(True) as c:
             save(c, device, items, now)
-        return {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1}
+        return {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1, 'historyAnswerUsage': 1}
 
     def history(self, application_id=None):
         with self.store.connect(True) as c:

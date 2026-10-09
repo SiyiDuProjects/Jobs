@@ -59,6 +59,10 @@ class AnswerJobs:
 
     async def _run(self, request_id, payload):
         state = 'completed'
+        def failed(message, error):
+            # wait_for keeps the cancelled coroutine's exception as its cause.
+            usage = getattr(error, 'answer_usage', None) or getattr(error.__cause__, 'answer_usage', None)
+            return {'error': message, **({'answerUsage': usage} if usage else {})}
         try:
             # HTTP read timeouts only bound each idle interval. A slow response
             # can otherwise outlive the persisted task and keep consuming work
@@ -70,12 +74,12 @@ class AnswerJobs:
                 result = await asyncio.wait_for(self.answers.generate(payload), timeout=ANSWER_TIMEOUT_SECONDS)
             finally:
                 self.slots.release()
-        except TimeoutError:
-            state, result = 'failed', {'error':'回答超时，当前填写内容已保留，请重试'}
-        except asyncio.CancelledError:
-            state, result = 'failed', {'error':'回答任务已中断，请检查后重试'}
+        except TimeoutError as error:
+            state, result = 'failed', failed('回答超时，当前填写内容已保留，请重试', error)
+        except asyncio.CancelledError as error:
+            state, result = 'failed', failed('回答任务已中断，请检查后重试', error)
         except (ValueError, KeyError, TypeError) as error:
-            state, result = 'failed', {'error':str(error)[:600]}
+            state, result = 'failed', failed(str(error)[:600], error)
         except Exception:
             state, result = 'failed', {'error':'回答任务失败，未填入任何答案'}
         with self.store.connect(True) as c:

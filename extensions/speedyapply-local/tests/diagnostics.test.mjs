@@ -830,3 +830,29 @@ test("connection invalidation clears raw diagnostics and pending manual answers"
     h.close();
   }
 });
+
+test("answer usage is journaled as bounded counters without personal text", async () => {
+  const h = harness();
+  try {
+    await h.start();
+    h.w.JobsDiagnostics.beginRun();
+    const usage = {
+      fieldCount: 2,
+      cacheHits: 2,
+      modelFields: 0,
+      modelCalls: 0,
+    };
+    h.w.JobsDiagnostics.note(
+      "auto_answer_batch",
+      null,
+      JSON.stringify({ ...usage, answer: "PRIVATE_USAGE" }),
+    );
+    const event = h.w.JobsDiagnostics.snapshot().events.find(
+      (e) => e.type === "auto_answer_batch",
+    );
+    assert.deepEqual(JSON.parse(event.detail), usage);
+    assert(!event.detail.includes("PRIVATE_USAGE"));
+  } finally {
+    h.close();
+  }
+});

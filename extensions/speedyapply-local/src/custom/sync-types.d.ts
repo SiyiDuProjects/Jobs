@@ -77,6 +77,7 @@ export interface HistoryEvent {
   build?: string;
   visibility?: "hidden" | "visible";
   timing?: Record<string, number | Record<string, number>>;
+  answerUsage?: Record<string, number | boolean>;
   sequence?: number;
   evidence?: Record<string, string | number | boolean>;
   trace?: Record<string, string | number | string[]>;

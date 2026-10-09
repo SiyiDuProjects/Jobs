@@ -155,7 +155,10 @@ export function initializeAutomaticBackground() {
       run().then(
         (data) => reply({ data }),
         (error) =>
-          reply({ error: String(error.message || error).slice(0, 600) }),
+          reply({
+            error: String(error.message || error).slice(0, 600),
+            answerUsage: error.answerUsage,
+          }),
       );
       return true;
     });

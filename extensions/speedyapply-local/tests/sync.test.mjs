@@ -835,12 +835,24 @@ test("failed tasks allow explicit retry, while disconnect during pending work st
       status: 200,
       json: async () => ({
         state: "failed",
-        result: { error: "Please retry" },
+        result: {
+          error: "Please retry",
+          answerUsage: {
+            fieldCount: 1,
+            cacheHits: 0,
+            modelFields: 1,
+            modelCalls: 1,
+          },
+        },
       }),
     };
   });
   for (let i = 0; i < 2; i++)
-    await assert.rejects(failed.api.generateAnswer(payload), /Please retry/);
+    await assert.rejects(failed.api.generateAnswer(payload), (error) => {
+      assert.match(error.message, /Please retry/);
+      assert.equal(error.answerUsage.modelCalls, 1);
+      return true;
+    });
   assert.notEqual(ids[0], ids[1]);
   const disconnect = harness(initial, async () => {
     disconnect.set({ ...disconnect.state(), disabled: true });

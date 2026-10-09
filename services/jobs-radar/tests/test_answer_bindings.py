@@ -100,13 +100,36 @@ def test_missing_facts_and_unverified_legacy_hints_cannot_short_circuit(tmp_path
     {'fields':[FIELD | {'question':'Do you have unrestricted rights to work?'}]},
     {'fields':[FIELD | {'options':list(reversed(FIELD['options']))}]},
     {'fields':[FIELD | {'options':[FIELD['options'][0],{'value':'y','label':'Yes, without restrictions'}]}]},
-    {'fields':[FIELD | {'options':[FIELD['options'][0],{'value':'another-value','label':'Yes'}]}]},
 ])
 def test_complete_field_and_country_changes_miss_cache(tmp_path, change):
     a, _, payload = setup(tmp_path); run(a,payload,Client())
     failed = Client(fail=True)
     with pytest.raises(ValueError): run(a,payload | change,failed)
     assert len(failed.calls) == 1
+
+
+def test_cross_company_option_ids_reuse_meaning_but_bind_current_values(tmp_path):
+    a, profile, payload = setup(tmp_path)
+    first = FIELD | {'type':'select-one', 'options':[
+        {'label':'No', 'value':'118734001'}, {'label':'Yes', 'value':'118734002'}]}
+    second = first | {'fieldId':'other-page', 'options':[
+        {'label':'No', 'value':'998110001'}, {'label':'Yes', 'value':'998110002'}]}
+    initial = payload | {'fields':[first], 'jobCountry':'US',
+                         'jobUrl':'https://boards.greenhouse.io/first/jobs/100'}
+    cold = Client(value='118734002')
+    assert run(a,initial,cold)['answers'][0]['value']=='118734002'
+    assert len(cold.calls)==2
+    later = initial | {'fields':[second], 'jobUrl':'https://boards.greenhouse.io/second/jobs/200',
+                       'jobTitle':'Another role', 'formContext':[{'question':'Name','answer':'Synthetic'}]}
+    offline = Client(fail=True)
+    current = run(a,later,offline)['answers'][0]
+    assert current['value']=='998110002' and current['decision']=='write'
+    from jobs_radar.answer_semantics import field_key
+    assert current['proof']['field']==field_key(second)
+    profile['employmentData']['eligibilityUS']=False
+    newer=Profiles(a.store).save(profile,profile_id=payload['profileId'],expected_sync=payload['profileVersion'])
+    assert run(a,later | {'profileVersion':newer['last_sync']},offline)['answers'][0]['value']=='998110001'
+    assert offline.calls==[]
 
 
 @pytest.mark.parametrize('key', [cache_key, binding_key])
@@ -287,3 +310,109 @@ def test_context_dependent_verdict_is_not_cached_as_a_binding(tmp_path):
     assert len(client.calls)==4
     with a.store.connect() as connection:
         assert connection.execute('SELECT count(*) FROM answer_bindings').fetchone()[0]==0
+
+
+def test_option_labels_normalize_only_display_space_and_canonical_unicode():
+    labels = FIELD | {'options':[{'value':'a','label':'  No\u00a0  '}, {'value':'b','label':' Ye\u0301s  '}]}
+    equivalent = FIELD | {'options':[{'value':'100','label':'No'}, {'value':'200','label':'Yés'}]}
+    assert binding_key(labels,{},'model')==binding_key(equivalent,{},'model')
+    for label in ['Not Yés','Yés, unrestricted','YES']:
+        changed = equivalent | {'options':[equivalent['options'][0],{'value':'200','label':label}]}
+        assert binding_key(labels,{},'model')!=binding_key(changed,{},'model')
+    # The proof and advisory hint cache still distinguish the exact page values.
+    assert cache_key(labels,{},'model')!=cache_key(equivalent,{},'model')
+
+
+@pytest.mark.parametrize('labels', [['No',' No '], ['', 'Yes'], ['\u00a0','Yes']])
+def test_blank_or_duplicate_normalized_option_labels_are_not_reusable(labels):
+    field=FIELD | {'options':[{'value':str(i),'label':label} for i,label in enumerate(labels)]}
+    assert checked(BINDING,MEANING,field) is None
+
+
+def test_previous_value_bound_namespace_is_not_promoted(tmp_path):
+    from jobs_radar.answers import MODEL
+    a, _, payload=setup(tmp_path)
+    BindingCache(a.store)
+    with a.store.connect(True) as c:
+        c.execute('INSERT INTO answer_bindings VALUES(?,?)',
+                  (cache_key(FIELD,{'bindingVersion':2,'country':''},MODEL),
+                   json.dumps({'meaning':MEANING,'binding':BINDING})))
+    client=Client()
+    assert run(a,payload,client)['answers'][0]['decision']=='write'
+    assert len(client.calls)==2
+
+
+def test_batch_usage_distinguishes_cold_cached_mixed_and_quota_blocked(tmp_path):
+    a, _, payload=setup(tmp_path)
+    assert run(a,payload,Client())['answerUsage']==dict(fieldCount=1,cacheHits=0,modelFields=1,modelCalls=2)
+    assert run(a,payload,Client(fail=True))['answerUsage']==dict(fieldCount=1,cacheHits=1,modelFields=0,modelCalls=0)
+    other=FIELD | {'fieldId':'other','question':'A different question?'}
+    mixed=payload | {'fields':[FIELD,other]}
+    assert run(a,mixed,Client(fail=True))['answerUsage']==dict(fieldCount=2,cacheHits=1,modelFields=1,modelCalls=1)
+    assert run(a,mixed,Client(binding=None))['answerUsage']==dict(fieldCount=2,cacheHits=1,modelFields=1,modelCalls=2)
+    with a.store.connect(True) as c:
+        c.executemany('INSERT INTO answer_requests VALUES(?,?,?)',[(str(i),time.time(),'fixture') for i in range(60)])
+    assert run(a,mixed,Client(fail=True))['answerUsage']==dict(fieldCount=2,cacheHits=1,modelFields=0,modelCalls=0)
+    with pytest.raises(ValueError) as error: run(a,payload | {'fields':[other]},Client(fail=True))
+    assert error.value.answer_usage==dict(fieldCount=1,cacheHits=0,modelFields=0,modelCalls=0)
+
+
+@pytest.mark.parametrize('fail_at', [1,2])
+def test_batch_usage_counts_failed_generation_or_verification_attempts(tmp_path,fail_at):
+    a, _, payload=setup(tmp_path)
+    class Failing(Client):
+        async def post(self,url,json):
+            self.fail=len(self.calls)+1==fail_at
+            return await super().post(url,json)
+    client=Failing()
+    if fail_at==1:
+        with pytest.raises(ValueError) as error: run(a,payload,client)
+        usage=error.value.answer_usage
+    else:
+        result=run(a,payload,client)
+        assert result['answers'][0]['decision']=='ask'
+        usage=result['answerUsage']
+    assert usage==dict(fieldCount=1,cacheHits=0,modelFields=1,modelCalls=fail_at)
+    assert len(client.calls)==fail_at
+
+
+def test_no_verifier_candidates_count_only_generation(tmp_path):
+    a, _, payload=setup(tmp_path)
+    class Missing(Client):
+        async def post(self,url,json):
+            self.calls.append(json)
+            return httpx.Response(200,json={'status':'completed','output':[{'content':[{
+                'type':'output_text','text':__import__('json').dumps({'answers':[dict(
+                    fieldId='f',state='needs_input',value=None,source='unknown',reason='Missing fact',
+                    evidence=[],meaning=MEANING)]})}]}]})
+    client=Missing()
+    result=run(a,payload,client)
+    assert result['answerUsage']==dict(fieldCount=1,cacheHits=0,modelFields=1,modelCalls=1)
+    assert len(client.calls)==1
+
+
+@pytest.mark.parametrize('timeout', [False,True])
+def test_failed_job_persists_actual_usage_without_replaying(tmp_path,monkeypatch,timeout):
+    import uuid
+    from jobs_radar.answer_jobs import AnswerJobs
+    a, _, payload=setup(tmp_path)
+    class Slow(Client):
+        async def post(self,url,json):
+            self.calls.append(json)
+            await asyncio.sleep(10)
+    client=Slow() if timeout else Client(fail=True)
+    original=a.generate
+    async def measured(payload): return await original(payload,client)
+    a.generate=measured
+    if timeout: monkeypatch.setattr('jobs_radar.answer_jobs.ANSWER_TIMEOUT_SECONDS',0.02)
+    async def scenario():
+        jobs=AnswerJobs(a.store,a)
+        request=payload | {'requestId':str(uuid.uuid4())}
+        jobs.start(request)
+        await asyncio.gather(*list(jobs.tasks.values()))
+        result=jobs.status(request['requestId'])
+        assert result['state']=='failed'
+        assert result['result']['answerUsage']==dict(fieldCount=1,cacheHits=0,modelFields=1,modelCalls=1)
+        assert AnswerJobs(a.store,a).start(request)==result
+        assert len(client.calls)==1
+    asyncio.run(scenario())

@@ -939,3 +939,49 @@ test("rejected batches and network errors retain only a real previous acknowledg
   assert.equal((await h.api.health()).lastAckAt, 123);
   assert.equal((await h.api.health()).state, "error");
 });
+
+test("answer batch counts survive restart, discard text, and wait for service capability", async () => {
+  const h = connectedHistory(),
+    value = report(),
+    calls = [];
+  const usage = { fieldCount: 3, cacheHits: 1, modelFields: 2, modelCalls: 2 };
+  value.events.push({
+    at: value.startedAt + 2,
+    type: "auto_answer_batch",
+    detail: JSON.stringify({ ...usage, answer: "PRIVATE_USAGE" }),
+  });
+  await h.api.capture(value);
+  await h.api.capture(value);
+  const restarted = setup(h.local, h.session);
+  const events = (await restarted.api.pending(300000)).items[0].events;
+  assert.equal(events.filter((e) => e.type === "auto_answer_batch").length, 1);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(events.at(-1).answerUsage)),
+    usage,
+  );
+  assert(!JSON.stringify(h.local).includes("PRIVATE_USAGE"));
+  h.context.fetch = async (_, options) => {
+    calls.push(JSON.parse(options.body));
+    return Response.json({
+      historyAccepted: true,
+      historyEventMetrics: 1,
+      historyEvidence: 1,
+    });
+  };
+  await h.api.sync();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].history.length, 0);
+  assert.equal((await h.api.pending(300000)).items.length, 1);
+  h.context.fetch = async (_, options) => {
+    calls.push(JSON.parse(options.body));
+    return Response.json({
+      historyAccepted: true,
+      historyEventMetrics: 1,
+      historyEvidence: 1,
+      historyAnswerUsage: 1,
+    });
+  };
+  await h.api.sync();
+  assert.deepEqual(calls.at(-1).history[0].events.at(-1).answerUsage, usage);
+  assert.equal((await h.api.pending(300000)).items.length, 0);
+});

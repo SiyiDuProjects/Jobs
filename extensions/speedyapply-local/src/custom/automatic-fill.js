@@ -991,19 +991,22 @@ export function initializeAutomaticFill() {
             note("auto_luna_requested", row.node);
           flow.move("resolving");
           setMessage("ai-thinking");
-          const answers = await requestAnswerBatch({
-            type: "jobs:auto-answers",
-            profileStamp: stamp,
-            fields: submitted.map((item) => item.field),
-            formContext,
-            jobTitle: (
-              document.querySelector(
-                'h1,[data-automation-id="jobTitleHeading"]',
-              )?.textContent || document.title
-            )
-              .trim()
-              .slice(0, 500),
-          });
+          const answers = await requestAnswerBatch(
+            {
+              type: "jobs:auto-answers",
+              profileStamp: stamp,
+              fields: submitted.map((item) => item.field),
+              formContext,
+              jobTitle: (
+                document.querySelector(
+                  'h1,[data-automation-id="jobTitleHeading"]',
+                )?.textContent || document.title
+              )
+                .trim()
+                .slice(0, 500),
+            },
+            (usage) => note("auto_answer_batch", null, JSON.stringify(usage)),
+          );
           await binding();
           flow.move("writing");
           setMessage("ai-filling");

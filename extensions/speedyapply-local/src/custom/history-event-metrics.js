@@ -3,12 +3,37 @@
 export function historyEventMetrics(type, detail) {
   if (type === "visibility_changed")
     return ["hidden", "visible"].includes(detail) ? { visibility: detail } : {};
-  if (!["auto_run_timing", "auto_write_timing"].includes(type)) return {};
+  if (
+    !["auto_run_timing", "auto_write_timing", "auto_answer_batch"].includes(
+      type,
+    )
+  )
+    return {};
   let value;
   try {
     value = typeof detail === "string" ? JSON.parse(detail) : detail;
   } catch {
-    return {};
+    value = null;
+  }
+  if (type === "auto_answer_batch") {
+    const keys = ["fieldCount", "cacheHits", "modelFields", "modelCalls"];
+    if (
+      value &&
+      value.unavailable !== true &&
+      keys.every(
+        (key) =>
+          Number.isInteger(value[key]) &&
+          value[key] >= 0 &&
+          value[key] <= (key === "modelCalls" ? 2 : 30),
+      ) &&
+      value.fieldCount > 0 &&
+      value.cacheHits + value.modelFields <= value.fieldCount &&
+      (value.modelCalls === 0) === (value.modelFields === 0)
+    )
+      return {
+        answerUsage: Object.fromEntries(keys.map((key) => [key, value[key]])),
+      };
+    return { answerUsage: { unavailable: true } };
   }
   const numbers = (input, keys) => {
     const result = {};

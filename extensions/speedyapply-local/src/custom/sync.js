@@ -819,7 +819,9 @@ export function initializeSync() {
             await chrome.storage.session.set({ jobsAnswerTasksV1: tasks });
           }
         });
-        throw Error(result.result?.error || "Luna 请求失败");
+        throw Object.assign(Error(result.result?.error || "Luna 请求失败"), {
+          answerUsage: result.result?.answerUsage,
+        });
       }
       if (result.state === "pending")
         throw Error("回答仍在处理中，请稍后重试以恢复同一任务");

@@ -247,6 +247,7 @@ export function initializeHistoryBackground() {
             e.trace || null,
             e.decision || null,
             historyEventMetrics(e.type, e.timing).timing || null,
+            e.answerUsage || null,
           ]);
         const priorEventCount = data.events.length;
         data.events = [
@@ -478,6 +479,7 @@ export function initializeHistoryBackground() {
           status: 0,
           metrics: data.historyEventMetrics === 1,
           evidence: data.historyEvidence === 1,
+          answerUsage: data.historyAnswerUsage === 1,
         };
       };
       const accepted = (response) => {
@@ -494,6 +496,9 @@ export function initializeHistoryBackground() {
       const hasMetrics = batch.items.some((item) =>
         item.events.some((event) => event.timing || event.visibility),
       );
+      const hasAnswerUsage = batch.items.some((item) =>
+        item.events.some((event) => event.answerUsage),
+      );
       const legacy = () =>
         batch.items.map((item) => ({
           ...item,
@@ -502,8 +507,13 @@ export function initializeHistoryBackground() {
       // Probe with the existing empty-packet contract. Old servers never see
       // new event fields; the local archive still retains those measurements.
       const capabilities =
-        hasMetrics || hasEvidence ? accepted(await post([])) : null;
-      if (hasEvidence && !capabilities?.evidence) {
+        hasMetrics || hasEvidence || hasAnswerUsage
+          ? accepted(await post([]))
+          : null;
+      if (
+        (hasEvidence && !capabilities?.evidence) ||
+        (hasAnswerUsage && !capabilities?.answerUsage)
+      ) {
         await setHealth(
           {
             state: "upgrade_required",
@@ -535,7 +545,7 @@ export function initializeHistoryBackground() {
         await chrome.storage.local.set({ [key]: Object.fromEntries(records) });
       }
       const finalResponse =
-        !hasEvidence && metrics && response.status === 400
+        !hasEvidence && !hasAnswerUsage && metrics && response.status === 400
           ? await post(legacy())
           : response;
       // One malformed run must not prevent the other runs in this batch arriving.

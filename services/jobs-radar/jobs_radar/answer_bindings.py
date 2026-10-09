@@ -5,10 +5,11 @@ value, quotation, code, or a new predicate. Evaluation always uses the current
 bound server Profile. Unsupported qualifiers stay on the semantic verifier path.
 """
 import json
+import unicodedata
 from .answer_evidence import decide, facts
 from .answer_semantics import cache_key, classification
 
-BINDING_CACHE_VERSION = 2
+BINDING_CACHE_VERSION = 3
 BOOLEAN = ('true', 'false')
 DISCLOSURE = (*BOOLEAN, 'undisclosed')
 GENDERS = ('male', 'female', 'nonbinary', 'undisclosed')
@@ -48,7 +49,9 @@ mean the underlying POSITIVE predicate, including for a negated question. Use
 unused only for a placeholder/unrelated option; never discard a qualification.
 Only radio/select-one/custom-dropdown controls with complete supplied options
 are executable. A binding must be fully determined by the field's question,
-description, type, required flag, complete options and context.jobContext.country.
+description, type, required flag, complete option labels in their original order
+and context.jobContext.country. Option values are opaque page-local IDs; never
+use them to infer meaning. Ambiguous or identical option labels require null.
 It will be reused across companies, job postings and form filling progress.
 Return null if interpreting the field needs a company, job title/description,
 additionalContext, formContext or another answer. Do not resolve references such
@@ -59,10 +62,17 @@ self-contained field's binding.
 """
 
 
+def option_labels(field):
+    # Preserve case, punctuation, negation and qualifiers; normalize display space
+    # and canonical Unicode only. Never sort or use a transport ID as meaning.
+    return [' '.join(unicodedata.normalize('NFC', option['label']).split())
+            for option in field['options']]
+
+
 def binding_key(field, context, model):
     # Only independently verified, self-contained predicates use this scope.
     # The namespace excludes old context-bound plans rather than upgrading them.
-    return cache_key(field, {
+    return cache_key({**field, 'options': option_labels(field)}, {
         'bindingVersion': BINDING_CACHE_VERSION,
         'country': context.get('jobContext', {}).get('country', ''),
     }, model)
@@ -80,6 +90,9 @@ def checked(binding, meaning, field):
     if (not isinstance(binding, dict) or set(binding) != {'predicate', 'options'}
             or not isinstance(binding['predicate'], str) or binding['predicate'] not in PREDICATES
             or not classification(meaning) or field['type'] not in {'radio', 'select-one', 'custom-dropdown'}):
+        return None
+    labels = option_labels(field)
+    if not all(labels) or len(set(labels)) != len(labels):
         return None
     topic, domain = PREDICATES[binding['predicate']]
     values = binding['options']

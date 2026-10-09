@@ -1,4 +1,4 @@
-import { readModule } from "./helpers/module-source.mjs";
+import { readWithDependencies as readModule } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -38,7 +38,24 @@ test("diagnostics viewer renders records as text and refreshes without requestin
         },
       ],
       unansweredContainers: [],
-      events: [{ at: Date.now(), type: "memory_saved", fieldId: "f1" }],
+      events: [
+        { at: Date.now(), type: "memory_saved", fieldId: "f1" },
+        {
+          at: Date.now(),
+          type: "auto_answer_batch",
+          detail: JSON.stringify({
+            fieldCount: 3,
+            cacheHits: 2,
+            modelFields: 1,
+            modelCalls: 2,
+          }),
+        },
+        {
+          at: Date.now(),
+          type: "auto_answer_batch",
+          detail: JSON.stringify({ unavailable: true }),
+        },
+      ],
     },
   };
   w.chrome = {
@@ -89,6 +106,11 @@ test("diagnostics viewer renders records as text and refreshes without requestin
       ),
     );
     assert(w.document.getElementById("export-case").disabled);
+    assert.match(
+      w.document.getElementById("events").textContent,
+      /缓存命中 2 题 \/ 送模型 1 题 \/ 模型请求 2 次/,
+    );
+    assert.match(w.document.getElementById("events").textContent, /计数不可用/);
   } finally {
     dom.window.close();
   }

@@ -222,9 +222,16 @@ export function initializeDiagnostics() {
         ...(node ? { fieldId: fieldId(node) } : {}),
         ...(detail
           ? {
-              detail: ["auto_run_timing", "auto_write_timing"].includes(type)
-                ? JSON.stringify(historyEventMetrics(type, detail).timing || {})
-                : clean(detail),
+              detail:
+                type === "auto_answer_batch"
+                  ? JSON.stringify(
+                      historyEventMetrics(type, detail).answerUsage,
+                    )
+                  : ["auto_run_timing", "auto_write_timing"].includes(type)
+                    ? JSON.stringify(
+                        historyEventMetrics(type, detail).timing || {},
+                      )
+                    : clean(detail),
             }
           : {}),
         ...extra,

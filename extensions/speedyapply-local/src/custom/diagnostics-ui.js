@@ -1,4 +1,4 @@
-export {};
+import { historyEventMetrics } from "./history-event-metrics.js";
 
 const $ = (id) => document.getElementById(id);
 const select = (id) => /** @type {HTMLSelectElement} */ ($(id));
@@ -66,7 +66,13 @@ function render(row) {
   $("events").replaceChildren(
     ...report.events.map((event) => {
       const li = document.createElement("li");
-      li.textContent = `${new Date(event.at).toLocaleTimeString()} · ${event.sequence ? "#" + event.sequence + " · " : ""}${event.type}${event.fieldId ? " · " + event.fieldId : ""}${event.detail ? " · " + event.detail : ""}${event.evidence ? " · " + JSON.stringify(event.evidence) : ""}`;
+      const usage = historyEventMetrics(event.type, event.detail).answerUsage;
+      const detail = usage
+        ? usage.unavailable
+          ? "回答批次计数不可用"
+          : `缓存命中 ${usage.cacheHits} 题 / 送模型 ${usage.modelFields} 题 / 模型请求 ${usage.modelCalls} 次（含核验）`
+        : event.detail;
+      li.textContent = `${new Date(event.at).toLocaleTimeString()} · ${event.sequence ? "#" + event.sequence + " · " : ""}${event.type}${event.fieldId ? " · " + event.fieldId : ""}${detail ? " · " + detail : ""}${event.evidence ? " · " + JSON.stringify(event.evidence) : ""}`;
       return li;
     }),
   );

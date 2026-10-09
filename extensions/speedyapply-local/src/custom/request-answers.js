@@ -1,6 +1,11 @@
-export async function requestAnswerBatch(message) {
+export async function requestAnswerBatch(
+  message,
+  recordUsage = (_usage) => {},
+) {
+  let usage;
   try {
     const reply = await chrome.runtime.sendMessage(message);
+    usage = reply?.data?.answerUsage || reply?.answerUsage;
     if (reply?.error) throw Error(reply.error);
     const answers = reply?.data?.answers,
       ids = new Set(message.fields.map((field) => field.fieldId));
@@ -23,5 +28,11 @@ export async function requestAnswerBatch(message) {
       source: "unknown",
       interruptionReason: "control_failure",
     }));
+  } finally {
+    // Observability must never change an answer or hide the original error.
+    // Missing counters (transport failure/older service) are unknown, not zero.
+    try {
+      recordUsage(usage || { unavailable: true });
+    } catch {}
   }
 }

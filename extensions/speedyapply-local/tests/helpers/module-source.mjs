@@ -42,10 +42,17 @@ export async function readModule(file, encoding) {
     file instanceof URL ? file : pathToFileURL(path.resolve(file));
   if (encoding !== "utf8" || !/^import |^export /m.test(source)) return source;
   const ast = parse(source, { sourceType: "module" });
-  // This standalone viewer has no imports or exported values; preserve its
-  // top-level-await completion in the JSDOM realm.
+  // Preserve the viewer's top-level-await completion. Link named imports to
+  // the real dependencies loaded in its isolated JSDOM realm.
   if (fileURL.pathname.endsWith("/diagnostics-ui.js"))
-    return "(async()=>{" + source.replace("export {};", "") + "})()";
+    return (
+      "(async()=>{" +
+      source.replace(
+        'import { historyEventMetrics } from "./history-event-metrics.js";',
+        "const { historyEventMetrics } = globalThis;",
+      ) +
+      "})()"
+    );
   const compiled = await transform(source, { format: "cjs", target: "es2023" });
   const pure = [];
   for (const node of ast.program.body)

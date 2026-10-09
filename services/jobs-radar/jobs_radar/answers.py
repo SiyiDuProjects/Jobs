@@ -1,6 +1,7 @@
 from .answer_policy import COMMON_INSTRUCTIONS as INSTRUCTIONS
 """Luna answers for the selected Profile; no provider credential leaves the server."""
 import hashlib
+import asyncio
 import json
 import time
 import uuid
@@ -46,6 +47,7 @@ class Answers:
         if calendar: data['calendar'] = calendar
         saved = {}; memory = None; memory_context = {}; cached = {}
         all_fields = field_data['fields'] if batch else []
+        usage = {'fieldCount': len(all_fields), 'cacheHits': 0, 'modelFields': 0, 'modelCalls': 0}
         if batch:
             from .answer_memory import AnswerMemory, request_context
             job_context = request_context(payload)
@@ -62,6 +64,7 @@ class Answers:
             from .answer_bindings import BindingCache
             bindings = BindingCache(self.store)
             cached = bindings.read(all_fields, meaning_context, MODEL, evidence_profile, pid, payload['profileVersion'], saved)
+            usage['cacheHits'] = len(cached)
             field_data = {**field_data, 'fields': [f for f in all_fields if f['fieldId'] not in cached]}
             data['fields'] = field_data['fields']
             data['meaningHints'] = meanings.read(field_data['fields'], meaning_context, MODEL)
@@ -72,8 +75,9 @@ class Answers:
             if cached and not memory.current():
                 raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
             by_id = {**cached, **{row['fieldId']: row for row in rows}}
-            return {'answers': [by_id[f['fieldId']] for f in all_fields], 'responseId': response_id, 'model': MODEL}
+            return {'answers': [by_id[f['fieldId']] for f in all_fields], 'responseId': response_id, 'model': MODEL, 'answerUsage': dict(usage)}
         def partial_failure(error):
+            if batch: error.answer_usage = dict(usage)
             if not cached:
                 raise error
             from .answer_evidence import decide
@@ -92,7 +96,15 @@ class Answers:
                 return partial_failure(ValueError('本小时 AI 请求较多，请稍后再试'))
             c.execute('INSERT INTO answer_requests VALUES(?,?,?)',(rid,now,'started'))
         async def call(active):
-            result=await active.post('https://api.openai.com/v1/responses',json={'model':MODEL,'store':False,'instructions':INSTRUCTIONS+('\n'+field_answers.INSTRUCTIONS if batch else ''),'input':raw,
+            # Count attempts at the transport boundary, including failed requests.
+            # A batch can generate once and independently verify once.
+            class CountedClient:
+                async def post(self, *args, **kwargs):
+                    usage['modelFields'] = len(field_data['fields']) if batch else 0
+                    usage['modelCalls'] += 1
+                    return await active.post(*args, **kwargs)
+            counted = CountedClient()
+            result=await counted.post('https://api.openai.com/v1/responses',json={'model':MODEL,'store':False,'instructions':INSTRUCTIONS+('\n'+field_answers.INSTRUCTIONS if batch else ''),'input':raw,
                 'reasoning':{'effort':'low'},'max_output_tokens':6000 if batch else 1800,
                 'text':{'format':{'type':'json_schema','name':'job_answer','strict':True,'schema':field_answers.schema(field_data['fields'], evidence_profile, {key: item for matches in saved.values() for key, item in matches.items()}) if batch else SCHEMA}}})
             if result.status_code!=200: raise ValueError('Luna 暂时不可用（HTTP '+str(result.status_code)+'）')
@@ -106,7 +118,7 @@ class Answers:
                 from .answer_verification import verify
                 if not memory.current():
                     raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
-                checks = await verify(active, rows, field_data['fields'], evidence_profile, MODEL, saved, memory_context, meaning_context)
+                checks = await verify(counted, rows, field_data['fields'], evidence_profile, MODEL, saved, memory_context, meaning_context)
                 if not memory.current():
                     raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
                 meanings.save(field_data['fields'], [{**row, 'meaning': checks.get(row['fieldId'], {}).get('meaning', row.get('meaning'))} for row in rows], meaning_context, MODEL)
@@ -129,6 +141,9 @@ class Answers:
             if client is not None:return await call(client)
             async with httpx.AsyncClient(headers={'Authorization':'Bearer '+api_key()},timeout=60) as active:
                 return await call(active)
+        except asyncio.CancelledError as error:
+            if batch: error.answer_usage = dict(usage)
+            raise
         except (httpx.HTTPError,json.JSONDecodeError,KeyError):
             return partial_failure(ValueError('Luna 请求失败，未填入任何答案'))
         except ValueError as error:

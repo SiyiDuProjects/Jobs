@@ -18,7 +18,7 @@ const matchCode = (
   )
 ).join("\n");
 
-for (const timing of ["before", "during"])
+for (const timing of ["before", "during", "provider-failure"])
   test(`a live ATS document can finish AI when observation registration is missing ${timing} the request`, async () => {
     const url = "https://job-boards.greenhouse.io/example/jobs/123",
       profile = { profileName: "Newgrad" },
@@ -68,7 +68,18 @@ for (const timing of ["before", "during"])
         generateAnswer: async () => {
           calls++;
           registered = false;
-          return { answers: [{ value: "Confirmed fixture answer" }] };
+          const answerUsage = {
+            fieldCount: 1,
+            cacheHits: 0,
+            modelFields: 1,
+            modelCalls: 1,
+          };
+          if (timing === "provider-failure")
+            throw Object.assign(Error("Provider failed"), { answerUsage });
+          return {
+            answers: [{ value: "Confirmed fixture answer" }],
+            answerUsage,
+          };
         },
       },
     });
@@ -90,10 +101,16 @@ for (const timing of ["before", "during"])
         resolve,
       ),
     );
-    assert.equal(result.error, undefined);
-    assert.equal(result.data.answers.length, 1);
+    if (timing === "provider-failure") {
+      assert.match(result.error, /Provider failed/);
+      assert.equal(result.answerUsage.modelCalls, 1);
+    } else {
+      assert.equal(result.error, undefined);
+      assert.equal(result.data.answers.length, 1);
+      assert.equal(result.data.answerUsage.modelCalls, 1);
+    }
     assert.equal(calls, 1);
-    assert.equal(probes, 2);
+    assert.equal(probes, timing === "provider-failure" ? 1 : 2);
   });
 
 for (const change of ["url", "document"])

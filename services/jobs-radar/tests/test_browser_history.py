@@ -192,7 +192,7 @@ def test_history_keeps_unrecognized_questions_with_structure_only(history):
 
 def test_history_metrics_survive_storage_restart_and_empty_capability_probe(history):
     store, control, send = history
-    assert send([]) == {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1}
+    assert send([]) == {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1, 'historyAnswerUsage': 1}
     assert control.history()['applications'] == []
     p = packet()
     p['events'] = [
@@ -351,3 +351,42 @@ def test_history_tool_reports_storage_failure_without_private_database_details(t
     with pytest.raises(ToolError, match='Diagnostic history storage is unavailable') as error:
         asyncio.run(server.call_tool('get_browser_history', {}))
     assert 'private-database-path' not in str(error.value)
+
+
+@pytest.mark.parametrize('usage', [
+    {'fieldCount':3,'cacheHits':3,'modelFields':0,'modelCalls':0},
+    {'fieldCount':3,'cacheHits':1,'modelFields':2,'modelCalls':2},
+    {'fieldCount':3,'cacheHits':1,'modelFields':0,'modelCalls':0},
+    {'unavailable':True},
+])
+def test_answer_usage_round_trip_deduplicates_and_retains_unknown(history,usage):
+    store, control, send=history
+    p=packet()
+    shell={'at':NOW,'document':'doc-1','type':'auto_answer_batch'}
+    send([{**p,'events':[shell]}])
+    event={**shell,'answerUsage':usage}
+    send([{**p,'events':[event]}]); send([{**p,'events':[event]}])
+    restarted=Diagnostics(store,lambda:NOW+100_000)
+    row=restarted.history()['applications'][0]
+    assert restarted.history(row['id'])['events']==[event]
+
+
+@pytest.mark.parametrize('usage', [
+    {}, [], {'unavailable':False}, {'unavailable':1}, {'unavailable':True,'answer':'private'},
+    {'fieldCount':1,'cacheHits':0,'modelFields':1,'modelCalls':0},
+    {'fieldCount':1,'cacheHits':1,'modelFields':1,'modelCalls':2},
+    {'fieldCount':31,'cacheHits':31,'modelFields':0,'modelCalls':0},
+    {'fieldCount':1,'cacheHits':0,'modelFields':1,'modelCalls':3},
+    {'fieldCount':1,'cacheHits':True,'modelFields':0,'modelCalls':0},
+    {'fieldCount':1,'cacheHits':1,'modelFields':0,'modelCalls':0,'answer':'private'},
+])
+def test_answer_usage_rejects_private_text_and_invalid_counts(history,usage):
+    _, _, send=history
+    with pytest.raises(ValueError):
+        send([{**packet(),'events':[{'at':NOW,'document':'doc-1','type':'auto_answer_batch','answerUsage':usage}]}])
+
+
+def test_usage_cannot_attach_to_unrelated_event(history):
+    _, _, send=history
+    with pytest.raises(ValueError):
+        send([{**packet(),'events':[{'at':NOW,'document':'doc-1','type':'phase','answerUsage':{'unavailable':True}}]}])
