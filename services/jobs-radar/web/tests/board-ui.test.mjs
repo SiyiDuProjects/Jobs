@@ -58,7 +58,7 @@ test('all unsubmitted jobs retain the single Apply action and unsubmitted label'
  ]){
   const h=await page(false,{status,active});try{
    assert.equal(h.w.document.querySelector('a[data-jobs-id]').textContent,label+' ↗');
-   assert(h.w.document.querySelector('.application-status').textContent.includes(state));
+   assert([...h.w.document.querySelectorAll('td')].some(cell => cell.textContent.includes(state)));
    assert.equal(h.w.document.querySelector('a[data-jobs-id]').href,'https://example.test/job');
    assert.deepEqual(h.errors,[]);
   }finally{h.dom.window.close();}

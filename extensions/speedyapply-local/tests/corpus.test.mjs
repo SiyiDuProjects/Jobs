@@ -316,3 +316,57 @@ test("background probes before upload, deduplicates known pages, and rejects ext
     dom.window.close();
   }
 });
+
+function workdayDropdown(selected = "Female") {
+  return readerWindow(
+    `<form><div data-automation-id="formField-gender"><label for="gender">Gender</label><button id="gender" aria-haspopup="listbox" aria-label="Gender Required ${selected}" title="${selected}"><span>${selected}</span></button></div></form>`,
+    "https://example.myworkdayjobs.com/apply",
+  );
+}
+
+test("Workday selected text and accessible attributes are absent from inert snapshots", () => {
+  const dom = workdayDropdown();
+  try {
+    const w = dom.window,
+      rows = w.JobsControlFields.create(w.document).scan();
+    assert.equal(rows[0].public.type, "combobox");
+    recordCorpusOptions(rows[0].node, ["Female", "Male"]);
+    const page = captureCorpus({
+      root: w.document.querySelector("form"),
+      rows,
+      platform: "workday",
+    });
+    assert(!JSON.stringify(page.trees).includes("Female"));
+    assert.equal(page.fields[0].question, "Gender");
+    assert.deepEqual(
+      page.fields[0].options.map((o) => o.label),
+      ["Female", "Male"],
+    );
+    assert.equal(rows[0].node.textContent, "Female");
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("Workday non-search dropdown replays its full recorded option list", async () => {
+  const { replayCorpusPage } = await import("../scripts/corpus-runner.mjs");
+  const dom = workdayDropdown("Select One");
+  try {
+    const w = dom.window,
+      rows = w.JobsControlFields.create(w.document).scan();
+    recordCorpusOptions(rows[0].node, ["Female", "Male"]);
+    const page = captureCorpus({
+      root: w.document.querySelector("form"),
+      rows,
+      platform: "workday",
+    });
+    const report = replayCorpusPage(page, [
+      { id: "synthetic", employmentData: { gender: "Female" } },
+    ]);
+    assert.equal(report.fields[0].answers[0].answer, "Female");
+    assert.equal(report.fields[0].meaningMatches, true);
+    assert.equal(report.fields[0].actual.required, true);
+  } finally {
+    dom.window.close();
+  }
+});

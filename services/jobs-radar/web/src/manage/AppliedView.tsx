@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Chip, Input, TextField } from "@heroui/react";
+import { Button, Card, Chip, Input, TextField } from "@heroui/react";
 import { DataGrid, type DataGridColumn } from "@heroui-pro/react";
 import { ApplicationEditor, ProgressEditor } from "./application-editors";
 import { useManagement } from "./store";
@@ -33,29 +33,36 @@ export function PendingMail() {
   const rows = docs.applicationProgressReview?.value || [];
   if (!rows.length) return null;
   return (
-    <details className="rounded-xl bg-surface-secondary p-3 text-sm mb-4">
-      <summary>待核对邮件 · {rows.length} 条</summary>
-      <p className="text-muted py-2">关联到具体申请前，不重复计入统计。</p>
-      {rows.map((r: any, i: number) => (
-        <div key={r.message_id || i} className="border-t border-separator py-2">
-          <strong>
-            {r.companyName || r.candidates?.[0]?.companyName} ·{" "}
-            {r.label || r.stage}
-          </strong>
-          <p>{r.summary}</p>
-          {safeHref(r.email_url) && (
-            <a
-              className="text-accent underline"
-              href={safeHref(r.email_url)}
-              target="_blank"
-              rel="noreferrer"
+    <Card className="mb-4">
+      <Card.Content>
+        <details className="text-sm">
+          <summary>待核对邮件 · {rows.length} 条</summary>
+          <p className="text-muted py-2">关联到具体申请前，不重复计入统计。</p>
+          {rows.map((r: any, i: number) => (
+            <div
+              key={r.message_id || i}
+              className="border-t border-separator py-2"
             >
-              查看邮件
-            </a>
-          )}
-        </div>
-      ))}
-    </details>
+              <strong>
+                {r.companyName || r.candidates?.[0]?.companyName} ·{" "}
+                {r.label || r.stage}
+              </strong>
+              <p>{r.summary}</p>
+              {safeHref(r.email_url) && (
+                <a
+                  className="text-accent underline"
+                  href={safeHref(r.email_url)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  查看邮件
+                </a>
+              )}
+            </div>
+          ))}
+        </details>
+      </Card.Content>
+    </Card>
   );
 }
 export function AppliedView() {
@@ -163,7 +170,7 @@ export function AppliedView() {
   ];
   return (
     <section aria-label="已投递" className="space-y-4">
-      <div className="flex flex-wrap gap-3 items-center">
+      <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(200px,1fr)_180px_auto]">
         <TextField
           aria-label="搜索投递"
           value={query}
@@ -171,7 +178,7 @@ export function AppliedView() {
             setQuery(v);
             setPage(1);
           }}
-          className="min-w-52 flex-1"
+          className="min-w-0 sm:col-span-2 lg:col-span-1"
         >
           <Input placeholder="搜索公司或岗位" />
         </TextField>
@@ -185,28 +192,37 @@ export function AppliedView() {
             setPage(1);
           }}
         />
-        <Button variant="secondary" onPress={() => setDialog({ type: "date" })}>
-          {from || to ? `${from || "…"} — ${to || "…"}` : "投递日期"}
-        </Button>
-        <Button variant="secondary" onPress={() => setDialog({ type: "add" })}>
-          手动补录
-        </Button>
-        <Button
-          variant="ghost"
-          isDisabled={!all.length}
-          onPress={() =>
-            download(
-              "applications.csv",
-              exportCSV(all),
-              "text/csv;charset=utf-8",
-            )
-          }
-        >
-          导出 CSV
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="secondary"
+            onPress={() => setDialog({ type: "date" })}
+          >
+            {from || to ? `${from || "…"} — ${to || "…"}` : "投递日期"}
+          </Button>
+          <Button
+            variant="secondary"
+            onPress={() => setDialog({ type: "add" })}
+          >
+            手动补录
+          </Button>
+          <Button
+            variant="ghost"
+            isDisabled={!all.length}
+            onPress={() =>
+              download(
+                "applications.csv",
+                exportCSV(all),
+                "text/csv;charset=utf-8",
+              )
+            }
+          >
+            导出 CSV
+          </Button>
+        </div>
       </div>
       <DataGrid
         aria-label="投递记录"
+        contentClassName="min-w-[840px]"
         data={rows.slice((active - 1) * 30, active * 30)}
         columns={columns}
         getRowId={(r) => r.key}

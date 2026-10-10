@@ -19,6 +19,7 @@ class ProfileGaps:
         with self.store.connect(True) as c:
             for row in answers:
                 if row['state'] != 'needs_input': continue
+                if row.get('interruptionReason') != 'missing_fact': continue
                 if any('savedResponse' in item for item in row.get('evidence', []) if isinstance(item, dict)):continue
                 field=by_id[row['fieldId']]
                 c.execute('''INSERT INTO answer_profile_gaps VALUES(?,?,?,?,?,?,?,?,?,1)

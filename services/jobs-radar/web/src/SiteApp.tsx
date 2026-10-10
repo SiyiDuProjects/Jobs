@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 import { Button, Spinner } from "@heroui/react";
 import { Segment } from "@heroui-pro/react";
 import {
@@ -99,9 +105,14 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
       docs.jobsKindProfiles?.value?.[
         kind === "internship" ? "intern" : "newgrad"
       ];
-    if (!id || !profiles.some(p => p.id === id)) {
-      const pattern = kind === "internship" ? /^(intern|internship|实习)$/i : /^(new[ -]?grad|ng|全职)$/i;
-      const candidates = profiles.filter(p => pattern.test(p.profileName.trim()));
+    if (!id || !profiles.some((p) => p.id === id)) {
+      const pattern =
+        kind === "internship"
+          ? /^(intern|internship|实习)$/i
+          : /^(new[ -]?grad|ng|全职)$/i;
+      const candidates = profiles.filter((p) =>
+        pattern.test(p.profileName.trim()),
+      );
       id = candidates.length === 1 ? candidates[0].id : undefined;
     }
     if (id && id !== current?.id && profiles.some((p) => p.id === id))
@@ -113,9 +124,9 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
     ["/settings", "设置"],
   ];
   return (
-    <div className="workspace">
-      <header className="header flex-wrap">
-        <a href="#/" className="brand">
+    <div className="mx-auto max-w-[1440px] px-4 py-5 sm:px-8 sm:py-6">
+      <header className="flex items-center gap-5 pb-7 flex-wrap">
+        <a href="#/" className="text-xl font-semibold tracking-tight">
           {brand.name}
         </a>
         <nav
@@ -168,7 +179,7 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
             <Spinner aria-label="正在连接 jobs" />
           </div>
         ) : !session.authenticated ? (
-          <section className="login">
+          <section className="mx-auto my-16 flex max-w-md flex-col gap-5">
             <h1>连接你的 jobs</h1>
             <p className="text-muted">
               把连接码发给有服务器访问权限的助手，批准这次浏览器登录。

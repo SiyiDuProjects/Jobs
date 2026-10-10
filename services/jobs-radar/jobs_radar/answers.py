@@ -60,6 +60,7 @@ class Answers:
             value=payload.get(key,'')
             if not isinstance(value,str) or len(value)>limit: raise ValueError('题目上下文过长')
             context[key]=value
+        context = bindings.recognition_context(context)
         memory=AnswerMemory(self.store,pid,fields,{**context['jobContext'],'profileVersion':version})
         cache=bindings.BindingCache(self.store); plans=cache.plans(fields,context,MODEL)
         usage={'fieldCount':len(fields),'cacheHits':len(plans),'modelFields':0,'modelCalls':0}
@@ -84,6 +85,7 @@ class Answers:
             return json.loads(text)
 
         async def run(active):
+            mapping_failure = 'ai_rate_limited' if limited else 'unrecognized_question'
             if pending and not limited:
                 schema={'type':'object','properties':{'mappings':{'type':'array','items':{'type':'object','properties':{
                     'fieldId':{'type':'string','enum':[f['fieldId'] for f in pending]},'binding':bindings.schema()},
@@ -93,7 +95,7 @@ class Answers:
                     mapped=unique_rows(body)
                     new={f['fieldId']:b for f in pending if (b:=bindings.checked(mapped.get(f['fieldId'],{}).get('binding'),None,f,context))}
                     cache.save_plans(pending,new,context,MODEL); plans.update(new)
-                except (httpx.HTTPError,ValueError,KeyError,TypeError): pass
+                except (httpx.HTTPError,ValueError,KeyError,TypeError): mapping_failure = 'ai_unavailable'
             if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
             answers={}; drafts=[]
             for field in fields:
@@ -103,7 +105,9 @@ class Answers:
                 saved=memory.by_field.get(fid,{})
                 if row is None and plan and not saved: row=bindings.answer(plan,None,field,profile,pid,version)
                 if row is None and plan and not saved and plan['predicate'].startswith('draft.'): drafts.append(field)
-                answers[fid]=row or bindings.result(field,pid,version,reason='缺少资料字段或题意未能对应，留空',route=plan['predicate'] if plan else 'unknown')
+                interruption = ('ai_rate_limited' if limited else 'draft_unavailable') if field in drafts else 'missing_fact' if plan else mapping_failure
+                reason = {'missing_fact':'缺少资料字段或题意未能对应，留空', 'ai_unavailable':'AI 服务暂时不可用，当前填写已保留', 'ai_rate_limited':'AI 每小时调用额度已用完，稍后重试', 'unrecognized_question':'题意未能对应，留空', 'draft_unavailable':'开放题草稿未生成，请手动作答或重试'}[interruption]
+                answers[fid]=row or bindings.result(field,pid,version,reason=reason,route=plan['predicate'] if plan else 'unknown',interruption=interruption)
             if drafts and not limited:
                 projected=project_answer_profile(profile,partial=False)
                 projected.get('applicationData',{}).pop('aiNotes',None)
@@ -118,7 +122,9 @@ class Answers:
                         value=bindings.field_value(row.get('text'),field) if field else None
                         if value and not basic_issues(value,field['question']):
                             answers[fid]=bindings.result(field,pid,version,value,draft=True,reason='开放题草稿，提交前过目',route=plans[fid]['predicate'])
-                except (httpx.HTTPError,ValueError,KeyError,TypeError): pass
+                except (httpx.HTTPError,ValueError,KeyError,TypeError):
+                    for f in drafts:
+                        answers[f['fieldId']] = bindings.result(f,pid,version,reason='AI 服务暂时不可用，当前填写已保留',route=plans[f['fieldId']]['predicate'],interruption='ai_unavailable')
             if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
             rows=[answers[f['fieldId']] for f in fields]
             self.profile_gaps.record(pid,profile,fields,rows)

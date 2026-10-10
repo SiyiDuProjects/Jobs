@@ -6,7 +6,7 @@ from .answer_values import PREDICATES, PATHS, BOOLEAN, DISCLOSURE, evaluate, nor
 from .answer_semantics import field_key
 from .field_answers import CHOICES, _exact_date
 
-BINDING_CACHE_VERSION = 4
+BINDING_CACHE_VERSION = 5
 INSTRUCTIONS = '''Map each public question to exactly one supported Profile path, computed predicate,
 default category, draft intent, or unknown. You never answer a personal fact.
 Do not infer an answer from the job, other questions, option IDs or typical applicants.
@@ -22,8 +22,13 @@ restrictive obligations, criminal/sanctions/debarment, termination, conflicts,
 screening, referral, application terms/accuracy, minimum qualifications/core duties,
 and willingness to commute/relocate/onsite only. Do not generalize to other commitments.
 previous_employer means EVER employed by a named company, including current employment.
+Use previous_employer_group only when the question explicitly includes that company's
+affiliates, subsidiaries or parent companies. Do not silently broaden a single company.
 Its argument must be the company name verbatim from the public question/context;
 citizen_of argument must be the country name verbatim. Other arguments are empty.
+Use jobData.current.company/jobTitle for CURRENT employment only; jobData.latest
+is for the most recent employment, which may have ended. Current or most recent
+explicitly permits latest. Missing current employment is not the latest past job.
 For choices, map EVERY option in its original order to the underlying positive
 predicate concept (true/false), including negated questions. unused is only for
 an actual placeholder or unrelated choice. For direct paths map options to the
@@ -39,7 +44,19 @@ Return a row for each field. unknown is an explicit result, never a guessed defa
 '''
 
 
+def recognition_context(context):
+    context = dict(context)
+    raw = context.get('additionalContext', '')
+    try: parsed = json.loads(raw)
+    except (ValueError, TypeError): return context
+    if isinstance(parsed, dict):
+        for key in ('currentLocalDate', 'timeZone'): parsed.pop(key, None)
+        context['additionalContext'] = json.dumps(parsed, sort_keys=True, ensure_ascii=False) if parsed else ''
+    return context
+
+
 def binding_key(field, context, model):
+    context = recognition_context(context)
     shape = field_key(field); shape.pop('fieldId')
     shape['options'] = [normalized(option['label']) for option in field.get('options',[])]
     # Posting IDs never affect a question's meaning. Keep public explanatory
@@ -65,6 +82,12 @@ def checked(binding, meaning, field, context=None):
     if route == 'unknown':
         return {'predicate':'unknown','options':['unused']*len(field.get('options',[])),'argument':'','polarity':True}
     question = (field['question'] + ' ' + field.get('description','')).casefold()
+    if route == 'previous_employer' and re.search(r'\b(affiliates?|subsidiar\w*|parent compan\w*)\b|关联公司|子公司|母公司|旗下', question):
+        route = 'previous_employer_group'
+    if route.startswith('jobData.latest.') and re.search(r'\bcurrent(?:ly)?\b|当前|目前|现任', question) and not re.search(r'\b(most recent|latest|last)\b|最近|上一', question):
+        current_route = route.replace('.latest.', '.current.')
+        if current_route not in PATHS: return None
+        route = current_route
     if route == 'default.location':
         if re.search(r'\brelocat\w*\b',question): route='applicationData.willingToRelocate'
         elif re.search(r'\b(on.?site|in.?office)\b',question): route='applicationData.willingToWorkOnsite'
@@ -80,7 +103,7 @@ def checked(binding, meaning, field, context=None):
     if domain in (BOOLEAN,DISCLOSURE) and choices and not all(v in choices for v in BOOLEAN): return None
     arg=binding.get('argument',''); polarity=binding.get('polarity',True)
     if not isinstance(arg,str) or len(arg)>300 or type(polarity) is not bool: return None
-    if route in {'previous_employer','citizen_of'}:
+    if route in {'previous_employer','previous_employer_group','citizen_of'}:
         if not arg.strip(): return None
         if context is not None:
             public=' '.join([field['question'],field.get('description',''),context.get('additionalContext','')])
@@ -91,7 +114,7 @@ def checked(binding, meaning, field, context=None):
     return {'predicate':route,'options':choices,'argument':arg,'polarity':polarity}
 
 
-def result(field, profile_id, version, value=None, paths=(), *, draft=False, reason='', route='unknown'):
+def result(field, profile_id, version, value=None, paths=(), *, draft=False, reason='', route='unknown', interruption='missing_fact'):
     decision='ask' if value is None else 'draft' if draft else 'write'
     proof={'version':2,'vocabularyVersion':BINDING_CACHE_VERSION,'profileId':profile_id,'profileVersion':version,
            'field':field_key(field),'value':value,'status':'unverified' if value is None else 'verified',
@@ -100,7 +123,9 @@ def result(field, profile_id, version, value=None, paths=(), *, draft=False, rea
          'source':'unknown' if value is None else 'suggestion' if draft else 'profile',
          'decision':decision,'needsConfirmation':value is None or draft,'proof':proof,'reason':reason,
          'route':route,'evidence':[{'profilePath':p} for p in paths]}
-    if value is None: row.update(interruptionReason='missing_fact', missingField=route)
+    if value is None:
+        row['interruptionReason'] = interruption
+        if interruption == 'missing_fact': row['missingField'] = route
     return row
 
 

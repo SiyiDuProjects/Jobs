@@ -122,6 +122,7 @@ export function Tags({
       </div>
       <div className="flex gap-2">
         <TextField
+          className="min-w-0 flex-1"
           aria-label={`添加${label}`}
           value={draft}
           onChange={setDraft}

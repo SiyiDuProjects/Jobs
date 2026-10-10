@@ -15,6 +15,7 @@ import {
 } from "@heroui/react";
 import { DropZone } from "@heroui-pro/react";
 import { store } from "./store";
+import { CalendarField, MonthField } from "./DateFields";
 
 export function Field({
   label,
@@ -35,13 +36,25 @@ export function Field({
   maxLength?: number;
   description?: string;
 }) {
+  if (!multiline && (type === "date" || type === "month")) {
+    const DateControl = type === "date" ? CalendarField : MonthField;
+    return (
+      <DateControl
+        label={label}
+        value={String(value ?? "")}
+        onChange={onChange}
+        required={required}
+        description={description}
+      />
+    );
+  }
   return (
     <TextField
       value={String(value ?? "")}
       onChange={onChange}
       isRequired={required}
       type={type as any}
-      className="w-full"
+      className="w-full min-w-0"
       maxLength={maxLength}
     >
       <Label>{label}</Label>
@@ -68,6 +81,7 @@ export function Choice({
 }) {
   return (
     <Select
+      className="w-full min-w-0"
       aria-label={label}
       value={value || null}
       onChange={(v) => onChange(String(v ?? ""))}
@@ -75,7 +89,7 @@ export function Choice({
       placeholder="请选择…"
     >
       {!hideLabel && <Label>{label}</Label>}
-      <Select.Trigger>
+      <Select.Trigger className="w-full">
         <Select.Value />
         <Select.Indicator />
       </Select.Trigger>

@@ -39,10 +39,15 @@ export function JobTable({
 }) {
   const { docs } = useManagement();
   const applications = appRows(docs.appliedList?.value || []);
-  const rows = data.jobs.map(job => ({...job, record: applications.find(r => r.job_id === job.id || r.job?.id === job.id)}));
+  const rows = data.jobs.map((job) => ({
+    ...job,
+    record: applications.find(
+      (r) => r.job_id === job.id || r.job?.id === job.id,
+    ),
+  }));
   const [progress, setProgress] = useState<AppRow | null>(null);
   return (
-    <section className="job-section" aria-label="岗位列表">
+    <section className="mb-5" aria-label="岗位列表">
       <Table>
         <Table.ScrollContainer>
           <Table.Content
@@ -53,35 +58,36 @@ export function JobTable({
                   ? "全职岗位列表"
                   : "实习岗位列表"
             }
-            className="job-table"
+            className="w-full min-w-[1000px]"
           >
             <Table.Header>
-              <Table.Column id="company" isRowHeader>
+              <Table.Column id="company" width={170} isRowHeader>
                 公司
               </Table.Column>
-              <Table.Column id="role">岗位</Table.Column>
-              <Table.Column id="location">地点</Table.Column>
-              <Table.Column id="date">
+              <Table.Column id="role" width={300}>
+                岗位
+              </Table.Column>
+              <Table.Column id="location" width={170}>
+                地点
+              </Table.Column>
+              <Table.Column id="date" width={80}>
                 {filters.added_date ? "收录" : "发布"}
               </Table.Column>
-              <Table.Column id="state">
+              <Table.Column id="state" width={150}>
                 {trash ? "删除原因" : "状态"}
               </Table.Column>
-              <Table.Column id="actions">操作</Table.Column>
+              <Table.Column id="actions" width={260}>
+                操作
+              </Table.Column>
             </Table.Header>
             <Table.Body items={rows}>
               {(job) => (
-                <Table.Row
-                  id={job.id}
-                  className={
-                    job.status === "submitted" ? "job-submitted" : undefined
-                  }
-                >
+                <Table.Row id={job.id}>
                   <Table.Cell>
                     <strong>
                       {job.group === "faang" && (
                         <span
-                          className="company-fire"
+                          className="mr-1.5 inline-block text-sm"
                           role="img"
                           aria-label="来源标记 FAANG+"
                           title="来源标记 FAANG+；重点地区筛选中美国境内不限州"
@@ -93,14 +99,16 @@ export function JobTable({
                     </strong>
                   </Table.Cell>
                   <Table.Cell>
-                    <div className="role">{job.title}</div>
-                    <div className="source text-muted">
+                    <div className="max-w-md font-medium leading-relaxed">
+                      {job.title}
+                    </div>
+                    <div className="mt-1 text-xs text-muted">
                       {job.sources.map((s) => names[s] || s).join(" · ")}
                     </div>
                   </Table.Cell>
                   <Table.Cell>
                     <div
-                      className="locations"
+                      className="max-w-52 text-sm leading-relaxed"
                       title={job.locations.join(" · ")}
                     >
                       {job.locations.slice(0, 2).join(" · ") || "地点待核实"}
@@ -110,7 +118,7 @@ export function JobTable({
                     </div>
                   </Table.Cell>
                   <Table.Cell>
-                    <span className="date">
+                    <span className="whitespace-nowrap text-xs tabular-nums text-muted">
                       {date(filters.added_date ? job.added_at : job.posted_at)}
                     </span>
                   </Table.Cell>
@@ -132,7 +140,7 @@ export function JobTable({
                         </small>
                         {job.review?.evidence?.map((e, i) => (
                           <a
-                            className="evidence"
+                            className="block text-xs text-accent"
                             key={i}
                             title={e.quote}
                             href={safe(e.url)}
@@ -146,24 +154,30 @@ export function JobTable({
                     ) : (
                       <>
                         {job.record ? (
-                          <Button size="sm" variant="ghost" className="application-status" onPress={() => setProgress(job.record!)}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onPress={() => setProgress(job.record!)}
+                          >
                             {progressLabel(job.record!)}
                           </Button>
-                        ) : <Chip
-                          size="sm"
-                          variant="soft"
-                          className="application-status"
-                          color={statusColor(job)}
-                        >
-                          <span aria-hidden="true">
-                            {job.status === "submitted" ? "✓" : ""}
-                          </span>
-                          <Chip.Label>
-                            {job.status === "submitted" ? "已投递" : "未投递"}
-                          </Chip.Label>
-                        </Chip>}
+                        ) : (
+                          <Chip
+                            size="sm"
+                            variant="soft"
+
+                            color={statusColor(job)}
+                          >
+                            <span aria-hidden="true">
+                              {job.status === "submitted" ? "✓" : ""}
+                            </span>
+                            <Chip.Label>
+                              {job.status === "submitted" ? "已投递" : "未投递"}
+                            </Chip.Label>
+                          </Chip>
+                        )}
                         <div
-                          className="screening text-muted"
+                          className="mt-1 text-xs text-muted"
                           title={job.review?.detail}
                         >
                           {job.review?.manual_keep
@@ -174,7 +188,7 @@ export function JobTable({
                     )}
                   </Table.Cell>
                   <Table.Cell>
-                    <div className="actions">
+                    <div className="flex items-center gap-1.5 whitespace-nowrap">
                       {trash ? (
                         <Button
                           size="sm"
@@ -192,12 +206,7 @@ export function JobTable({
                               data-jobs-kind={
                                 kind === "internship" ? "intern" : "newgrad"
                               }
-                              className={
-                                "apply " +
-                                (job.status === "submitted"
-                                  ? "apply-completed"
-                                  : "")
-                              }
+                              className="text-sm text-accent"
                               href={safe(job.apply_url || job.source_url)}
                               target="_blank"
                               rel="noreferrer"
@@ -246,7 +255,7 @@ export function JobTable({
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="delete-job"
+
                               onPress={() => open("trash", job)}
                             >
                               删除
@@ -262,7 +271,9 @@ export function JobTable({
           </Table.Content>
         </Table.ScrollContainer>
       </Table>
-      {progress && <ProgressEditor row={progress} onClose={() => setProgress(null)} />}
+      {progress && (
+        <ProgressEditor row={progress} onClose={() => setProgress(null)} />
+      )}
     </section>
   );
 }

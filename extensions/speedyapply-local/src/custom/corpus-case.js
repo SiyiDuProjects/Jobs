@@ -121,14 +121,35 @@ export function captureCorpus({
     )
       return null;
     const item = { tag: node.localName, attrs: {}, children: [] };
+    const choice = rows.find(
+      (row) =>
+        row.node === node &&
+        ["combobox", "search-choice"].includes(row.public.type),
+    );
+    const answerSurface =
+      !!choice ||
+      node.matches(
+        '[contenteditable],.select__single-value,.select__multi-value,[data-automation-id="selectedItem"],[data-automation-id="fileName"]',
+      );
     if (markers.has(node))
       item.attrs["data-jobs-corpus-field"] = markers.get(node);
     for (const name of attributes) {
       if (!node.hasAttribute(name)) continue;
+      if (
+        answerSurface &&
+        ["aria-label", "title", "placeholder"].includes(name)
+      )
+        continue;
       const raw = node.getAttribute(name);
       item.attrs[name] = references.has(name)
         ? raw.split(/\s+/).map(symbol).join(" ")
         : clean(raw).slice(0, 1200);
+    }
+    if (choice) {
+      item.attrs["aria-label"] =
+        clean(choice.public.question).slice(0, 1200) +
+        (choice.public.required ? " Required" : "");
+      if (choice.public.required) item.attrs["aria-required"] = "true";
     }
     // Only stable component classes matter; CSS and dynamic identifiers are not archived.
     const classes = [...node.classList].filter(
@@ -158,14 +179,12 @@ export function captureCorpus({
     if (
       node.localName !== "textarea" &&
       !node.isContentEditable &&
-      !node.matches(
-        '[contenteditable],.select__single-value,.select__multi-value,[data-automation-id="selectedItem"],[data-automation-id="fileName"]',
-      )
+      !answerSurface
     )
       item.children = [...node.childNodes]
         .map((child) => tree(child, depth + 1))
         .filter(Boolean);
-    if (node.shadowRoot)
+    if (node.shadowRoot && !answerSurface)
       item.shadow = [...node.shadowRoot.childNodes]
         .map((child) => tree(child, depth + 1))
         .filter(Boolean);

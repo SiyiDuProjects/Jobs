@@ -183,12 +183,21 @@ function ProfileForm({
             </Tabs.List>
           </Tabs.ListContainer>
           {dirty && (
-            <Button size="sm" className="ml-auto" isPending={busy} onPress={save}>
+            <Button
+              size="sm"
+              className="ml-auto"
+              isPending={busy}
+              onPress={save}
+            >
               保存更改
             </Button>
           )}
         </div>
-        <Tabs.Panel id="experience" shouldForceMount className="data-[inert=true]:hidden">
+        <Tabs.Panel
+          id="experience"
+          shouldForceMount
+          className="data-[inert=true]:hidden"
+        >
           <Card id="experience">
             <Card.Header>
               <Card.Title>经历</Card.Title>
@@ -280,21 +289,27 @@ function ProfileForm({
                       endDate: "结束月份",
                       description: "描述",
                     }).map(([key, label]) => (
-                      <Field
+                      <div
                         key={key}
-                        label={label}
-                        type={key.endsWith("Date") ? "month" : "text"}
-                        multiline={key === "description"}
-                        value={(project as any)[key]}
-                        onChange={(v) =>
-                          part(
-                            "projectData",
-                            p.projectData!.map((old, n) =>
-                              n === i ? { ...old, [key]: v } : old,
-                            ),
-                          )
+                        className={
+                          key === "description" ? "sm:col-span-2" : "min-w-0"
                         }
-                      />
+                      >
+                        <Field
+                          label={label}
+                          type={key.endsWith("Date") ? "month" : "text"}
+                          multiline={key === "description"}
+                          value={(project as any)[key]}
+                          onChange={(v) =>
+                            part(
+                              "projectData",
+                              p.projectData!.map((old, n) =>
+                                n === i ? { ...old, [key]: v } : old,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
                     ))}
                     <Button
                       size="sm"
@@ -320,7 +335,7 @@ function ProfileForm({
               <section className="space-y-3">
                 <h3 className="font-medium">语言</h3>
                 {p.languageData.map((item, i) => (
-                  <div className="flex flex-wrap gap-3 items-end" key={i}>
+                  <div className="grid grid-cols-2 items-end gap-4" key={i}>
                     <Field
                       label="语言"
                       value={item.language}
@@ -345,7 +360,18 @@ function ProfileForm({
                         )
                       }
                     />
-                    <Toggle label="流利" value={!!item.fluent} onChange={(v) => part("languageData", p.languageData.map((old,n) => n === i ? {...old, fluent:v} : old))} />
+                    <Toggle
+                      label="流利"
+                      value={!!item.fluent}
+                      onChange={(v) =>
+                        part(
+                          "languageData",
+                          p.languageData.map((old, n) =>
+                            n === i ? { ...old, fluent: v } : old,
+                          ),
+                        )
+                      }
+                    />
                     <Button
                       size="sm"
                       variant="ghost"
@@ -399,7 +425,11 @@ function ProfileForm({
             </Card.Content>
           </Card>
         </Tabs.Panel>
-        <Tabs.Panel id="personal" shouldForceMount className="data-[inert=true]:hidden">
+        <Tabs.Panel
+          id="personal"
+          shouldForceMount
+          className="data-[inert=true]:hidden"
+        >
           <Card id="personal">
             <Card.Header>
               <Card.Title>个人</Card.Title>
@@ -420,8 +450,13 @@ function ProfileForm({
                 preferredMiddleName: "常用中间名",
                 preferredLastName: "常用姓",
               })}
-              <Toggle label="使用常用名" value={!!p.nameData.preferredName}
-                onChange={(v) => part("nameData", {...p.nameData, preferredName: v})} />
+              <Toggle
+                label="使用常用名"
+                value={!!p.nameData.preferredName}
+                onChange={(v) =>
+                  part("nameData", { ...p.nameData, preferredName: v })
+                }
+              />
               {textGroup("contactData", {
                 email: "邮箱",
                 phoneCountryCode: "电话国家代码",
@@ -440,7 +475,11 @@ function ProfileForm({
             </Card.Content>
           </Card>
         </Tabs.Panel>
-        <Tabs.Panel id="preferences" shouldForceMount className="data-[inert=true]:hidden">
+        <Tabs.Panel
+          id="preferences"
+          shouldForceMount
+          className="data-[inert=true]:hidden"
+        >
           <Card id="preferences">
             <Card.Header>
               <Card.Title>偏好</Card.Title>

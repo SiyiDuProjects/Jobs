@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Choice, Field, Toggle } from "./components";
 import type { Profile as ProfileData } from "./model";
 import options from "./profile-options.json";
-const names = (values: string[]) => Object.fromEntries(values.map(v => [v,v]));
+const names = (values: string[]) =>
+  Object.fromEntries(values.map((v) => [v, v]));
 export function HistoryFields({
   kind,
   item,
@@ -77,11 +78,13 @@ export function HistoryFields({
           />
         </div>
       )}
-      <Toggle
-        label={job ? "目前在职" : "目前在读"}
-        value={item[present]}
-        onChange={(v) => update(present, v)}
-      />
+      <div className="self-end pb-2">
+        <Toggle
+          label={job ? "目前在职" : "目前在读"}
+          value={item[present]}
+          onChange={(v) => update(present, v)}
+        />
+      </div>
       {job && (
         <div className="sm:col-span-2">
           <Field

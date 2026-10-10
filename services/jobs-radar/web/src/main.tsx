@@ -4,6 +4,8 @@ import { SiteApp } from "./SiteApp";
 import type { BoardProps } from "./JobWorkspace";
 import { CLIENT_PROTOCOL_HEADERS } from "./client-protocol";
 import {
+  Alert,
+  Card,
   Button,
   Chip,
   Input,
@@ -421,102 +423,126 @@ export function JobsBoard({ kind, trash }: BoardProps) {
         <>
           {!trash && <ExtensionSync onSynced={load} />}
           {!trash && !!data?.recent_opened.length && (
-            <section className="recent-opened" aria-label="刚打开的岗位">
-              <div className="recent-heading">
-                <h2>刚打开 · {data.recent_opened.length}</h2>
-                <span className="text-muted">
-                  自动同步未覆盖的岗位，可在此手动确认
-                </span>
-                <Button
-                  className="recent-bulk"
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={saving || busy}
-                  isPending={!!batchProgress}
-                  onPress={() => submission(data.recent_opened)}
-                >
-                  {batchProgress
-                    ? `正在标记 ${batchProgress}`
-                    : `全部标记已投递（${data.recent_opened.length}）`}
-                </Button>
-              </div>
-              {(showRecent
-                ? data.recent_opened
-                : data.recent_opened.slice(0, 3)
-              ).map((job) => (
-                <div className="recent-row" key={job.id}>
-                  <div>
-                    <strong>{job.company}</strong>
-                    <span className="text-muted">{job.title}</span>
-                  </div>
-                  <div className="actions">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={saving}
-                      onPress={() => submission(job)}
-                    >
-                      标记已投递
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      isDisabled={saving}
-                      onPress={() => trackOpened(job, true)}
-                    >
-                      暂不处理
-                    </Button>
-                  </div>
+            <Card className="mb-5" aria-label="刚打开的岗位">
+              <Card.Content className="gap-3">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <h2>刚打开 · {data.recent_opened.length}</h2>
+                  <span className="text-muted">
+                    自动同步未覆盖的岗位，可在此手动确认
+                  </span>
+                  <Button
+                    className="sm:ml-auto"
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={saving || busy}
+                    isPending={!!batchProgress}
+                    onPress={() => submission(data.recent_opened)}
+                  >
+                    {batchProgress
+                      ? `正在标记 ${batchProgress}`
+                      : `全部标记已投递（${data.recent_opened.length}）`}
+                  </Button>
                 </div>
-              ))}
-              {data.recent_opened.length > 3 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onPress={() => setShowRecent((v) => !v)}
-                >
-                  {showRecent
-                    ? "收起"
-                    : "展开其余 " + (data.recent_opened.length - 3) + " 个"}
-                </Button>
-              )}
-            </section>
+                {(showRecent
+                  ? data.recent_opened
+                  : data.recent_opened.slice(0, 3)
+                ).map((job) => (
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-3 py-2"
+                    key={job.id}
+                  >
+                    <div>
+                      <strong>{job.company}</strong>
+                      <span className="text-muted">{job.title}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 whitespace-nowrap">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        isDisabled={saving}
+                        onPress={() => submission(job)}
+                      >
+                        标记已投递
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isDisabled={saving}
+                        onPress={() => trackOpened(job, true)}
+                      >
+                        暂不处理
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {data.recent_opened.length > 3 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onPress={() => setShowRecent((v) => !v)}
+                  >
+                    {showRecent
+                      ? "收起"
+                      : "展开其余 " + (data.recent_opened.length - 3) + " 个"}
+                  </Button>
+                )}
+              </Card.Content>
+            </Card>
           )}
-          <div className="browse-controls">
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:flex-wrap">
             {!trash && (
-              <section className="date-filter" aria-label="收录日期筛选">
+              <section
+                className="flex flex-wrap items-center gap-2"
+                aria-label="收录日期筛选"
+              >
                 <DateWindowFilter
                   value={filters.added_date}
                   onChange={(v) => filter("added_date", v)}
                 />
               </section>
             )}
-            <section className="toolbar" aria-label="岗位筛选">
+            <section
+              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+              aria-label="岗位筛选"
+            >
               <TextField
                 aria-label="搜索公司或岗位"
                 value={query}
                 onChange={setQuery}
-                className="search"
+                className="min-w-48 flex-1 basis-full sm:basis-auto"
               >
                 <Input placeholder="搜索公司或岗位" variant="secondary" />
               </TextField>
               {!trash && (
-                <Select
-                  label="投递状态"
-                  value={filters.status}
-                  options={statusOptions}
-                  onChange={(v) => filter("status", v)}
-                />
+                <div className="w-44">
+                  <Select
+                    label="投递状态"
+                    value={filters.status}
+                    options={statusOptions}
+                    onChange={(v) => filter("status", v)}
+                  />
+                </div>
               )}
               {!trash && (
-                <div className="refinement-controls">
-                  <Button size="sm" variant={filters.region ? "secondary" : "ghost"}
-                    aria-pressed={!!filters.region} onPress={() => toggleRegion(!filters.region)}>
+                <div className="flex shrink-0 items-center gap-4">
+                  <Button
+                    size="sm"
+                    variant={filters.region ? "secondary" : "ghost"}
+                    aria-pressed={!!filters.region}
+                    onPress={() => toggleRegion(!filters.region)}
+                  >
                     地区筛选
                   </Button>
-                  <Button size="sm" variant={filters[companyKey] === "1" ? "secondary" : "ghost"}
+                  <Button
+                    size="sm"
+                    variant={
+                      filters[companyKey] === "1" ? "secondary" : "ghost"
+                    }
                     aria-pressed={filters[companyKey] === "1"}
-                    onPress={() => filter(companyKey, filters[companyKey] === "1" ? "" : "1")}>
+                    onPress={() =>
+                      filter(companyKey, filters[companyKey] === "1" ? "" : "1")
+                    }
+                  >
                     公司筛选
                   </Button>
                   <Button
@@ -534,7 +560,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
             </section>
           </div>
           {!trash && !!filters.region && (
-            <p className="filter-help mt-2">
+            <p className="text-xs leading-relaxed text-muted mt-2">
               {filters.region === "focus_remote"
                 ? "地区：CA、WA、NY、MA、TX、美国远程及地点待定；FAANG+ 或精选公司在美国境内不限州。"
                 : filters.region === "ca"
@@ -543,7 +569,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
             </p>
           )}
           {!trash && filters[companyKey] === "1" && (
-            <p className="filter-help mt-2">
+            <p className="text-xs leading-relaxed text-muted mt-2">
               公司：只显示精选通过的岗位，全职和实习使用同一标准。尚未评估的岗位关闭此开关可见。
             </p>
           )}
@@ -573,8 +599,12 @@ export function JobsBoard({ kind, trash }: BoardProps) {
             </div>
           )}
 
-          {countsUnavailable && <p role="status" className="text-warning text-sm">岗位数量暂时不可用</p>}
-      <div className="list-meta">
+          {countsUnavailable && (
+            <p role="status" className="text-warning text-sm">
+              岗位数量暂时不可用
+            </p>
+          )}
+          <div className="my-4 flex flex-wrap items-center gap-3">
             <h1>
               {trash ? "回收站" : kind === "newgrad" ? "全职" : "实习"}{" "}
               <span className="text-muted">
@@ -582,7 +612,10 @@ export function JobsBoard({ kind, trash }: BoardProps) {
               </span>
             </h1>
             {!trash && data && (
-              <div className="progress-counts" aria-label="当前筛选投递进度">
+              <div
+                className="flex flex-wrap gap-3 text-xs tabular-nums text-muted"
+                aria-label="当前筛选投递进度"
+              >
                 <span className="count-submitted">
                   已投递 {data.application_counts.submitted}
                 </span>
@@ -591,7 +624,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                 </span>
               </div>
             )}
-            <div className="sync">
+            <div className="flex items-center gap-2 text-xs sm:ml-auto">
               {!trash && (
                 <span className="text-muted">
                   {rangeLabel(filters.added_date) + " · 每分钟更新"}
@@ -614,14 +647,14 @@ export function JobsBoard({ kind, trash }: BoardProps) {
             </div>
           </div>
           {trash && (
-            <p className="trash-note text-muted">
+            <p className="mb-5 text-sm text-muted">
               保留 24
               小时供恢复；到期后“已删除”标签仍有效，同步不会带回。恢复后人工保留。
             </p>
           )}
           {!data && !error && <p className="text-muted">正在读取岗位…</p>}
           {data?.jobs.length === 0 && (
-            <div className="empty">
+            <div className="px-3 py-18 text-center text-muted">
               {trash ? "回收站暂无岗位" : "当前筛选下没有岗位"}
             </div>
           )}
@@ -640,7 +673,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
             />
           )}
 
-          <footer className="footer">
+          <footer className="flex flex-wrap items-center gap-2 pt-3 text-xs">
             <span className="text-muted">
               第 {filters.page} /{" "}
               {Math.max(1, Math.ceil((data?.total || 0) / 50))} 页
@@ -663,7 +696,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
             </Button>
             <Button
               size="sm"
-              className="logout"
+              className="ml-auto"
               variant="ghost"
               onPress={async () => {
                 await api("/api/session", { method: "DELETE" });
@@ -676,13 +709,18 @@ export function JobsBoard({ kind, trash }: BoardProps) {
         </>
       }
       {error && (
-        <p role="alert" className="error text-danger">
+        <p role="alert" className="py-4 text-danger">
           {error}
         </p>
       )}
       {notice && (
-        <div className="notice" role="status">
-          {notice}
+        <Alert
+          className="fixed bottom-6 left-4 right-4 z-50 mx-auto max-w-xl"
+          role="status"
+        >
+          <Alert.Content>
+            <Alert.Description>{notice}</Alert.Description>
+          </Alert.Content>
           {undo && (
             <Button
               size="sm"
@@ -693,30 +731,30 @@ export function JobsBoard({ kind, trash }: BoardProps) {
               {undo.length > 1 ? "全部撤销" : "撤销"}
             </Button>
           )}
-        </div>
+        </Alert>
       )}
       <Modal.Backdrop isOpen={advanced} onOpenChange={setAdvanced}>
         <Modal.Container>
-          <Modal.Dialog className="filter-dialog">
+          <Modal.Dialog className="sm:max-w-lg">
             <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading>筛选</Modal.Heading>
             </Modal.Header>
-            <Modal.Body>
+            <Modal.Body className="space-y-4">
               {draft && (
                 <>
-              {!trash && (
-                <Select
-                  label="来源标记"
-                  value={draft.group}
-                  options={{
-                    "": "全部公司",
-                    faang: "来源标记 FAANG+",
-                    other: "无 FAANG+ 标记",
-                  }}
-                  onChange={(v) => draftFilter("group", v)}
-                />
-              )}
+                  {!trash && (
+                    <Select
+                      label="来源标记"
+                      value={draft.group}
+                      options={{
+                        "": "全部公司",
+                        faang: "来源标记 FAANG+",
+                        other: "无 FAANG+ 标记",
+                      }}
+                      onChange={(v) => draftFilter("group", v)}
+                    />
+                  )}
                   <section aria-label="排除公司">
                     <TextField
                       value={draft.exclude_companies}
@@ -728,12 +766,12 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                         variant="secondary"
                       />
                     </TextField>
-                    <p className="filter-help mt-2">
+                    <p className="text-xs leading-relaxed text-muted mt-2">
                       按完整公司名称匹配，不区分大小写；多家公司用逗号分隔。仅隐藏列表，不删除岗位。
                     </p>
                   </section>
                   <section aria-label="地区范围">
-                    <p className="filter-label">地区范围</p>
+                    <p className="mb-1.5 text-sm">地区范围</p>
                     <Select
                       label="地域范围"
                       value={draft.region}
@@ -746,7 +784,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                       onChange={(v) => draftFilter("region", v)}
                     />
                     {draft.region === "focus_remote" && (
-                      <p className="filter-help mt-2">
+                      <p className="text-xs leading-relaxed text-muted mt-2">
                         CA、WA、NY、MA、TX、美国远程及地点待定；FAANG+
                         或精选公司在美国境内不限州。
                       </p>
@@ -754,7 +792,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                   </section>
                   {!trash && (
                     <div
-                      className="filter-count"
+                      className="flex flex-col gap-1 text-sm tabular-nums"
                       role="status"
                       aria-live="polite"
                     >
@@ -775,7 +813,9 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                       )}
                     </div>
                   )}
-                  <p className="filter-help">只调整显示，不删除岗位。</p>
+                  <p className="text-xs leading-relaxed text-muted">
+                    只调整显示，不删除岗位。
+                  </p>
                 </>
               )}
             </Modal.Body>

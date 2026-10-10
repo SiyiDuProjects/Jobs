@@ -301,7 +301,8 @@ export function replayCorpusPage(page, profiles = syntheticProfiles) {
           context,
         );
         if (
-          ["search-choice", "combobox"].includes(row.public.type) &&
+          (row.public.type === "search-choice" ||
+            (row.public.type === "combobox" && !actual.options.length)) &&
           result?.answer
         ) {
           const replay = replaySearch(
@@ -316,7 +317,7 @@ export function replayCorpusPage(page, profiles = syntheticProfiles) {
             search: replay.status,
           };
         }
-        const answer = field.options.length
+        const answer = actual.options.length
           ? w.JobsProfileAnswers.select(result, context.options)
           : (result?.answer ?? null);
         return {

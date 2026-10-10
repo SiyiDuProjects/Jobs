@@ -1,8 +1,8 @@
 """Exact, person-origin evidence from the bound Profile's server document.
 
-Selection never rewrites provenance, scope or the original response. No keyword
-scoring or cross-company inference occurs; semantic/time applicability is checked
-by the existing answer verifier after this necessary scope filter.
+Selection never rewrites provenance, scope or the original response. Only exact
+questions with person provenance and compatible company/jurisdiction scope can
+be reused; current structured Profile values take precedence in the answer chain.
 """
 import hashlib
 import json
