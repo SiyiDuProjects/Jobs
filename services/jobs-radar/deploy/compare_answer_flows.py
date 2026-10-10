@@ -72,7 +72,7 @@ async def run(args):
         raise ValueError('Completed answers must match this exact engine revision')
     completed={identity(r['profileId'],r['profileVersion'],r['corpusId'],r['field']):r for r in resume['results']} if resume else {}
     results=[];skipped=[];failures=[]; calls={'legacy':0,'simple':0}
-    report={'answerCodeHash':answer_code_hash(),'resumed':bool(resume),'realProvider':True,'realATSWrite':False,'profilesModified':False,'promptVersion':PROMPT_VERSION,'promptHash':hashlib.sha256(INSTRUCTIONS.encode()).hexdigest(),'pages':len(pages),'reusedLegacy':bool(baseline),'results':results,'captureGaps':skipped,'failures':failures}
+    report={'answerCodeHash':answer_code_hash(),'resumed':bool(resume),'realProvider':True,'realATSWrite':False,'profilesModified':False,'promptVersion':PROMPT_VERSION,'promptHash':hashlib.sha256(INSTRUCTIONS.encode()).hexdigest(),'pages':len(pages),'evaluationScope':'server_supplement_only','localRulesIncluded':False,'reusedLegacy':bool(baseline),'results':results,'captureGaps':skipped,'failures':failures}
     with tempfile.TemporaryDirectory(prefix='jobs-answer-comparison-') as temp:
         engines={}
         for flow in calls:
@@ -127,7 +127,7 @@ async def run(args):
                         pair={flow:responses[flow].get(f['fieldId'],{'kind':'unknown','value':None,'reasonZh':'调用失败'}) for flow in calls}
                         expected=gold_for(records,f,context,version)
                         gold_source='recent_person_answer' if expected is not None else None
-                        if expected is None and known and f['options']:
+                        if expected is None and known:
                             expected=reported_expected(f,profile)
                             if expected is not None: gold_source='reported_failure_profile_fact'
                         results.append(dict(page=known or ident,corpusId=ident,profileId=pid,profileVersion=version,profileName=profile['profileName'],contextComplete=bool(known),field=f,**pair,gold=expected,goldSource=gold_source))
@@ -145,7 +145,7 @@ async def run(args):
             metrics[flow]['chineseMissing']+=int(not row.get('questionZh') or not row.get('reasonZh'))
     changed=[i for i,r in enumerate(results) if (r['legacy']['kind'],r['legacy']['value'])!=(r['simple']['kind'],r['simple']['value'])]
     unchanged=[i for i in range(len(results)) if i not in changed]
-    report.update(summary={'questions':len(results),'goldCount':sum(r['gold'] is not None for r in results),'metrics':metrics,'providerCalls':calls,'contextIncomplete':sum(not r['contextComplete'] for r in results),'captureGaps':len(skipped),'failures':len(failures)},changed=changed,unchangedSample=random.Random(20261010).sample(unchanged,min(30,len(unchanged))),limitations=['Captured pages do not retain full job URLs/context except the four reported pages.','Correction events retain no answer value, so cannot automatically become gold.','Model caches are never gold; unlabelled facts require owner review.'])
+    report.update(summary={'questions':len(results),'goldCount':sum(r['gold'] is not None for r in results),'metrics':metrics,'providerCalls':calls,'contextIncomplete':sum(not r['contextComplete'] for r in results),'captureGaps':len(skipped),'failures':len(failures)},changed=changed,unchangedSample=random.Random(20261010).sample(unchanged,min(30,len(unchanged))),limitations=['Captured pages do not retain full job URLs/context except the four reported pages.','Correction events retain no answer value, so cannot automatically become gold.','Model caches are never gold; unlabelled facts require owner review.','This compares server supplements only; extension local rules and complete live form context are not replayed.','Redacted placeholders in captures are evidence gaps, not valid personal answers.'])
     private_save(args.output,report)
     print(json.dumps(report['summary']),flush=True)
 

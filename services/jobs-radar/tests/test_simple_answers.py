@@ -154,3 +154,18 @@ def test_saved_text_is_checked_before_direct_reuse(tmp_path):
     response=run(a,p,Client([answer(value='Within the posted salary range')]),[f],jobUrl=url,jobCountry='US')
     assert response['answerUsage']['modelCalls']==1
     assert response['answers'][0]['value']=='Within the posted salary range'
+
+
+def test_provider_schema_constrains_each_control_before_generation():
+    from jsonschema import Draft202012Validator
+    from jobs_radar.ai_answers import schema
+    fields = [field('month',type='month',options=[]),field('query',type='search-choice',options=[]),field('toggle',type='checkbox',options=[])]
+    validator = Draft202012Validator(schema(fields))
+    def valid(row): return not list(validator.iter_errors({'answers':[row]}))
+    assert valid(answer('month',value='2025-10'))
+    assert not valid(answer('month',value='10/2025'))
+    assert not valid(answer('query',value=['Python','Java']))
+    assert valid(answer('query',value='Python'))
+    assert valid(answer('toggle',value=False))
+    assert not valid(answer('toggle',value='No'))
+    assert all(valid(answer(f['fieldId'],kind='unknown',value=None)) for f in fields)

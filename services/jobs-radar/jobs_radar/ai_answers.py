@@ -13,7 +13,9 @@ For each field return exactly one kind:
 answer: offered option value(s), checkbox boolean, or text supported by applicant information;
 draft: concise open motivation, preference or experience text grounded in real experience;
 unknown: information is missing, conflicting or insufficient; value must be null.
-Use current Profile facts first, past answers second, enabled declarations last. Newer facts win.
+Use current Profile facts and enabled declarations first, scoped past answers second. Newer facts win.
+Enabled declarations are current statements from the applicant, not inferred assumptions.
+Use supported information at its stated specificity when the field accepts it; do not demand extra detail.
 Past answers scoped to a company, role, country or time apply only within that scope.
 Read every option fully, preserving negations, time windows and all compound qualifications.
 Never invent personal facts, legal status, credentials, numbers or exact dates.
@@ -28,18 +30,26 @@ Set jobSpecific true when the answer depends on the company, role, job descripti
 Set signingDate true only for entering today's date when signing the current form.
 Use exact option values, arrays for multi-select, booleans for checkboxes, strings otherwise.
 For search-choice return a factual search phrase; the browser matches actual search results.'''
-PROMPT_VERSION = 'simple-1'
+PROMPT_VERSION = 'simple-2'
 
 
 def schema(fields):
-    props = {'fieldId': {'type':'string', 'enum':[f['fieldId'] for f in fields]},
-             'kind': {'type':'string', 'enum':['answer','draft','unknown']},
-             'value': {'anyOf':[{'type':'string'}, {'type':'boolean'}, {'type':'array','items':{'type':'string'}}, {'type':'null'}]},
-             **{k:{'type':'string'} for k in ('questionZh','answerZh','reasonZh')},
-             **{k:{'type':'boolean'} for k in ('jobSpecific','signingDate')}}
-    return {'type':'object','properties':{'answers':{'type':'array','items':{
-        'type':'object','properties':props,'required':list(props),'additionalProperties':False}}},
-        'required':['answers'],'additionalProperties':False}
+    variants = []
+    for field in fields:
+        value = {'type':'string'}
+        if not field['options'] and field['type'] in {'checkbox','custom-checkbox'}: value = {'type':'boolean'}
+        elif field['type']=='select-multiple': value = {'type':'array','items':{'type':'string'}}
+        elif field['type']=='month': value['pattern'] = r'^\d{4}-(?:0[1-9]|1[0-2])$'
+        elif field['type']=='date': value['pattern'] = r'^\d{4}-\d{2}-\d{2}$'
+        elif field['type']=='number': value['pattern'] = r'^-?\d+(?:\.\d+)?$'
+        props = {'fieldId': {'type':'string', 'enum':[field['fieldId']]},
+                 'kind': {'type':'string', 'enum':['answer','draft','unknown']},
+                 'value': {'anyOf':[value, {'type':'null'}]},
+                 **{k:{'type':'string'} for k in ('questionZh','answerZh','reasonZh')},
+                 **{k:{'type':'boolean'} for k in ('jobSpecific','signingDate')}}
+        variants.append({'type':'object','properties':props,'required':list(props),'additionalProperties':False})
+    return {'type':'object','properties':{'answers':{'type':'array','items':{'anyOf':variants}}},
+            'required':['answers'],'additionalProperties':False}
 
 
 def checked(raw, field, pid, version, date_sources, today):

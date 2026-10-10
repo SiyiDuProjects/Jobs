@@ -17,7 +17,8 @@ def label(field, row):
 def render(report):
     summary=report['summary']; old=summary['metrics']['legacy']; new=summary['metrics']['simple']
     lines=['# 答题流程验收：待本人审核','',
-        f"已处理 {report['pages']} 个题库页面、两份资料，共 {summary['questions']} 条作答。",'',
+        f"已处理 {report['pages']} 个题库页面、两份资料，共 {summary['questions']} 条服务端补答。",'',
+        '本报告单独比较服务端，不包含扩展先行的本地资料填写；联系方式等留空不能据此判定真实页面退步。','',
         '| 检查 | 旧流程 | 新流程 |','| --- | ---: | ---: |']
     for key,title in [('unknown','留空'),('wrongGold','有标准答案的已填错答'),('unansweredGold','有标准答案但留空'),('invalidOptions','无效选项'),('internalValues','内部枚举值'),('chineseMissing','缺中文题意或理由')]:
         lines.append(f'| {title} | {old.get(key,0)} | {new.get(key,0)} |')
