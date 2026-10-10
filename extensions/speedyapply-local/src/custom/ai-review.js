@@ -57,6 +57,7 @@ export function initializeAiReview() {
         confirming: false,
         hidden: false,
         status: "正在补填，完成后可确认。",
+        confirmationError: "",
         transport: Promise.resolve(),
         writes: Promise.resolve(),
         draining: false,
@@ -274,11 +275,13 @@ export function initializeAiReview() {
             : filled || omitted
               ? `AI 补填 · ${filled} 项${omitted ? ` · 留空 ${omitted} 项` : ""}${unresolved ? ` · 待补 ${unresolved} 项` : ""}`
               : `需要你补充 · ${own.items.size} 项`,
-          status: own.summary.length
-            ? "统一检查这些草稿；需修改前面步骤时可先返回。"
-            : unresolved && own.onConfirm
-              ? `还有 ${unresolved} 项待补或需检查，可直接在这里作答。`
-              : own.status,
+          status:
+            own.confirmationError ||
+            (own.summary.length
+              ? "统一检查这些草稿；需修改前面步骤时可先返回。"
+              : unresolved && own.onConfirm
+                ? `还有 ${unresolved} 项待补或需检查，可直接在这里作答。`
+                : own.status),
           canConfirm: own.canConfirm,
           items,
           expand,
@@ -558,6 +561,7 @@ export function initializeAiReview() {
     async function confirm({ canProceed = () => true, source = "user" } = {}) {
       const own = active;
       if (!own || own.confirming || !own.onConfirm) return false;
+      own.confirmationError = "";
       own.confirming = own.draining = true;
       own.refresh();
       try {
@@ -572,7 +576,8 @@ export function initializeAiReview() {
         });
         return true;
       } catch (error) {
-        own.status = error.message || "无法确认，请检查页面。";
+        own.confirmationError = error.message || "无法确认，请检查页面。";
+        own.status = own.confirmationError;
         note("auto_review_blocked", own.status);
         return false;
       } finally {

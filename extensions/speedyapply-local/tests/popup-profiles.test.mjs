@@ -85,7 +85,7 @@ test("HeroUI popup reflects tab Profile changes and manual selection", async () 
       profileName: "Newgrad",
       source: "automatic",
     };
-    h.changed.emit({ profile_2: {} }, "session");
+    h.changed.emit({ jobsKindProfiles: {} }, "local");
     await until(
       () => button("newgrad").getAttribute("aria-checked") === "true",
     );

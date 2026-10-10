@@ -86,7 +86,16 @@ export function displayStage(row: Application): string {
   return row.progress?.display_stage || "no_answer";
 }
 export function progressLabel(row: Application): string {
-  return chineseProgress(row.progress?.label || "等待同步");
+  const stage = row.progress?.stage || row.status;
+  if (["applied", "received", "submitted"].includes(stage))
+    return "已投递 · 等待回复";
+  if (stage === "rejected") return "已拒绝";
+  return chineseProgress(
+    row.progress?.stage_label ||
+      row.progress?.label ||
+      statuses[stage] ||
+      "已投递",
+  );
 }
 export function nextStages(row: Application): Record<string, string> {
   return stageLabels(row.progress?.next_stages || {});

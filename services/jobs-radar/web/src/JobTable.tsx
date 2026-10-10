@@ -156,7 +156,7 @@ export function JobTable({
                         {job.record ? (
                           <Button
                             size="sm"
-                            variant="ghost"
+                            variant="secondary"
                             onPress={() => setProgress(job.record!)}
                           >
                             {progressLabel(job.record!)}

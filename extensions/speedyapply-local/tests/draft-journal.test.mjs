@@ -6,6 +6,24 @@ import {
   approveDraftJournal,
 } from "../src/custom/draft-journal.js";
 import { createDraftChecklist } from "../src/custom/draft-checklist.js";
+test("storage property order cannot invalidate an unchanged approved draft", () => {
+  const item = {
+    key: "field",
+    question: "Why this role?",
+    answer: "Same draft",
+  };
+  const written = updateDraftJournal(null, [item]);
+  const stored = {
+    ...approveDraftJournal(written, written.revision),
+    items: [{ answer: item.answer, key: item.key, question: item.question }],
+  };
+  const read = updateDraftJournal(stored, [item]);
+  assert.equal(read.revision, written.revision);
+  assert.equal(read.approved, written.revision);
+  const changed = updateDraftJournal(read, [{ ...item, answer: "User edit" }]);
+  assert.equal(changed.revision, written.revision + 1);
+  assert.equal(changed.approved, -1);
+});
 test("a persisted checklist retains earlier steps and invalidates approval when a draft changes", () => {
   let state = updateDraftJournal(null, [
     { key: "first", question: "Why?", answer: "A draft" },

@@ -79,7 +79,8 @@ export function createPopupProfiles(api, changed) {
       !busy &&
       ((area === "session" &&
         (changes.jobsProfilesList || changes["profile_" + tabId])) ||
-        (area === "local" && changes.jobsManualProfileDefault))
+        (area === "local" &&
+          (changes.jobsManualProfileDefault || changes.jobsKindProfiles)))
     )
       void refresh();
   }

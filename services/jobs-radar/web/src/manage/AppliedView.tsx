@@ -5,14 +5,14 @@ import { ApplicationEditor, ProgressEditor } from "./application-editors";
 import { useManagement } from "./store";
 import {
   appRows,
-  displayStage,
-  displayStatuses,
+  statuses,
   exportCSV,
   safeHref,
   progressLabel,
   type AppRow,
   type Application,
 } from "./model";
+import { ApplicationFlow } from "./ApplicationFlow";
 import { dateLabel } from "./application-format";
 import { Choice, Dialog, download, Field } from "./components";
 
@@ -73,6 +73,9 @@ export function AppliedView() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
+  const [flow, setFlow] = useState<{ label: string; ids: string[] } | null>(
+    null,
+  );
   const [dialog, setDialog] = useState<{ type: string; row?: AppRow } | null>(
     null,
   );
@@ -84,14 +87,17 @@ export function AppliedView() {
             `${r.job?.title || r.jobTitle} ${r.job?.company || r.companyName}`
               .toLowerCase()
               .includes(query.trim().toLowerCase()) &&
-            (status === "all" || displayStage(r) === status) &&
+            (status === "all" || (r.progress?.stage || r.status) === status) &&
             (!from || +new Date(r.date) >= +new Date(from + "T00:00:00")) &&
             (!to || +new Date(r.date) <= +new Date(to + "T23:59:59.999")),
         )
         .sort((a, b) => +new Date(b.date) - +new Date(a.date)),
     [all, query, status, from, to],
   );
-  const pages = Math.max(1, Math.ceil(rows.length / 30)),
+  const visible = flow
+    ? rows.filter((r) => flow.ids.includes(r.id || r.key))
+    : rows;
+  const pages = Math.max(1, Math.ceil(visible.length / 30)),
     active = Math.min(page, pages),
     close = () => setDialog(null);
   const columns: DataGridColumn<AppRow>[] = [
@@ -134,7 +140,7 @@ export function AppliedView() {
       cell: (r) => (
         <Button
           size="sm"
-          variant="ghost"
+          variant="secondary"
           onPress={() => setDialog({ type: "progress", row: r })}
         >
           {progressLabel(r)}
@@ -176,6 +182,7 @@ export function AppliedView() {
           value={query}
           onChange={(v) => {
             setQuery(v);
+            setFlow(null);
             setPage(1);
           }}
           className="min-w-0 sm:col-span-2 lg:col-span-1"
@@ -186,9 +193,15 @@ export function AppliedView() {
           label="进展"
           hideLabel
           value={status}
-          options={{ all: "全部进展", ...displayStatuses }}
+          options={{
+            all: "全部进展",
+            ...statuses,
+            applied: "已投递 · 等待回复",
+            phone_screen: "初筛",
+          }}
           onChange={(v) => {
             setStatus(v);
+            setFlow(null);
             setPage(1);
           }}
         />
@@ -220,10 +233,22 @@ export function AppliedView() {
           </Button>
         </div>
       </div>
+      <ApplicationFlow
+        rows={rows.map((r) => ({ ...r, id: r.id || r.key }))}
+        onSelect={(label, ids) => {
+          setFlow(ids ? { label, ids } : null);
+          setPage(1);
+        }}
+      />
+      {flow && (
+        <Button size="sm" variant="secondary" onPress={() => setFlow(null)}>
+          清除图表筛选：{flow.label} ×
+        </Button>
+      )}
       <DataGrid
         aria-label="投递记录"
         contentClassName="min-w-[840px]"
-        data={rows.slice((active - 1) * 30, active * 30)}
+        data={visible.slice((active - 1) * 30, active * 30)}
         columns={columns}
         getRowId={(r) => r.key}
         renderEmptyState={() =>
@@ -232,7 +257,7 @@ export function AppliedView() {
       />
       <div className="flex items-center justify-between text-sm text-muted">
         <span>
-          共 {rows.length} 条 · 第 {active} / {pages} 页
+          共 {visible.length} 条 · 第 {active} / {pages} 页
         </span>
         <div className="flex gap-2">
           <Button

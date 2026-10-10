@@ -21,7 +21,20 @@ export function updateDraftJournal(current, changes) {
   }
   if (items.size > 90) throw Error("草稿清单过长，请检查当前申请");
   const next = [...items.values()];
-  if (JSON.stringify(next) === JSON.stringify(state.items)) return state;
+  // Chrome storage can return object properties in a different order. Only
+  // answer content/identity changes invalidate the revision a person reviewed.
+  if (
+    next.length === state.items.length &&
+    next.every((item, index) => {
+      const before = state.items[index];
+      return (
+        item.key === before.key &&
+        item.question === before.question &&
+        item.answer === before.answer
+      );
+    })
+  )
+    return state;
   return { revision: state.revision + 1, approved: -1, items: next };
 }
 export function approveDraftJournal(state, revision) {

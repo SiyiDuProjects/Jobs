@@ -1,7 +1,39 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { Button, Card } from "@heroui/react";
+import {
+  Layer,
+  Rectangle,
+  ResponsiveContainer,
+  Sankey,
+  Text,
+  Tooltip,
+  type SankeyNodeProps,
+} from "recharts";
 import { applicationFlow } from "./application-flow";
-import type { Application } from "./model";
+import { chineseProgress, type Application } from "./model";
 
+function FlowNode({ x, y, width, height, payload }: SankeyNodeProps) {
+  return (
+    <Layer>
+      <Rectangle
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill="var(--accent)"
+      />
+      <Text
+        x={x + width + 8}
+        y={y + height / 2}
+        verticalAnchor="middle"
+        fill="var(--foreground)"
+        fontSize={13}
+      >
+        {`${payload.name} · ${payload.value}`}
+      </Text>
+    </Layer>
+  );
+}
 export function ApplicationFlow({
   rows,
   onSelect,
@@ -10,110 +42,87 @@ export function ApplicationFlow({
   onSelect: (label: string, ids: string[] | null) => void;
 }) {
   const graph = useMemo(() => applicationFlow(rows), [rows]);
-  const [hover, setHover] = useState<string | null>(null);
-  if (!rows.length)
-    return (
-      <div className="flex min-h-64 items-center justify-center text-muted">
-        暂无匹配的投递记录
-      </div>
-    );
+  const data = useMemo(
+    () => ({
+      nodes: graph.nodes.map((n) => ({
+        ...n,
+        name:
+          n.stage === "applications"
+            ? "已投递"
+            : n.stage === "no_answer"
+              ? "未进入测评或面试"
+              : chineseProgress(n.label)
+                  .replace(/面试 (\d+)/, "面试 · 第 $1 轮")
+                  .replace("Rejected", "已拒绝")
+                  .replace("Accepted", "已接受")
+                  .replace("Withdrawn", "已撤回")
+                  .replace("Archived", "已归档"),
+      })),
+      links: graph.links.map((l) => ({
+        source: graph.nodes.indexOf(l.source),
+        target: graph.nodes.indexOf(l.target),
+        value: l.target.count,
+      })),
+    }),
+    [graph],
+  );
+  if (!rows.length) return null;
   return (
-    <div className="application-flow">
-      <div className="overflow-x-auto">
-        <svg
-          viewBox={`0 0 ${graph.width} ${graph.height}`}
-          className="application-flow-svg"
-          style={{ minWidth: graph.width, height: graph.height }}
-          aria-label={`申请流向图，共 ${rows.length} 条记录`}
-        >
-          <desc>
-            从已投递流向已记录的
-            OA、面试和结果。线宽按申请数量绘制，点击节点可查看对应申请。
-          </desc>
-          {graph.links.map(({ source, target, path }) => (
-            <path
-              key={target.id}
-              d={path}
-              fill={target.color}
-              stroke={target.color}
-              strokeWidth={target.height < 1 ? 1 : 0}
-              opacity={
-                !hover ||
-                target.id === hover ||
-                source.id === hover ||
-                hover.startsWith(target.id + "/")
-                  ? 0.32
-                  : 0.06
-              }
-              style={{ transition: "opacity 120ms" }}
+    <Card>
+      <Card.Header>
+        <Card.Title>投递进展</Card.Title>
+        <Card.Description>
+          共 {rows.length} 条 · 按已确认的招聘路径统计，包含外部投递。
+        </Card.Description>
+      </Card.Header>
+      <Card.Content>
+        <div className="overflow-x-auto">
+          <div className="min-w-3xl">
+            <ResponsiveContainer
+              width="100%"
+              minWidth={graph.width}
+              height={Math.max(320, graph.height)}
             >
-              <title>
-                {source.label} → {target.label}：{target.count}
-              </title>
-            </path>
-          ))}
-          {graph.nodes.map((n) => (
-            <g
-              key={n.id}
-              role="button"
-              tabIndex={0}
-              className="application-flow-node"
-              aria-label={`${n.label}：${n.count} 条申请，点击查看`}
-              onMouseEnter={() => setHover(n.id)}
-              onMouseLeave={() => setHover(null)}
-              onFocus={() => setHover(n.id)}
-              onBlur={() => setHover(null)}
-              onClick={() => onSelect(n.label, n.parent ? n.ids : null)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelect(n.label, n.parent ? n.ids : null);
-                }
-              }}
-            >
-              <rect
-                x={n.x - 6}
-                y={n.y + Math.max(1, n.height) / 2 - 22}
-                width={174}
-                height={44}
-                fill="transparent"
-                rx={5}
-              />
-              <rect
-                x={n.x}
-                y={n.y}
-                width={12}
-                height={Math.max(1, n.height)}
-                fill={n.color}
-                rx={2}
-              />
-              <text
-                x={n.x + 22}
-                y={n.y + n.height / 2 - 3}
-                className="application-flow-label"
+              <Sankey
+                data={data}
+                node={FlowNode}
+                nodePadding={36}
+                nodeWidth={10}
+                margin={{ top: 24, bottom: 24, left: 8, right: 160 }}
+                link={{ stroke: "var(--accent)" }}
+                title="投递进展流向"
+                onClick={(item, type) => {
+                  if (type === "node") {
+                    const n = data.nodes[item.index];
+                    onSelect(n.name, n.parent ? n.ids : null);
+                  }
+                }}
               >
-                {n.label}
-              </text>
-              <text
-                x={n.x + 22}
-                y={n.y + n.height / 2 + 16}
-                className="application-flow-count"
+                <Tooltip />
+              </Sankey>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2" aria-label="按进展查看投递">
+          {data.nodes
+            .filter((n) => n.depth <= 1)
+            .map((n) => (
+              <Button
+                key={n.id}
+                size="sm"
+                variant="secondary"
+                onPress={() => onSelect(n.name, n.parent ? n.ids : null)}
               >
-                {n.count.toLocaleString()}
-              </text>
-              <title>
-                {n.label}：{n.count} 条
-                {n.parent
-                  ? `（${((n.count / rows.length) * 100).toFixed(1)}%）`
-                  : ""}
-              </title>
-            </g>
-          ))}
-        </svg>
-      </div>
-      <p className="text-xs text-muted">
-        按已记录的路径绘制 · 点击节点查看申请 · 自动或待确认的 OA 不计入有效推进
-      </p>
-    </div>
+                {n.name} · {n.count}
+              </Button>
+            ))}
+        </div>
+      </Card.Content>
+      <Card.Footer>
+        <p className="text-xs text-muted">
+          未进入测评或面试包括等待回复和筛选前拒信；自动发放或尚未核实的测评也归入这一组。每条申请的当前状态见下表。
+        </p>
+      </Card.Footer>
+    </Card>
   );
 }

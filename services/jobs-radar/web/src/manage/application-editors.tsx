@@ -5,7 +5,6 @@ import {
   localDay,
   safeHref,
   statuses,
-  displayStage,
   progressLabel,
   nextStages,
   chineseProgress,
@@ -209,10 +208,9 @@ export function ProgressEditor({
         {row.companyName} · {row.jobTitle}
       </p>
       <p>当前：{progressLabel(row)}</p>
-      {displayStage(row) === "no_answer" && (
+      {row.progress?.summary && (
         <p className="text-sm text-muted">
-          暂无推进包含尚无已确认推进的申请和推进前的拒信。原始记录：
-          {chineseProgress(row.progress?.stage_label || statuses[row.status] || row.status)}。
+          {row.progress.summary}
         </p>
       )}
       {!!Object.keys(options).length && (
