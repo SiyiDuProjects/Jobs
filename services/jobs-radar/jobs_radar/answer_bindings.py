@@ -2,7 +2,7 @@
 import hashlib
 import json
 import re
-from .answer_values import PREDICATES, PATHS, DEFAULTS, BOOLEAN, DISCLOSURE, evaluate, normalized
+from .answer_values import PREDICATES, PATHS, DEFAULTS, BOOLEAN, DISCLOSURE, COUNTRIES, evaluate, normalized
 from .answer_semantics import field_key
 from .field_answers import CHOICES, _exact_date
 
@@ -74,11 +74,33 @@ def schema():
     },'required':['predicate','options','argument','polarity'],'additionalProperties':False}
 
 
+def ambiguous_citizenship(field):
+    text=(field['question']+' '+field.get('description','')).casefold()
+    if not re.search(r'\bcitizen(?:ship)?\b',text) or not re.search(r'\b(?:another|other) countr(?:y|ies)\b',text): return False
+    references=COUNTRIES | {'u.s.','us','usa'}
+    return not any(re.search(r'(?<!\w)'+re.escape(country)+r'(?!\w)',text) for country in references)
+
+
+def public_binding(field):
+    """Exact public option sets; no personal value or company-specific rule."""
+    labels={
+        'a citizen of the u.s.':'true',
+        'a lawful permanent resident of the u.s. i.e. green card holder':'true',
+        'a u.s. asylee':'true','a u.s. refugee':'true',
+        'a u.s. temporary resident':'true','none of the above':'false',
+    }
+    options=[normalized(o['label']) for o in field.get('options',[])]
+    if re.search(r'\bexport control\b',field['question'],re.I) and set(options)==set(labels) and len(options)==len(labels):
+        return {'predicate':'us_person','options':[labels[v] for v in options],'argument':'','polarity':True}
+    return None
+
+
 def checked(binding, meaning, field, context=None):
     if not isinstance(binding,dict) or set(binding)-{'predicate','options','argument','polarity'}:
         return None
     route=binding.get('predicate'); choices=binding.get('options')
     if not isinstance(route,str) or route not in PREDICATES or not isinstance(choices,list): return None
+    if route!='unknown' and ambiguous_citizenship(field): return None
     if route == 'unknown':
         return {'predicate':'unknown','options':['unused']*len(field.get('options',[])),'argument':'','polarity':True}
     question = (field['question'] + ' ' + field.get('description','')).casefold()

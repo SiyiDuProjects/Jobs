@@ -63,10 +63,12 @@ class Answers:
         context = bindings.recognition_context(context)
         memory=AnswerMemory(self.store,pid,fields,{**context['jobContext'],'profileVersion':version})
         cache=bindings.BindingCache(self.store); plans=cache.plans(fields,context,MODEL)
+        public_plans={f['fieldId']:plan for f in fields if (plan:=bindings.public_binding(f))}
+        plans.update(public_plans)
         usage={'fieldCount':len(fields),'cacheHits':len(plans),'modelFields':0,'modelCalls':0}
         projected=project_answer_profile(profile,partial=False)
         displays=cache.displays(fields,context,MODEL)
-        pending=[f for f in fields if f['fieldId'] not in plans or bindings.answer(plans[f['fieldId']],None,f,profile,pid,version) is None]
+        pending=[f for f in fields if f['fieldId'] not in plans or bindings.answer(plans[f['fieldId']],None,f,profile,pid,version) is None or f['fieldId'] in public_plans and not displays.get(f['fieldId'])]
         rid=str(uuid.uuid4()); now=time.time()
         with self.store.connect(True) as c:
             limited=c.execute('SELECT count(*) FROM answer_requests WHERE created>?',(now-3600,)).fetchone()[0]>=60
@@ -104,6 +106,7 @@ class Answers:
                     generated=unique_rows(body,'answers')
                     mapped=unique_rows(body)
                     new={f['fieldId']:b for f in pending if (b:=bindings.checked(mapped.get(f['fieldId'],{}).get('binding'),None,f,context))}
+                    new.update(public_plans)
                     views={f['fieldId']:flexible.presentation(generated.get(f['fieldId']),f) for f in pending}
                     cache.save_plans(pending,new,context,MODEL,views); plans.update(new); displays.update(views)
                 except (httpx.HTTPError,ValueError,KeyError,TypeError): mapping_failure = 'ai_unavailable'

@@ -140,6 +140,8 @@ def display(row, field, metadata):
 def checked(raw, field, profile, pid, version, saved):
     if not isinstance(raw,dict): return None
     meta = presentation(raw,field)
+    if bindings.ambiguous_citizenship(field):
+        return bindings.result(field,pid,version,reason='题目没有说明“另一个国家”相对于哪个国家，请确认题意。',route='flexible') | {'questionZh':'是否还拥有其他国家国籍（参照国家未写明）？'}
     if raw.get('state') == 'needs_input':
         return bindings.result(field,pid,version,reason=meta.get('reason','缺少作答所需的资料'),route='flexible',interruption='missing_fact') | {k:v for k,v in meta.items() if k in ('questionZh','answerZh')}
     if raw.get('state') != 'answer': return None

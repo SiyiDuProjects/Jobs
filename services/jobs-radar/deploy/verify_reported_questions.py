@@ -73,6 +73,9 @@ def expected(field, profile):
         hits=[v for v in labels if re.search(pattern,v,re.I)]
         return hits[0] if len(hits)==1 else None
     if 'onsite and' in q: return option('^yes$' if app.get('willingToWorkOnsite') is True else '^no$') if 'willingToWorkOnsite' in app else None
+    if 'at least 18' in q and isinstance(emp.get('age'),(int,float)): return option('^yes$' if emp['age']>=18 else '^no$')
+    if 'willing to relocate' in q and isinstance(app.get('willingToRelocate'),bool): return option('^yes$' if app['willingToRelocate'] else '^no$')
+    if 'export control' in q and app.get('visaStatus')=='F-1' and emp.get('citizenships') and 'United States' not in emp['citizenships']: return option('^none of the above$')
     if 'authorized to work' in q: return option('^yes$' if emp['eligibilityUS'] else '^no$') if 'eligibilityUS' in emp else None
     if 'sponsorship' in q:
         value=app.get('sponsorshipNow') is True or app.get('sponsorshipFuture') is True
@@ -137,4 +140,5 @@ if __name__=='__main__':
     parser.add_argument('--database',required=True);parser.add_argument('--output',required=True)
     parser.add_argument('--live',action='store_true',required=True)
     parser.add_argument('--current-history-policy',action='store_true',help='Apply the owner-confirmed history wording to isolated Profile copies')
-    args=parser.parse_args();asyncio.run(run(args.database,args.output,args.current_history_policy))
+    args=parser.parse_args();summary=asyncio.run(run(args.database,args.output,args.current_history_policy))
+    raise SystemExit(2 if summary['wrongExpected'] or summary['unsupported'] else 0)

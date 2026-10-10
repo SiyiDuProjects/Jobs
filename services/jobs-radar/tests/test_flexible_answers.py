@@ -70,3 +70,25 @@ def test_proofpoint_history_options_do_not_become_a_current_disability_rule():
         {'value':'u','label':'I do not want to answer'}])
     plan=mapping(route='voluntary_current_disability',options=['true','false','undisclosed'])['binding']
     assert answer(plan,None,f,{'employmentData':{'disability':False}},'p','v') is None
+
+
+def test_relative_citizenship_requires_a_named_reference_or_person_saved_answer():
+    from jobs_radar.answer_bindings import ambiguous_citizenship
+    f=field(question='Are you also a citizen of another country?')
+    assert ambiguous_citizenship(f)
+    assert not ambiguous_citizenship({**f,'description':'Another country besides the United States.'})
+    assert checked(proposed(value='y',evidencePaths=['employmentData.citizenships']),f,
+                   {'employmentData':{'citizenships':['Canada']}},'p','v',{})['state']=='needs_input'
+
+
+def test_export_status_full_option_set_computes_unique_negative_only():
+    from jobs_radar.answer_bindings import public_binding
+    labels=['A citizen of the U.S.','A lawful permanent resident of the U.S. i.e. green card holder',
+            'A U.S. asylee','A U.S. refugee','A U.S. temporary resident','None of the above']
+    f=field(question='For purposes of complying with Federal Export Control laws, please select one of the following:',
+            options=[{'value':str(i),'label':label} for i,label in enumerate(labels)])
+    plan=public_binding(f)
+    for visa,expected in [('F-1','5'),('Green card',None),('Other',None)]:
+        row=answer(plan,None,f,{'applicationData':{'visaStatus':visa},'employmentData':{'citizenships':['Canada']}},'p','v')
+        assert (row['value'] if row else None)==expected
+    assert public_binding({**f,'options':f['options'][:-1]}) is None
