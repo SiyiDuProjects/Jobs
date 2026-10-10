@@ -47,6 +47,7 @@ export function initializePlatformConfig() {
       },
     };
     const workday = {
+      descriptionBox: '[data-automation-id^="formField-"]',
       automaticPreferences: [
         {
           setting: "workdaySkills",
@@ -764,6 +765,7 @@ export function initializePlatformConfig() {
             'button,[role="button"],[role="alert"],[role="status"],p,span,div,li,[data-automation-id]',
           exclude:
             '[data-jobs-ui],[data-jobs-owner],script,style,textarea,[contenteditable],nav,[data-automation-id="jobPostingDescription"],[data-automation-id*="similarJob"],[data-automation-id*="SimilarJob"],[data-automation-id*="jobResult"],[data-automation-id="candidateHomePage"]',
+          marker: /applied/i,
           text: /^(?:you(?: have|'ve)? already applied (?:to|for) (?:this|the) (?:job|position)|you applied for this job on (?:January|February|March|April|May|June|July|August|September|October|November|December) (?:[1-9]|[12]\d|3[01]), \d{4})[.!]?$/i,
           badge: /^applied[.!]?$/i,
           badgeControl:
@@ -885,15 +887,21 @@ export function initializePlatformConfig() {
     function appliedStatus(doc, platform = detect(doc).id) {
       const config = structure[platform]?.appliedStatus;
       if (!config || !config.url.test(doc.location.pathname)) return null;
+      // Mutation observers call this for every page change. Every receipt and
+      // badge contains the marker, so text without it cannot match; the text
+      // tests also run before the computed-style walk over an element.
+      if (!config.marker.test(doc.documentElement?.textContent || ""))
+        return null;
       for (const node of doc.querySelectorAll(config.candidates)) {
-        if (node.closest(config.exclude) || !visible(node)) continue;
-        const quote = text(node.textContent);
+        const raw = node.textContent;
+        if (!config.marker.test(raw) || node.closest(config.exclude)) continue;
+        const quote = text(raw);
         if (quote.length > 150) continue;
         const badge =
           config.badge.test(quote) &&
           node.matches(config.badgeControl) &&
           !!doc.querySelector(config.postingHeading);
-        if (!config.text.test(quote) && !badge) continue;
+        if ((!config.text.test(quote) && !badge) || !visible(node)) continue;
         // A recommendation/card for another job cannot confirm the current URL.
         const card = node.closest('article,[data-automation-id="jobCard"]');
         if (card) continue;

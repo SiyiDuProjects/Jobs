@@ -41,7 +41,9 @@ const entry =
     )
     .join("\n") +
   "\nglobalThis.JobsReproCase=reader0.JobsReproCase;\n" +
-  `globalThis.JobsControlFields=reader${readerModules.indexOf("control-fields")}.JobsControlFields;`;
+  `globalThis.JobsControlFields=reader${readerModules.indexOf("control-fields")}.JobsControlFields;` +
+  `globalThis.JobsPlatformConfig=reader${readerModules.indexOf("platform-config")}.JobsPlatformConfig;` +
+  `globalThis.JobsProfileAnswers=reader${readerModules.indexOf("profile-answers")}.JobsProfileAnswers;`;
 const bundle = await build({
   stdin: {
     contents: entry,
@@ -53,7 +55,8 @@ const bundle = await build({
   format: "iife",
   platform: "browser",
 });
-const source = bundle.outputFiles[0].text;
+export const readerSource = bundle.outputFiles[0].text;
+const source = readerSource;
 export function replayCase(value) {
   value = JSON.parse(JSON.stringify(value));
   const checked = new JSDOM("", {

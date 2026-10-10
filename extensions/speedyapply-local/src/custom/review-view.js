@@ -29,6 +29,17 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
         const owner = view,
           control = box.querySelector("input,textarea,select"),
           revision = control?.draftRevision;
+        // Other rows stay usable; the page writes queued answers in order.
+        // A choice shows as selected at once while its write is pending.
+        item.pending = (item.pending || 0) + 1;
+        item.choice = value;
+        for (const button of box.querySelectorAll(
+          ".choice:not(.use-page-value)",
+        ))
+          button.setAttribute(
+            "aria-pressed",
+            String(button.valueKey === value),
+          );
         box
           .querySelectorAll("button,input,select,textarea")
           .forEach((node) => (node.disabled = true));
@@ -55,6 +66,7 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
             error.message || "填入失败，请重试。";
           return { error: error.message };
         } finally {
+          item.pending--;
           if (view === owner && last) render(last.data, last.act);
         }
       })());
@@ -173,11 +185,9 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
       }
     }
     if (!editor) return;
+    const chosen = item.pending ? item.choice : editor.value;
     for (const button of box.querySelectorAll(".choice"))
-      button.setAttribute(
-        "aria-pressed",
-        String(button.valueKey === editor.value),
-      );
+      button.setAttribute("aria-pressed", String(button.valueKey === chosen));
     const control = box.querySelector("input,textarea,select");
     box.querySelector(".use-page-value")?.remove();
     if (

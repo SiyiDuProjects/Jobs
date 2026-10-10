@@ -1,4 +1,5 @@
 import { requestAnswerBatch } from "./request-answers.js";
+import { bindCorpusPage, captureCorpusPage } from "./corpus-content.js";
 import { searchAnswerSpec } from "./search-answer.js";
 import { prepareAnswerBatch } from "./prepare-answers.js";
 import { createDraftReview } from "./draft-review.js";
@@ -539,6 +540,7 @@ export function initializeAutomaticFill() {
         canProceed,
       });
       const { current, assertCurrent, stamp } = operation;
+      bindCorpusPage(root, profile, reader, () => review);
       const drafts = createDraftReview?.(
         root,
         reader,
@@ -685,6 +687,7 @@ export function initializeAutomaticFill() {
           setMessage("complete-manually");
           return false;
         }
+        captureCorpusPage();
         if (action === "fill") {
           flow.move("complete");
           setMessage("page-complete");

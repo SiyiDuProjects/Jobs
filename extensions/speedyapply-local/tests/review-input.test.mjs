@@ -1015,3 +1015,62 @@ test("an Ashby search dropdown with no loaded options stays visible as an unreso
     h.close();
   }
 });
+
+test("a second card answer can be chosen while the first is still being written", async () => {
+  const h = setup(
+    '<label>Current clearance*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label><label>Prior government employment*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label>',
+  );
+  try {
+    assert.equal(await h.run(), false);
+    const rows = [...h.shadow().querySelectorAll(".review-row")],
+      no = (row) =>
+        [...row.querySelectorAll(".choice")].find(
+          (node) => node.title === "No",
+        );
+    assert.equal(rows.length, 2);
+    no(rows[0]).onclick({ isTrusted: true });
+    // The first write is still pending: its choice already shows as selected
+    // and the other row accepts an answer that is written after it.
+    assert.equal(no(rows[0]).getAttribute("aria-pressed"), "true");
+    assert.equal(no(rows[1]).disabled, false);
+    no(rows[1]).onclick({ isTrusted: true });
+    await until(() =>
+      [...h.shadow().querySelectorAll(".source")].every(
+        (node) => node.textContent === "你的回答",
+      ),
+    );
+    assert.deepEqual(
+      [...h.w.document.querySelectorAll("select")].map((node) => node.value),
+      ["N", "N"],
+    );
+    assert.deepEqual(
+      [...h.shadow().querySelectorAll(".error")].map(
+        (node) => node.textContent,
+      ),
+      ["", ""],
+    );
+    assert.equal(h.clicks(), 0);
+    assert.equal(await h.w.JobsAIReview.confirm(), true);
+    assert.equal(h.clicks(), 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("confirmation waits for a card answer that is still being written", async () => {
+  const h = setup(
+    '<label>Do you agree?*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label>',
+  );
+  try {
+    assert.equal(await h.run(), false);
+    const no = [...h.shadow().querySelectorAll(".choice")].find(
+      (node) => node.title === "No",
+    );
+    no.onclick({ isTrusted: true });
+    assert.equal(await h.w.JobsAIReview.confirm(), true);
+    assert.equal(h.w.document.querySelector("select").value, "N");
+    assert.equal(h.clicks(), 1);
+  } finally {
+    h.close();
+  }
+});

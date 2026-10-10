@@ -40,9 +40,12 @@ function fixture(
   const profile = { profileName: "Synthetic" },
     checks = [],
     notes = [];
+  w.TextEncoder = TextEncoder;
+  w.JobsBuildInfo = { id: "synthetic" };
   w.chrome = {
     runtime: {
       sendMessage: async (message) => {
+        if (message.type === "jobs:corpus-page") return { data: { ok: true } };
         assert.equal(message.type, "jobs:tab-profile");
         checks.push(message.verify === true);
         if (latency)

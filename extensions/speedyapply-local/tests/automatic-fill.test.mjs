@@ -110,6 +110,62 @@ function setup(html, answer) {
 }
 const reply = confirmedDraft;
 
+for (const scenario of ["complete", "changed", "oversized"])
+  test(`terms context reaches verification and remains current: ${scenario}`, async () => {
+    const body =
+      "Application processing only. ".repeat(
+        scenario === "oversized" ? 800 : 100,
+      ) + "No unrelated marketing.";
+    const h = setup(
+      `<fieldset><legend>Terms and Conditions</legend><p id="terms-body">${body}</p><label><input type="checkbox" required>Yes, I have read the above mentioned Terms and Conditions and consent to all of them.</label></fieldset>`,
+      async (message, w) => {
+        if (scenario === "changed" && message.fields[0].description !== body) {
+          assert.equal(
+            message.fields[0].description,
+            "Different terms now apply.",
+          );
+          assert.equal(w.document.querySelector("input").checked, false);
+          return message.fields.map((field) => ({
+            fieldId: field.fieldId,
+            state: "needs_input",
+            value: null,
+            source: "unknown",
+            needsConfirmation: true,
+          }));
+        }
+        assert.equal(message.fields[0].description, body);
+        if (scenario === "changed")
+          w.document.getElementById("terms-body").textContent =
+            "Different terms now apply.";
+        return message.fields.map((field) =>
+          confirmedAnswer(field, {
+            fieldId: field.fieldId,
+            state: "answer",
+            value: true,
+            source: "profile",
+            needsConfirmation: false,
+          }),
+        );
+      },
+    );
+    try {
+      await h.run({ action: "fill" });
+      assert.equal(
+        h.calls(),
+        scenario === "oversized" ? 0 : scenario === "changed" ? 2 : 1,
+      );
+      assert.equal(
+        h.w.document.querySelector("input").checked,
+        scenario === "complete",
+      );
+      assert.equal(h.clicks(), 0);
+      if (scenario === "changed")
+        assert(h.events.some(([type]) => type === "auto_answer_obsolete"));
+    } finally {
+      h.close();
+    }
+  });
+
 for (const question of [
   "Have you ever been convicted of a felony?",
   "Do you hold a security clearance?",

@@ -326,3 +326,32 @@ test("background verifies the live document and uses durable ATS receipt transpo
   );
   await assert.rejects(background({ resolved: null }).run(), /unavailable/);
 });
+test("page changes without a receipt never walk computed styles", async (t) => {
+  const rows = Array.from(
+    { length: 200 },
+    (_, i) => `<div><span>Question ${i}</span><input></div>`,
+  ).join("");
+  const h = page(t, `<main>${rows}</main>`);
+  let styles = 0;
+  const original = h.w.getComputedStyle.bind(h.w);
+  h.w.getComputedStyle = (...args) => {
+    styles++;
+    return original(...args);
+  };
+  const main = h.w.document.querySelector("main");
+  main.append(h.w.document.createElement("p"));
+  await tick();
+  await tick();
+  // A question that merely mentions the word still tests text before style.
+  main.insertAdjacentHTML(
+    "beforeend",
+    "<div><label>Have you applied here before?</label></div>",
+  );
+  await tick();
+  await tick();
+  assert.equal(styles, 0);
+  assert.equal(h.sent.length, 0);
+  main.insertAdjacentHTML("beforeend", `<p>${quote}</p>`);
+  await until(() => h.confirmations() === 1);
+  assert(styles > 0);
+});

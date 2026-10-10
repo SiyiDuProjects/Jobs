@@ -689,6 +689,32 @@ export function initializeSync() {
       JobsPrivateSession.assertCurrent(epoch);
       return result;
     }
+    async function corpusRequest(method, body) {
+      const epoch = JobsPrivateSession.epoch;
+      await ready;
+      const state = await serial(read);
+      JobsPrivateSession.assertCurrent(epoch);
+      if (!state.profileToken || state.disabled) throw Error("题库同步未连接");
+      const response = await fetch(ORIGIN + "/api/extension/corpus", {
+        method,
+        credentials: "omit",
+        headers: {
+          "X-Jobs-Protocol": "2",
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + state.profileToken,
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(10000),
+      });
+      const result = await profileResult(
+        response,
+        state.profileToken,
+        "题库同步暂时失败",
+        epoch,
+      );
+      JobsPrivateSession.assertCurrent(epoch);
+      return result;
+    }
     async function managementRequest(method, body) {
       const epoch = JobsPrivateSession.epoch;
       await ready;
@@ -914,6 +940,7 @@ export function initializeSync() {
       record,
       flush,
       profileRequest,
+      corpusRequest,
       managementRequest,
       generateAnswer,
       resolveJob,

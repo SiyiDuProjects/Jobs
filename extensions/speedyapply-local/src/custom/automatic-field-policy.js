@@ -19,6 +19,8 @@ export function shape(row) {
     row.public.type,
     row.public.options,
     row.public.conditional,
+    row.description,
+    row.descriptionIncomplete,
   ]);
 }
 

@@ -21,12 +21,28 @@ const automatic = await readModule(
   "utf8",
 );
 
-test("scanner and fill observer have no host routing outside platform configuration", () => {
+test("scanner and fill observer have no host routing outside platform configuration", async () => {
+  // Inspect the maintained modules themselves, not dependencies inlined by the
+  // test loader (the corpus collector records host metadata without routing).
+  const [fieldsSource, automaticSource] = await Promise.all([
+    fs.readFile(
+      new URL("../src/custom/control-fields.js", import.meta.url),
+      "utf8",
+    ),
+    fs.readFile(
+      new URL("../src/custom/automatic-fill.js", import.meta.url),
+      "utf8",
+    ),
+  ]);
   assert(
-    !/hostname|myworkdayjobs\.com|ashbyhq\.com|greenhouse\.io/.test(fields),
+    !/hostname|myworkdayjobs\.com|ashbyhq\.com|greenhouse\.io/.test(
+      fieldsSource,
+    ),
   );
   assert(
-    !/hostname|myworkdayjobs\.com|ashbyhq\.com|greenhouse\.io/.test(automatic),
+    !/hostname|myworkdayjobs\.com|ashbyhq\.com|greenhouse\.io/.test(
+      automaticSource,
+    ),
   );
 });
 

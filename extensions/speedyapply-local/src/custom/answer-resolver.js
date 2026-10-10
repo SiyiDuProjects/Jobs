@@ -9,6 +9,14 @@ export function initializeAnswerResolver() {
   // Adapters and simple canonical labels share these deterministic functions.
   // Free-form claims and saved-answer conflicts belong to the server decision.
   function decide(question, profile, context = {}) {
+    if (question.descriptionIncomplete)
+      return {
+        status: "unmatched",
+        answer: null,
+        source: "none",
+        field: null,
+        reason: "field_description_incomplete",
+      };
     if (question.conditional?.active === false)
       return {
         status: "omit",

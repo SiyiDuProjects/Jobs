@@ -3,6 +3,7 @@ import { JobsReviewPresenter } from "./review-presenter.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsFormPipeline } from "./form-pipeline.js";
 import { JobsAnswerMemory } from "./answer-memory.js";
+import { captureCorpusPage } from "./corpus-content.js";
 import { JobsOperator } from "./operator-state.js";
 export var JobsAIReview;
 let initialized = false;
@@ -14,6 +15,11 @@ export function initializeAiReview() {
     const note = (type, detail) => JobsDiagnostics?.note(type, null, detail);
     const present = (own, data) => {
       own.presentation = data;
+      // Page mutations re-run refresh; an unchanged card needs no new storage
+      // write and side-panel round trip. Expansion requests always reach it.
+      const key = data && !data.expand ? JSON.stringify(data) : "";
+      if (key && key === own.presented) return;
+      own.presented = key;
       if (window === window.top)
         JobsReviewPresenter.show(data, (action, id, payload) =>
           action === "confirm"
@@ -52,6 +58,9 @@ export function initializeAiReview() {
         hidden: false,
         status: "正在补填，完成后可确认。",
         transport: Promise.resolve(),
+        writes: Promise.resolve(),
+        draining: false,
+        presented: "",
       };
       own.signature = (row) =>
         JSON.stringify([
@@ -213,7 +222,7 @@ export function initializeAiReview() {
                 version: item.version,
                 schemaVersion: item.schemaVersion,
                 valid: !!record && !row.public.invalid,
-                disabled: own.busy || own.confirming || !own.onConfirm,
+                disabled: own.confirming || !own.onConfirm,
               });
           }
           items.push({
@@ -279,7 +288,8 @@ export function initializeAiReview() {
           });
         // Acknowledging AI answers is not whole-form validation. Missing or
         // replaced controls must never lock both Confirm and native Continue.
-        own.canConfirm = !own.busy && !own.confirming && !!own.onConfirm;
+        // Confirmation waits for card answers that are still being written.
+        own.canConfirm = !own.confirming && !!own.onConfirm;
         if (own.hidden || !render) return rows;
         present(own, {
           id: own.id,
@@ -369,12 +379,15 @@ export function initializeAiReview() {
         );
       };
       const refresh = (event) => {
+        // A card write mutates its control many times; its own completion
+        // refreshes once instead of rescanning the form for every mutation.
         if (
+          own.busy ||
           (event && !affected(event.composedPath?.()[0] || event.target)) ||
           queued
         )
           return;
-        if (event && !own.busy) {
+        if (event) {
           const target = event.composedPath?.()[0] || event.target;
           for (const item of own.items.values()) {
             if (
@@ -439,29 +452,49 @@ export function initializeAiReview() {
       }
       return own;
     }
-    async function answer(
+    // Card answers are written one at a time in the order they were chosen.
+    // The person can pick the next answer while an earlier one is still being
+    // written; each write rechecks its own version when its turn comes.
+    function answer(id, payload, options = {}) {
+      const own = active;
+      if (
+        !own ||
+        (own.confirming && !options.acceptingProposal) ||
+        !own.onConfirm
+      )
+        return Promise.resolve({ error: "当前不能修改，请稍候。" });
+      const origin =
+        options.source === "remote"
+          ? "agent"
+          : JobsOperator?.read().mode || "unknown";
+      const task = own.writes.then(() =>
+        write(own, id, payload, { ...options, origin }),
+      );
+      own.writes = task.catch(() => {});
+      return task;
+    }
+    async function write(
+      own,
       id,
       payload,
       {
         canProceed = () => true,
         source = "user",
         acceptingProposal = false,
-      } = {},
+        origin,
+      },
     ) {
-      const own = active;
-      const rows = own?.refresh(false, false);
-      const entry = own && [...own.items].find(([, item]) => item.id === id);
+      const rows = active === own ? own.refresh(false, false) : [];
+      const entry = [...own.items].find(([, item]) => item.id === id);
       if (
-        !own ||
+        active !== own ||
         !entry ||
         own.busy ||
-        (own.confirming && !acceptingProposal) ||
+        (own.confirming && !acceptingProposal && !own.draining) ||
         !own.onConfirm
       )
         return { error: "当前不能修改，请稍候。" };
       const [node, item] = entry;
-      const origin =
-        source === "remote" ? "agent" : JobsOperator?.read().mode || "unknown";
       let row = rows.find((row) => row.node === node);
       const current = () =>
         canProceed() &&
@@ -493,6 +526,11 @@ export function initializeAiReview() {
         if (payload.acceptCurrent === true) {
           if (row.public.invalid || !own.reader.response(row))
             throw Error("网页当前答案仍需检查，请先完成该题。");
+          if (
+            origin === "person" &&
+            own.reader.response(row)?.response !== item.originalResponse
+          )
+            captureCorpusPage(node);
           item.reviewed = true;
           item.answerOrigin = origin;
           item.userAnswered = origin === "person";
@@ -518,6 +556,12 @@ export function initializeAiReview() {
         const after = own.reader.scan().find((row) => row.node === node);
         if (!current() || !after || after.public.invalid)
           throw Error("网页未接受这个答案，请检查该题。");
+        if (
+          origin === "person" &&
+          !acceptingProposal &&
+          own.reader.response(after)?.response !== item.originalResponse
+        )
+          captureCorpusPage(node);
         item.reviewed = true;
         item.answerOrigin = origin;
         item.userAnswered = origin === "person";
@@ -549,12 +593,14 @@ export function initializeAiReview() {
     }
     async function confirm({ canProceed = () => true, source = "user" } = {}) {
       const own = active;
-      if (!own || own.busy || own.confirming || !own.onConfirm) return false;
-      own.refresh();
-      if (!own.canConfirm) return false;
-      own.confirming = true;
+      if (!own || own.confirming || !own.onConfirm) return false;
+      own.confirming = own.draining = true;
       own.refresh();
       try {
+        // Answers already chosen in the card land before confirmation.
+        await own.writes;
+        own.draining = false;
+        if (active !== own || own.busy || !own.onConfirm) return false;
         if (!canProceed()) throw Error("补答命令已过期或页面已变化");
         for (const [node, item] of own.items) {
           if (!item.proposal) continue;
@@ -586,7 +632,7 @@ export function initializeAiReview() {
         return false;
       } finally {
         own.busy = false;
-        own.confirming = false;
+        own.confirming = own.draining = false;
         if (active === own) own.refresh();
       }
     }

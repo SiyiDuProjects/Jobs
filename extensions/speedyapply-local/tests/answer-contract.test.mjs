@@ -363,6 +363,30 @@ test("duplicate labels keep independent types and identities; describing questio
   }
 });
 
+test("oversized instructions cannot fall back to a bare-label Profile rule", async () => {
+  const h =
+    fixture(`<fieldset><legend>Are you authorized to work in the United States?</legend>
+    <p>${"Additional conditions. ".repeat(1000)}</p>
+    <label>Yes<input type="radio" name="work" value="yes" required></label>
+    <label>No<input type="radio" name="work" value="no" required></label></fieldset>`);
+  try {
+    const row = h.reader.scan()[0];
+    const results = await h.resolve(
+      [{ node: row.node, question: row.public.question }],
+      profile,
+    );
+    assert.equal(results.length, 0);
+    assert.equal(h.records[0].questions[0].descriptionIncomplete, true);
+    assert.equal(
+      h.records[0].decisions[0].reason,
+      "field_description_incomplete",
+    );
+    assert.equal(h.root.querySelectorAll(":checked").length, 0);
+  } finally {
+    h.close();
+  }
+});
+
 test("legacy keyword responses cannot select options through the shared supplemental resolver", async () => {
   for (const [options, response, expected] of [
     [["Friend or Referral", "LinkedIn"], "Friend", null],

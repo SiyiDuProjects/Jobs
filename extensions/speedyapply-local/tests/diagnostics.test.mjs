@@ -193,6 +193,34 @@ test("form mutation bursts share the scheduled diagnostic scan without losing ch
   }
 });
 
+test("restyling inside the form does not resend an unchanged report", async () => {
+  const h = harness(
+    '<label>Answer<input value="Known"></label><span id="validation">Ready</span>',
+  );
+  try {
+    await h.start();
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    const pushes = () =>
+      h.sent.filter((item) => item.type === "jobs:diagnostics-push").length;
+    const before = pushes();
+    assert(before > 0);
+    for (let i = 0; i < 3; i++) {
+      h.doc.getElementById("validation").className = "hover-" + i;
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    }
+    assert.equal(pushes(), before);
+    h.doc.querySelector("input").setAttribute("aria-invalid", "true");
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    assert.equal(pushes(), before + 1);
+    const report = h.sent
+      .filter((item) => item.type === "jobs:diagnostics-push")
+      .at(-1).report;
+    assert.equal(report.fields[0].invalid, true);
+  } finally {
+    h.close();
+  }
+});
+
 test("unrelated DOM animation skips full scans while new fields and ancestor visibility still trigger observation", async () => {
   const h = harness();
   try {

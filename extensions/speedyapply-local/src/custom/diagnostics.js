@@ -40,6 +40,8 @@ export function initializeDiagnostics() {
       observer,
       truncatedEvents = 0,
       lastSignature = "",
+      lastPush = "",
+      lastPushAt = 0,
       lastUrl = "";
     let reader,
       fallbackReader,
@@ -573,9 +575,16 @@ export function initializeDiagnostics() {
           report.droppedEvents = truncatedEvents;
         }
         lastSignature = signature;
-        void chrome.runtime
-          .sendMessage({ type: "jobs:diagnostics-push", report })
-          .catch(() => {});
+        // Hover/focus restyling reaches the form observer without changing the
+        // report. The worker rewrites its whole archive per push; skip repeats.
+        const pushed = JSON.stringify({ ...report, observedAt: 0 });
+        if (pushed !== lastPush || Date.now() - lastPushAt > 30000) {
+          lastPush = pushed;
+          lastPushAt = Date.now();
+          void chrome.runtime
+            .sendMessage({ type: "jobs:diagnostics-push", report })
+            .catch(() => {});
+        }
         if (
           /^(complete-required|complete-manually|site-error|ai-review)$/.test(
             report.phase,
@@ -616,7 +625,7 @@ export function initializeDiagnostics() {
       lastUnrecognized = [];
       scanRoots = [];
       profileEvent = null;
-      lastSignature = lastCaseSignature = lastUrl = "";
+      lastSignature = lastPush = lastCaseSignature = lastUrl = "";
     }
     function start(ats, options) {
       stop();
@@ -627,7 +636,7 @@ export function initializeDiagnostics() {
       events = [];
       profileEvent = null;
       truncatedEvents = 0;
-      lastSignature = "";
+      lastSignature = lastPush = "";
       lastUrl = location.href;
       owners = new WeakMap();
       rowByNode = new WeakMap();
@@ -780,7 +789,7 @@ export function initializeDiagnostics() {
       events = [];
       profileEvent = null;
       truncatedEvents = 0;
-      lastSignature = "";
+      lastSignature = lastPush = "";
       lastCaseSignature = "";
       add("visibility_changed", null, doc.visibilityState);
     }

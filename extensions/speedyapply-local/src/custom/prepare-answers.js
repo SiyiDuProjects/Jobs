@@ -1,5 +1,6 @@
 import { JobsControlFields } from "./control-fields.js";
 import { shape } from "./automatic-field-policy.js";
+import { recordCorpusOptions } from "./corpus-observations.js";
 // Capture a bounded batch from current controls, after reading exact choices.
 export async function prepareAnswerBatch(
   candidates,
@@ -38,6 +39,19 @@ export async function prepareAnswerBatch(
       }
     }
     assertCurrent();
+    recordCorpusOptions(
+      row.node,
+      options.map((option) => option.label),
+    );
+    if (row.descriptionIncomplete) {
+      note(
+        "auto_unhandled_control",
+        row.node,
+        "Field description exceeds limit",
+      );
+      leave(row, "题目说明过长，无法完整核验");
+      continue;
+    }
     // Empty search results need a verified query before a native option exists.
     const search =
       !options.length &&
@@ -60,12 +74,7 @@ export async function prepareAnswerBatch(
             : row.public.type,
         required: row.public.required,
         options,
-        description: (row.node.getAttribute("aria-describedby") || "")
-          .split(/\s+/)
-          .filter(Boolean)
-          .map((id) => document.getElementById(id)?.textContent || "")
-          .join(" ")
-          .slice(0, 2000),
+        description: row.description || "",
       },
     });
   }

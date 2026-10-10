@@ -14,7 +14,9 @@
     "format:check": "prettier --check source src/custom scripts tests",
     "measure:scanner": "node scripts/measure-scanner.mjs",
     "check:structure": "node scripts/check-source-size.mjs",
-    "measure:page": "node scripts/measure-page-run.mjs"
+    "measure:page": "node scripts/measure-page-run.mjs",
+    "corpus:seed": "node scripts/corpus.mjs seed",
+    "corpus:test": "node scripts/corpus.mjs test"
   },
   "devDependencies": {
     "@tailwindcss/node": "4.3.3",

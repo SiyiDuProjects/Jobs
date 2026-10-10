@@ -1,4 +1,5 @@
 import { calendarDate } from "./calendar-date.js";
+import { fieldDescription } from "./field-description.js";
 import { JobsSelectState } from "./select-state.js";
 import { JobsWorkdayControls } from "./workday-controls.js";
 import { JobsOracleControls } from "./oracle-controls.js";
@@ -16,6 +17,7 @@ import { JobsAshbySavedControls } from "./ashby-saved-controls.js";
 import { JobsTeslaControls } from "./tesla-controls.js";
 import { JobsAriaControls } from "./aria-controls.js";
 import { JobsDiagnostics } from "./diagnostics.js";
+import { recordCorpusOptions } from "./corpus-observations.js";
 import { JobsPlatformConfig } from "./platform-config.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsOptionMatch } from "./option-match.js";
@@ -439,6 +441,11 @@ export function initializeControlFields() {
                 ...context,
                 answer: term,
               })) || [];
+            recordCorpusOptions(
+              row.node,
+              found.map((option) => option.label),
+              term,
+            );
             if (!current()) return [];
             if (found.length && !options.length) options = found;
             if (
@@ -926,6 +933,7 @@ export function initializeControlFields() {
           rows.push({
             node,
             group,
+            ...fieldDescription(node, group, scope, platform, visible),
             // Repeated entries are separate fields even when one editor closes
             // before the next opens. A replacement inside the same entry follows.
             identityScope: identityScope ? id(identityScope) : "",
@@ -1901,6 +1909,7 @@ export function initializeControlFields() {
             node,
             api,
             (found) => {
+              recordCorpusOptions(node, found, term);
               labels = found;
               const selected = pickLabels(found);
               picked =
@@ -2510,14 +2519,7 @@ export function initializeControlFields() {
               row.public.options?.some(
                 (option) => normalize(option.label) === normalize(label),
               )));
-        const description = row
-          ? (row.node.getAttribute("aria-describedby") || "")
-              .split(/\s+/)
-              .filter(Boolean)
-              .map((id) => doc.getElementById(id)?.textContent || "")
-              .join(" ")
-              .slice(0, 2000)
-          : item.description;
+        const description = row ? row.description : item.description;
         const { node, ...plain } = item;
         // Site facts about this question (signature forms, unresolved follow-up
         // chains, option-matching policy) come from the platform declaration.
@@ -2536,6 +2538,9 @@ export function initializeControlFields() {
           inputType: row?.public.type || item.inputType || item.type,
           required: row?.public.required ?? item.required,
           description,
+          ...(row?.descriptionIncomplete
+            ? { descriptionIncomplete: true }
+            : {}),
           ...(row?.public.conditional
             ? { conditional: row.public.conditional }
             : {}),
