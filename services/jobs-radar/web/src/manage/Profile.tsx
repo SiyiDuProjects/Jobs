@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Card } from "@heroui/react";
+import { Button, Card, Tabs } from "@heroui/react";
 import { store, useManagement } from "./store";
 import {
   blankEducation,
@@ -166,291 +166,291 @@ function ProfileForm({
           ]}
         />
       </div>
-      <nav
-        aria-label="资料分区"
-        className="sticky top-0 z-10 flex gap-5 bg-background py-3 border-b border-separator"
-      >
-        {[
-          ["experience", "经历"],
-          ["personal", "个人"],
-          ["preferences", "偏好"],
-        ].map(([id, label]) => (
-          <a
-            key={id}
-            href={`#/profile?section=${id}`}
-            className="text-sm text-accent"
-            onClick={(e) => {
-              e.preventDefault();
-              document
-                .getElementById(id)
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }}
-          >
-            {label}
-          </a>
-        ))}
-        {dirty && (
-          <Button size="sm" className="ml-auto" isPending={busy} onPress={save}>
-            保存更改
-          </Button>
-        )}
-      </nav>
-      <Card id="experience" className="scroll-mt-16">
-        <Card.Header>
-          <Card.Title>经历</Card.Title>
-        </Card.Header>
-        <Card.Content className="gap-6">
-          {(["jobData", "educationData"] as const).map((kind) => (
-            <section key={kind} className="space-y-4">
-              <div className="flex justify-between">
-                <h3 className="font-medium">
-                  {kind === "jobData" ? "工作经历" : "教育经历"}
-                </h3>
+      <Tabs defaultSelectedKey="experience">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 bg-background py-3">
+          <Tabs.ListContainer className="w-fit">
+            <Tabs.List aria-label="资料分区">
+              {[
+                ["experience", "经历"],
+                ["personal", "个人"],
+                ["preferences", "偏好"],
+              ].map(([id, label]) => (
+                <Tabs.Tab key={id} id={id}>
+                  {label}
+                  <Tabs.Indicator />
+                </Tabs.Tab>
+              ))}
+            </Tabs.List>
+          </Tabs.ListContainer>
+          {dirty && (
+            <Button size="sm" className="ml-auto" isPending={busy} onPress={save}>
+              保存更改
+            </Button>
+          )}
+        </div>
+        <Tabs.Panel id="experience" shouldForceMount className="data-[inert=true]:hidden">
+          <Card id="experience">
+            <Card.Header>
+              <Card.Title>经历</Card.Title>
+            </Card.Header>
+            <Card.Content className="gap-6">
+              {(["jobData", "educationData"] as const).map((kind) => (
+                <section key={kind} className="space-y-4">
+                  <div className="flex justify-between">
+                    <h3 className="font-medium">
+                      {kind === "jobData" ? "工作经历" : "教育经历"}
+                    </h3>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() =>
+                        part(kind, [
+                          ...p[kind],
+                          structuredClone(
+                            kind === "jobData" ? blankJob : blankEducation,
+                          ),
+                        ])
+                      }
+                    >
+                      添加
+                    </Button>
+                  </div>
+                  {p[kind].map((item, i) => (
+                    <div
+                      key={i}
+                      className="border-b border-separator pb-4 space-y-2"
+                    >
+                      <HistoryFields
+                        kind={kind}
+                        item={item}
+                        onChange={(v) =>
+                          part(
+                            kind,
+                            p[kind].map((old, n) => (n === i ? v : old)),
+                          )
+                        }
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onPress={() =>
+                          part(
+                            kind,
+                            p[kind].filter((_, n) => n !== i),
+                          )
+                        }
+                      >
+                        移除这条经历
+                      </Button>
+                    </div>
+                  ))}
+                </section>
+              ))}
+              <section className="space-y-4">
+                <div className="flex justify-between">
+                  <h3 className="font-medium">项目经历</h3>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onPress={() =>
+                      part("projectData", [
+                        ...(p.projectData || []),
+                        {
+                          name: "",
+                          link: "",
+                          startDate: "",
+                          endDate: "",
+                          description: "",
+                        },
+                      ])
+                    }
+                  >
+                    添加项目
+                  </Button>
+                </div>
+                {(p.projectData || []).map((project, i) => (
+                  <div
+                    key={i}
+                    className="grid gap-4 sm:grid-cols-2 border-b border-separator pb-4"
+                  >
+                    {Object.entries({
+                      name: "名称",
+                      link: "链接",
+                      startDate: "开始月份",
+                      endDate: "结束月份",
+                      description: "描述",
+                    }).map(([key, label]) => (
+                      <Field
+                        key={key}
+                        label={label}
+                        type={key.endsWith("Date") ? "month" : "text"}
+                        multiline={key === "description"}
+                        value={(project as any)[key]}
+                        onChange={(v) =>
+                          part(
+                            "projectData",
+                            p.projectData!.map((old, n) =>
+                              n === i ? { ...old, [key]: v } : old,
+                            ),
+                          )
+                        }
+                      />
+                    ))}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onPress={() =>
+                        part(
+                          "projectData",
+                          p.projectData!.filter((_, n) => n !== i),
+                        )
+                      }
+                    >
+                      移除项目
+                    </Button>
+                  </div>
+                ))}
+              </section>
+              <Tags
+                label="技能"
+                value={p.skillsData || []}
+                onChange={(v) => part("skillsData", v)}
+                limit={25}
+              />
+              <section className="space-y-3">
+                <h3 className="font-medium">语言</h3>
+                {p.languageData.map((item, i) => (
+                  <div className="flex flex-wrap gap-3 items-end" key={i}>
+                    <Field
+                      label="语言"
+                      value={item.language}
+                      onChange={(v) =>
+                        part(
+                          "languageData",
+                          p.languageData.map((old, n) =>
+                            n === i ? { ...old, language: v } : old,
+                          ),
+                        )
+                      }
+                    />
+                    <Field
+                      label="熟练程度"
+                      value={item.proficiency}
+                      onChange={(v) =>
+                        part(
+                          "languageData",
+                          p.languageData.map((old, n) =>
+                            n === i ? { ...old, proficiency: v } : old,
+                          ),
+                        )
+                      }
+                    />
+                    <Toggle label="流利" value={!!item.fluent} onChange={(v) => part("languageData", p.languageData.map((old,n) => n === i ? {...old, fluent:v} : old))} />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onPress={() =>
+                        part(
+                          "languageData",
+                          p.languageData.filter((_, n) => n !== i),
+                        )
+                      }
+                    >
+                      移除
+                    </Button>
+                  </div>
+                ))}
                 <Button
                   size="sm"
                   variant="secondary"
                   onPress={() =>
-                    part(kind, [
-                      ...p[kind],
-                      structuredClone(
-                        kind === "jobData" ? blankJob : blankEducation,
-                      ),
+                    part("languageData", [
+                      ...p.languageData,
+                      { language: "", proficiency: "" },
                     ])
                   }
                 >
-                  添加
+                  添加语言
                 </Button>
-              </div>
-              {p[kind].map((item, i) => (
-                <div
-                  key={i}
-                  className="border-b border-separator pb-4 space-y-2"
-                >
-                  <HistoryFields
-                    kind={kind}
-                    item={item}
-                    onChange={(v) =>
-                      part(
-                        kind,
-                        p[kind].map((old, n) => (n === i ? v : old)),
-                      )
-                    }
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onPress={() =>
-                      part(
-                        kind,
-                        p[kind].filter((_, n) => n !== i),
-                      )
-                    }
-                  >
-                    移除这条经历
-                  </Button>
-                </div>
-              ))}
-            </section>
-          ))}
-          <section className="space-y-4">
-            <div className="flex justify-between">
-              <h3 className="font-medium">项目经历</h3>
-              <Button
-                size="sm"
-                variant="secondary"
-                onPress={() =>
-                  part("projectData", [
-                    ...(p.projectData || []),
-                    {
-                      name: "",
-                      link: "",
-                      startDate: "",
-                      endDate: "",
-                      description: "",
-                    },
-                  ])
+              </section>
+              {textGroup("websiteData", {
+                linkedin: "LinkedIn",
+                github: "GitHub",
+                portfolio: "作品集",
+              })}
+              <Tags
+                label="其他链接"
+                value={p.websiteData.websites || []}
+                onChange={(v) =>
+                  part("websiteData", { ...p.websiteData, websites: v })
                 }
-              >
-                添加项目
-              </Button>
-            </div>
-            {(p.projectData || []).map((project, i) => (
-              <div
-                key={i}
-                className="grid gap-4 sm:grid-cols-2 border-b border-separator pb-4"
-              >
-                {Object.entries({
-                  name: "名称",
-                  link: "链接",
-                  startDate: "开始月份",
-                  endDate: "结束月份",
-                  description: "描述",
-                }).map(([key, label]) => (
-                  <Field
-                    key={key}
-                    label={label}
-                    type={key.endsWith("Date") ? "month" : "text"}
-                    multiline={key === "description"}
-                    value={(project as any)[key]}
-                    onChange={(v) =>
-                      part(
-                        "projectData",
-                        p.projectData!.map((old, n) =>
-                          n === i ? { ...old, [key]: v } : old,
-                        ),
-                      )
-                    }
-                  />
-                ))}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onPress={() =>
-                    part(
-                      "projectData",
-                      p.projectData!.filter((_, n) => n !== i),
-                    )
-                  }
-                >
-                  移除项目
-                </Button>
-              </div>
-            ))}
-          </section>
-          <Tags
-            label="技能"
-            value={p.skillsData || []}
-            onChange={(v) => part("skillsData", v)}
-            limit={25}
-          />
-          <section className="space-y-3">
-            <h3 className="font-medium">语言</h3>
-            {p.languageData.map((item, i) => (
-              <div className="flex flex-wrap gap-3 items-end" key={i}>
-                <Field
-                  label="语言"
-                  value={item.language}
-                  onChange={(v) =>
-                    part(
-                      "languageData",
-                      p.languageData.map((old, n) =>
-                        n === i ? { ...old, language: v } : old,
-                      ),
-                    )
-                  }
+              />
+              <section className="space-y-2">
+                <h3 className="font-medium">简历</h3>
+                <p className="text-sm text-muted">
+                  {p.resumeData.fileName || "未上传"}
+                </p>
+                <Upload
+                  label="上传 PDF"
+                  accept=".pdf"
+                  onFile={async (f) => part("resumeData", await readResume(f))}
                 />
-                <Field
-                  label="熟练程度"
-                  value={item.proficiency}
-                  onChange={(v) =>
-                    part(
-                      "languageData",
-                      p.languageData.map((old, n) =>
-                        n === i ? { ...old, proficiency: v } : old,
-                      ),
-                    )
-                  }
-                />
-                <Toggle label="流利" value={!!item.fluent} onChange={(v) => part("languageData", p.languageData.map((old,n) => n === i ? {...old, fluent:v} : old))} />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onPress={() =>
-                    part(
-                      "languageData",
-                      p.languageData.filter((_, n) => n !== i),
-                    )
-                  }
-                >
-                  移除
-                </Button>
-              </div>
-            ))}
-            <Button
-              size="sm"
-              variant="secondary"
-              onPress={() =>
-                part("languageData", [
-                  ...p.languageData,
-                  { language: "", proficiency: "" },
-                ])
-              }
-            >
-              添加语言
-            </Button>
-          </section>
-          {textGroup("websiteData", {
-            linkedin: "LinkedIn",
-            github: "GitHub",
-            portfolio: "作品集",
-          })}
-          <Tags
-            label="其他链接"
-            value={p.websiteData.websites || []}
-            onChange={(v) =>
-              part("websiteData", { ...p.websiteData, websites: v })
-            }
-          />
-          <section className="space-y-2">
-            <h3 className="font-medium">简历</h3>
-            <p className="text-sm text-muted">
-              {p.resumeData.fileName || "未上传"}
-            </p>
-            <Upload
-              label="上传 PDF"
-              accept=".pdf"
-              onFile={async (f) => part("resumeData", await readResume(f))}
-            />
-          </section>
-        </Card.Content>
-      </Card>
-      <Card id="personal" className="scroll-mt-16">
-        <Card.Header>
-          <Card.Title>个人</Card.Title>
-        </Card.Header>
-        <Card.Content className="gap-5">
-          <Field
-            label="资料名称"
-            value={p.profileName}
-            onChange={(v) => part("profileName", v)}
-          />
-          {textGroup("nameData", {
-            firstName: "名",
-            middleName: "中间名",
-            lastName: "姓",
-            prefix: "称谓",
-            suffix: "姓名后缀",
-            preferredFirstName: "常用名",
-            preferredMiddleName: "常用中间名",
-            preferredLastName: "常用姓",
-          })}
-          <Toggle label="使用常用名" value={!!p.nameData.preferredName}
-            onChange={(v) => part("nameData", {...p.nameData, preferredName: v})} />
-          {textGroup("contactData", {
-            email: "邮箱",
-            phoneCountryCode: "电话国家代码",
-            phoneNumber: "电话",
-            phoneDeviceType: "电话类型",
-          })}
-          {textGroup("addressData", {
-            line1: "街道地址",
-            line2: "公寓或门牌补充",
-            city: "城市",
-            state: "州或省",
-            postalCode: "邮编",
-            country: "国家",
-          })}
-          <ProfilePersonal p={p} onChange={setP} />
-        </Card.Content>
-      </Card>
-      <Card id="preferences" className="scroll-mt-16">
-        <Card.Header>
-          <Card.Title>偏好</Card.Title>
-        </Card.Header>
-        <Card.Content>
-          <ProfilePreferences p={p} onChange={setP} />
-        </Card.Content>
-      </Card>
+              </section>
+            </Card.Content>
+          </Card>
+        </Tabs.Panel>
+        <Tabs.Panel id="personal" shouldForceMount className="data-[inert=true]:hidden">
+          <Card id="personal">
+            <Card.Header>
+              <Card.Title>个人</Card.Title>
+            </Card.Header>
+            <Card.Content className="gap-5">
+              <Field
+                label="资料名称"
+                value={p.profileName}
+                onChange={(v) => part("profileName", v)}
+              />
+              {textGroup("nameData", {
+                firstName: "名",
+                middleName: "中间名",
+                lastName: "姓",
+                prefix: "称谓",
+                suffix: "姓名后缀",
+                preferredFirstName: "常用名",
+                preferredMiddleName: "常用中间名",
+                preferredLastName: "常用姓",
+              })}
+              <Toggle label="使用常用名" value={!!p.nameData.preferredName}
+                onChange={(v) => part("nameData", {...p.nameData, preferredName: v})} />
+              {textGroup("contactData", {
+                email: "邮箱",
+                phoneCountryCode: "电话国家代码",
+                phoneNumber: "电话",
+                phoneDeviceType: "电话类型",
+              })}
+              {textGroup("addressData", {
+                line1: "街道地址",
+                line2: "公寓或门牌补充",
+                city: "城市",
+                state: "州或省",
+                postalCode: "邮编",
+                country: "国家",
+              })}
+              <ProfilePersonal p={p} onChange={setP} />
+            </Card.Content>
+          </Card>
+        </Tabs.Panel>
+        <Tabs.Panel id="preferences" shouldForceMount className="data-[inert=true]:hidden">
+          <Card id="preferences">
+            <Card.Header>
+              <Card.Title>偏好</Card.Title>
+            </Card.Header>
+            <Card.Content>
+              <ProfilePreferences p={p} onChange={setP} />
+            </Card.Content>
+          </Card>
+        </Tabs.Panel>
+      </Tabs>
       {dirty && (
         <div className="flex justify-end gap-3">
           <Button
