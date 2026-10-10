@@ -13,9 +13,7 @@ For each field return exactly one kind:
 answer: offered option value(s), checkbox boolean, or text supported by applicant information;
 draft: concise open motivation, preference or experience text grounded in real experience;
 unknown: information is missing, conflicting or insufficient; value must be null.
-Use current Profile facts and enabled declarations first, scoped past answers second. Newer facts win.
-Enabled declarations are current statements from the applicant, not inferred assumptions.
-A supported qualitative preference is sufficient for a free-text answer; require numerical detail only when the field explicitly requires numbers.
+Use current Profile facts first, past answers second, enabled declarations last. Newer facts win.
 Past answers scoped to a company, role, country or time apply only within that scope.
 Read every option fully, preserving negations, time windows and all compound qualifications.
 Never invent personal facts, legal status, credentials, numbers or exact dates.
@@ -30,7 +28,7 @@ Set jobSpecific true when the answer depends on the company, role, job descripti
 Set signingDate true only for entering today's date when signing the current form.
 Use exact option values, arrays for multi-select, booleans for checkboxes, strings otherwise.
 For search-choice return a factual search phrase; the browser matches actual search results.'''
-PROMPT_VERSION = 'simple-3'
+PROMPT_VERSION = 'simple-1'
 
 
 def schema(fields):
