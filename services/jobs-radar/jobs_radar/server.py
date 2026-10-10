@@ -89,10 +89,10 @@ def create_server(store, origin=None):
     def update_application_progress(application_id: str,
         stage: Literal['applied','assessment','phone_screen','screen','interview','offer','accepted','rejected','withdrawn','offer_declined','archived'],
         expected_version: int, idempotency_key: str, summary: str,
-        action: Literal['set','next_interview','correct'] = 'set',
+        action: Literal['set','next_interview','correct','history'] = 'set',
         interview_round: int | None = None, is_final: bool | None = None,
         observed_at: str | None = None, source: Literal['owner','email'] = 'owner', reference: str = '',
-        assessment_type: Literal['unknown','automatic','screened'] | None = None) -> dict[str, Any]:
+        assessment_type: Literal['unknown','automatic','screened','owner_confirmed'] | None = None) -> dict[str, Any]:
         """Update recruiting progress on an existing application from an explicit owner statement or a verified work email.
         This never creates an application, submission attempt, receipt confirmation or submission confirmation.
         First read list_application_states and match the exact application ID, role and URL. Never guess
@@ -101,12 +101,15 @@ def create_server(store, origin=None):
         actual received timestamp as observed_at. Store a brief factual summary, no full body or secrets.
         set=enter/update a stage without incrementing rounds; next_interview=explicit NEW round (not a
         reminder/reschedule), with a confirmed round required if old round is unknown; correct=explicit
-        owner correction/reopening. Corrections may clear unknown round/final fields. accepted only
+        owner correction/reopening; history=append owner-confirmed past progress without changing the
+        current outcome (observed_at required). Corrections may clear unknown round/final fields. accepted only
         records an already accepted offer; never accepts a contract or sends mail. Keeps history and
         rejection's previous stage. Stale versions require rereading; exact retries reuse the same key.
         assessment_type applies to OA, including self-paced recorded video assessments: automatic,
         screened (only with explicit screening evidence), or unknown. Speed of invitation alone
-        does not prove automation. Only screened OA counts as advancement; completion alone does not.
+        does not prove automation. owner_confirmed records an explicit owner decision to count this OA,
+        without claiming employer screening; only owner sources can use it. Screened or owner-confirmed
+        OA counts as advancement; completion alone does not.
         Old emails and extension inventory uploads cannot overwrite newer owner progress."""
         require('applications:write')
         return application_progress.update(application_id,stage,expected_version,idempotency_key,summary,

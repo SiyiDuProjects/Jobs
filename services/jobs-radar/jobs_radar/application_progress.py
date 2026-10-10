@@ -15,7 +15,8 @@ from .profiles import ProfileConflict
 STAGES = ('applied', 'assessment', 'phone_screen', 'screen', 'interview', 'offer',
           'accepted', 'rejected', 'withdrawn', 'offer_declined', 'archived')
 TERMINAL = {'accepted', 'rejected', 'withdrawn', 'offer_declined', 'archived'}
-ASSESSMENT_TYPES = {'unknown', 'automatic', 'screened'}
+ASSESSMENT_TYPES = {'unknown', 'automatic', 'screened', 'owner_confirmed'}
+HISTORICAL_REASONS = {'older_event', 'earlier_stage', 'earlier_round', 'finished_application', 'owner_history'}
 RANK = {'applied': 0, 'assessment': 1, 'screen': 1, 'phone_screen': 2,
         'interview': 3, 'offer': 4, **dict.fromkeys(TERMINAL, 5)}
 STAGE_CONTRACT=json.loads(Path(__file__).with_name('application-stages.json').read_text(encoding='utf-8'))
@@ -65,7 +66,7 @@ def public_state(value):
 
 def qualifies(stage, assessment_type='unknown'):
     return stage in {'phone_screen','interview','offer','accepted','offer_declined'} or (
-        stage=='assessment' and assessment_type=='screened')
+        stage=='assessment' and assessment_type in {'screened', 'owner_confirmed'})
 
 
 def advanced_applications(c):
@@ -81,7 +82,7 @@ def advanced_applications(c):
         if reset_key in event_order:
             if row['rowid']<event_order[reset_key]: continue
         elif event['recorded_at']<=current.get('advancement_reset_at',0): continue
-        if not event['applied'] and event.get('reason') not in {'older_event','earlier_stage','earlier_round','finished_application'}: continue
+        if not event['applied'] and event.get('reason') not in HISTORICAL_REASONS: continue
         if qualifies(event['to'],event.get('assessment_type')): advanced.add(row['application_id'])
     return advanced, {aid for aid,s in states.items() if s.get('advancement_reset_at')}
 
@@ -89,14 +90,14 @@ def advanced_applications(c):
 def display_stage(stage, advanced=False, assessment_type='unknown'):
     """Owner's compact grouping; never replace the underlying email outcome."""
     if stage in {'applied', 'received', 'screen', None}: return 'no_answer'
-    if stage == 'assessment' and assessment_type != 'screened': return 'no_answer'
+    if stage == 'assessment' and not qualifies(stage, assessment_type): return 'no_answer'
     if stage == 'rejected' and not advanced: return 'no_answer'
     return 'interview' if stage == 'phone_screen' else stage
 
 
 def chart_path(current, events, advanced):
     """Only recorded steps; never fill in presumed screening or interview rounds."""
-    if display_stage(current['stage'],advanced,current.get('assessment_type'))=='no_answer': return [{'stage':'no_answer'}]
+    if not advanced and display_stage(current['stage'],advanced,current.get('assessment_type'))=='no_answer': return [{'stage':'no_answer'}]
     reset=current.get('advancement_reset_key')
     cutoff=next((r['rowid'] for r in events if r['event_key']==reset),None)
     usable=[]
@@ -104,12 +105,12 @@ def chart_path(current, events, advanced):
         event=json.loads(row['payload'])
         if cutoff is not None and row['rowid']<cutoff: continue
         if cutoff is None and event['recorded_at']<=current.get('advancement_reset_at',0): continue
-        if not event['applied'] and event.get('reason') not in {'older_event','earlier_stage','earlier_round','finished_application'}: continue
+        if not event['applied'] and event.get('reason') not in HISTORICAL_REASONS: continue
         usable.append(event)
     path=[]
     def append(stage,round=None,final=False,correct=False,assessment_type='unknown'):
         if stage in {'applied','screen'}: return
-        if stage=='assessment' and assessment_type!='screened': return
+        if stage=='assessment' and not qualifies(stage, assessment_type): return
         item={'stage':stage}
         if stage=='interview': item.update(round=round,final=final)
         if correct:
@@ -122,9 +123,18 @@ def chart_path(current, events, advanced):
     # A later owner correction is authoritative even if its event was backdated.
     target={'stage':current['stage']}
     if current['stage']=='interview':target.update(round=current['round'],final=current['final'])
-    if target in path: path=path[:path.index(target)+1]
+    if target in path: path=path[:max(i for i,step in enumerate(path) if step==target)+1]
     else: append(current['stage'],current.get('round'),current.get('final',False),assessment_type=current.get('assessment_type'))
     return path or [{'stage':'no_answer'}]
+
+
+def highest_stage(path):
+    """One historical bucket per application; outcomes remain separate."""
+    stages={step['stage'] for step in path}
+    if stages & {'offer','accepted','offer_declined'}: return 'offer'
+    if stages & {'phone_screen','interview'}: return 'interview'
+    if 'assessment' in stages: return 'assessment'
+    return 'no_answer'
 
 
 def stage_label(stage, round=None, final=False, assessment_type='unknown'):
@@ -161,6 +171,7 @@ def project_display(c, rows):
                            'display_stage': display_stage(current['stage'], row['id'] in advanced,current.get('assessment_type')),
                            'chart_path': chart_path(current,events.get(row['id'],[]),row['id'] in advanced),
                            **display_fields(current,row['id'] in advanced)}
+        row['progress']['highest_stage'] = highest_stage(row['progress']['chart_path'])
     return rows
 
 
@@ -190,9 +201,13 @@ def apply_event(c, row, *, stage, observed_at, source, reference, summary,
                 allow=False, assessment_type=None):
     previous = state(c, row['id'])
     if stage not in STAGES: raise ValueError('Unsupported application stage')
-    if action not in {'set','next_interview','correct'}: raise ValueError('Invalid action')
+    if action not in {'set','next_interview','correct','history'}: raise ValueError('Invalid action')
     if assessment_type is not None and (assessment_type not in ASSESSMENT_TYPES or stage!='assessment'):
-        raise ValueError('assessment_type is unknown, automatic or screened, for OA only')
+        raise ValueError('Invalid assessment_type; for OA only')
+    if assessment_type=='owner_confirmed' and source not in {'owner','web-owner'}:
+        raise ValueError('Owner-confirmed OA requires an explicit owner decision')
+    if action=='history' and (source not in {'owner','web-owner'} or stage not in {'assessment','phone_screen','interview','offer'}):
+        raise ValueError('Historical progress requires an owner-confirmed recruiting stage')
     if interview_round is not None and (type(interview_round) is not int or not 1 <= interview_round <= 99):
         raise ValueError('interview_round must be 1..99, or omitted when unknown')
     if is_final is not None and type(is_final) is not bool: raise ValueError('is_final must be boolean')
@@ -213,12 +228,12 @@ def apply_event(c, row, *, stage, observed_at, source, reference, summary,
         if previous['round'] is not None and interview_round<=previous['round']:
             raise ValueError('Next interview must increase the round')
     if source=='email' and action=='correct': raise ValueError('Corrections require owner confirmation')
-    if source!='email' and action!='correct':
+    if source!='email' and action not in {'correct','history'}:
         if previous['stage'] in TERMINAL and stage!=previous['stage']:
             raise ValueError('Use correct to reopen a finished application')
         if stage in {'accepted','offer_declined'} and previous['stage'] not in {'offer',stage}:
             raise ValueError('Record the offer first, or use an explicit correction')
-    reason = ''
+    reason = 'owner_history' if action=='history' else ''
     if source=='email' and not allow:
         if observed_at <= previous['manual_updated_at']: reason='older_than_owner_update'
         elif previous['observed_at'] and observed_at < previous['observed_at']: reason='older_event'
@@ -227,6 +242,15 @@ def apply_event(c, row, *, stage, observed_at, source, reference, summary,
         elif stage=='interview' and interview_round is not None and previous['round'] is not None and interview_round<previous['round']:
             reason='earlier_round'
     current = dict(previous)
+    if action=='history':
+        # Append missing evidence without reopening a rejection or replacing its
+        # date, reference, summary, or any submission facts. Advance the CAS token.
+        current.update(version=previous['version']+1, updated_at=time.time(), manual_updated_at=time.time())
+        before=current.get('ended_from') or {}
+        if current['stage'] in TERMINAL and RANK.get(stage,0)>RANK.get(before.get('stage'),0):
+            current['ended_from']=dict(stage=stage,round=interview_round,final=is_final or False,assessment_type=assessment_type or 'unknown')
+        put(c,current)
+        c.execute('UPDATE applications SET version=version+1 WHERE application_id=?',(row['id'],))
     if not reason:
         same_interview = stage=='interview' and previous['stage']=='interview' and action!='correct'
         round_number = interview_round if interview_round is not None else previous['round'] if same_interview else None
@@ -251,7 +275,7 @@ def apply_event(c, row, *, stage, observed_at, source, reference, summary,
             # progress edit. Keep the submission undo guard stale after this edit.
             c.execute('UPDATE applications SET version=version+1 WHERE application_id=?',(row['id'],))
     event = dict(application_id=row['id'], **{'from':previous['stage'],'to':stage},
-        round=current['round'] if not reason else interview_round, final=current['final'],
+        round=current['round'] if not reason else interview_round, final=current['final'] if not reason else is_final or False,
         previous_round=previous['round'], observed_at=observed_at, recorded_at=time.time(),
         source=source, reference=reference, summary=summary, action=action,
         assessment_type=current.get('assessment_type','unknown') if not reason else assessment_type or 'unknown',
@@ -326,6 +350,7 @@ class ApplicationProgress:
         if source=='email' and (len(reference)<12 or any(x not in '0123456789abcdefABCDEF' for x in reference)):
             raise ValueError('Email updates require the actual Gmail message ID')
         if source=='email' and observed_at is None: raise ValueError('Email updates require the actual received timestamp')
+        if action=='history' and observed_at is None: raise ValueError('Historical progress requires observed_at')
         observed=timestamp(observed_at) if observed_at else time.time()
         with self.store.connect(True) as c:
             checksum,old=self.store._idem(c,idempotency_key,['application-progress',application_id,stage,

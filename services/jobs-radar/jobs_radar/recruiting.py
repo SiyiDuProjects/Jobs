@@ -41,7 +41,14 @@ class Recruiting:
         fields = ('submitted', 'waiting', 'assessment', 'phone_screen', 'screen', 'interview', 'offer',
                   'accepted', 'rejected', 'withdrawn', 'offer_declined', 'archived', 'unverified', 'ever_advanced', 'submission_unconfirmed')
         counts = {kind:dict.fromkeys(fields, 0) for kind in ('newgrad','internship','unknown')}
+        highest_counts = {kind:dict.fromkeys(('no_answer','assessment','interview','offer'),0) for kind in counts}
         with self.store.connect() as c:
+            from .application_records import read
+            from .application_progress import project_display
+            # Recruiting progress does not require a board link or a verified
+            # submission receipt. Keep those independent evidence counts intact.
+            for row in project_display(c,read(c)):
+                highest_counts[row['kind'] if row['kind'] in highest_counts else 'unknown'][row.get('progress',{}).get('highest_stage','no_answer')]+=1
             # One canonical application contributes exactly once, including retired sources.
             from .application_progress import advanced_applications, job_progress
             advanced_ids,_=advanced_applications(c)
@@ -74,10 +81,12 @@ class Recruiting:
             bucket[display_stage(row['stage'],row['job_id'] in advanced,assessment_types.get(row['job_id']))]+=1
         return {'counts':counts, 'total':{f:sum(v[f] for v in counts.values()) for f in fields},
                 'display_counts':display_counts,
+                'highest_stage_counts':highest_counts,
+                'highest_stage_total':{stage:sum(v[stage] for v in highest_counts.values()) for stage in ('no_answer','assessment','interview','offer')},
                 'last_mail_sync':sync[0] if sync else None, 'as_of':time.time(),
                 'scope':'All recorded canonical applications, including closed and historical jobs.',
                 'waiting_definition':'Receipt confirmed, no later progress recorded. No matching email is unverified, never proof of no reply.',
-                'advancement_definition':'OA counts only with evidence of prior screening. Automatic or unclassified OA does not count; completion alone is not advancement. Owner reclassifications correct historical counts.'}
+                'advancement_definition':'Highest stage counts each recorded application once, including external and submission-unconfirmed records. OA requires screening evidence or an explicit owner decision to include it; completion alone is not advancement. Rejections retain historical advancement. Submission evidence counts remain separate.'}
 
     def sync_state(self):
         with self.store.connect() as c:

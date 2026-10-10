@@ -275,6 +275,7 @@ export function ProgressEditor({
               unknown: "待确认 · 暂不计入推进",
               automatic: "自动发放 · 不计入推进",
               screened: "筛选后发放 · 计入推进",
+              owner_confirmed: "已核对 · 计入推进",
             }}
           />
           <p className="text-sm text-muted">

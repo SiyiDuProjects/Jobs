@@ -44,6 +44,68 @@ def update(p,aid,stage,**kwargs):
 def current(p,aid):return p.list(application_id=aid)['applications'][0]
 
 
+def test_owner_can_count_reviewed_oa_without_claiming_employer_screening(subject):
+    s,_,p,aid=subject
+    update(p,aid,'assessment',assessment_type='owner_confirmed')
+    row=current(p,aid)
+    assert row['progress']['assessment_type']=='owner_confirmed'
+    assert row['progress']['stage_label']=='OA'
+    assert row['progress']['highest_stage']=='assessment'
+    assert Recruiting(s).overview()['highest_stage_total']['assessment']==1
+    with pytest.raises(ValueError,match='explicit owner'):
+        p.update(**progress_args(s,aid,'assessment'),assessment_type='owner_confirmed')
+
+
+def test_owner_history_preserves_rejection_and_submission_evidence(subject):
+    s,_,p,aid=subject
+    update(p,aid,'rejected',observed_at=iso(-10))
+    before=current(p,aid)['progress']
+    with s.connect() as c:
+        submission=tuple(c.execute('SELECT status,attempted_at,confirmed_at,record FROM applications WHERE application_id=?',(aid,)).fetchone())
+    args=dict(application_id=aid,stage='assessment',assessment_type='owner_confirmed',action='history',
+        observed_at=iso(-100),summary='Owner confirmed historical OA.',expected_version=before['version'],idempotency_key='historical-oa')
+    result=p.update(**args)
+    assert p.update(**args)==result
+    after=current(p,aid)['progress']
+    for field in ('stage','observed_at','source','reference','summary','receipt_confirmed'):
+        assert after[field]==before[field]
+    assert after['version']==before['version']+1
+    assert after['highest_stage']=='assessment'
+    assert [step['stage'] for step in after['chart_path']]==['assessment','rejected']
+    with s.connect() as c:
+        assert tuple(c.execute('SELECT status,attempted_at,confirmed_at,record FROM applications WHERE application_id=?',(aid,)).fetchone())==submission
+    with pytest.raises(ProfileConflict):p.update(**{**args,'idempotency_key':'stale-history'})
+    with pytest.raises(ValueError,match='owner-confirmed'):
+        p.update(**{**progress_args(s,aid,'interview'), 'action':'history'})
+    update(p,aid,'applied',action='correct')
+    assert current(p,aid)['progress']['highest_stage']=='no_answer'
+
+
+def test_historical_engineer_interview_reclassifies_hr_without_reopening(subject):
+    _,_,p,aid=subject
+    update(p,aid,'phone_screen',observed_at=iso(-100))
+    update(p,aid,'rejected',observed_at=iso(-10))
+    update(p,aid,'interview',action='history',observed_at=iso(-90))
+    row=current(p,aid)['progress']
+    assert row['stage']=='rejected'
+    assert row['ended_from']['stage']=='interview'
+    assert row['highest_stage']=='interview'
+    assert row['round'] is None
+
+
+def test_external_unconfirmed_application_counts_recruiting_not_submission(subject):
+    s,m,p,_=subject
+    row={**m.snapshot()['appliedList']['value'][0],'id':'external-oa','jobLink':'','companyName':'External Employer'}
+    row.pop('job_id',None)
+    with s.connect(True) as c:upsert(c,row,submission_status='submitted_unconfirmed')
+    before=Recruiting(s).overview()
+    update(p,'external-oa','assessment',assessment_type='owner_confirmed')
+    after=Recruiting(s).overview()
+    assert after['highest_stage_total']['assessment']==1
+    assert after['total']['submitted']==before['total']['submitted']
+    assert after['total']['submission_unconfirmed']==before['total']['submission_unconfirmed']
+
+
 def test_chart_uses_observed_steps_without_inventing_intermediate_rounds(subject):
     s,m,p,aid=subject
     update(p,aid,'assessment',assessment_type='screened')

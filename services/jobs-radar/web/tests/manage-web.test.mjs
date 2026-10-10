@@ -77,6 +77,29 @@ test('one employment switch scopes rows, flow, export, counts and trash independ
  } finally {h.dom.window.close();}
 });
 test('create profile preserves the existing profile',async()=>{const h=await fixture('/profile/new');try{const before=structuredClone(h.records[ng]);fill(h,'名','New');fill(h,'姓','Person');fill(h,'资料名称','Another');await tick();await click(h,'创建资料');await until(()=>Object.keys(h.records).length===3);assert.deepEqual(h.records[ng],before);assert(Object.values(h.records).some(r=>r.profile.profileName==='Another'));assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
+test('highest-stage chart counts external and rejected applications once within each employment kind',async()=>{
+ const base={version:1,jobLink:'',companyName:'Synthetic Employer',companyLink:'',date:new Date().toISOString(),profileName:'Shared'};
+ const rows=Array.from({length:11},(_,i)=>{
+  const stage=i<3?'interview':'assessment',rejected=i===2||i===3;
+  return {...base,id:'synthetic-'+i,kind:i<6?'newgrad':'internship',jobTitle:'Role '+i,status:rejected?'rejected':stage,
+   progress:{stage:rejected?'rejected':stage,highest_stage:stage,assessment_type:'owner_confirmed',ever_advanced:true,
+    chart_path:[...(i<3?[{stage:'assessment'},{stage:'interview',round:1},{stage:'interview',round:2}]:[{stage:'assessment'}]),...(rejected?[{stage:'rejected'}]:[])]}};
+ });
+ const h=await fixture('/',true,false,rows);
+ try {
+  await until(()=>findButton(h,'在线测评 · 3'));
+  assert(findButton(h,'面试 · 3'));
+  assert(h.w.document.body.textContent.includes('共 6 条'));
+  await click(h,'在线测评 · 3');
+  assert(h.w.document.body.textContent.includes('Role 3'));
+  assert(!h.w.document.body.textContent.includes('Role 0'));
+  await click(h,'实习');
+  await until(()=>findButton(h,'在线测评 · 5'));
+  assert(!findButton(h,'面试 · 3'));
+  assert(h.w.document.body.textContent.includes('共 5 条'));
+  assert.deepEqual(h.errors,[]);
+ } finally {h.dom.window.close();}
+});
 test('settings keep only three behavior switches and preserve old private configuration',async()=>{const settings={autofillSettings:{autoSubmit:false},premiumSettings:{responseContext:'Unmigrated synthetic context'}};const h=await fixture('/settings',true,false,undefined,settings);try{await until(()=>h.w.document.querySelectorAll('[role="switch"]').length===3);h.w.document.querySelector('[role="switch"]').click();await until(()=>h.docs.settings.value.autofillSettings.autoClickNextPage===true);assert.equal(h.docs.settings.value.autofillSettings.autoSubmit,false);assert.equal(h.docs.settings.value.autofillSettings.saveApplications,true);assert.equal(h.docs.settings.value.autofillSettings.saveResponses,true);assert.equal(h.docs.settings.value.premiumSettings.responseContext,settings.premiumSettings.responseContext);assert.doesNotMatch(h.w.document.body.textContent,/Daily|Configuration|AI 回答/);assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
 test('unauthenticated page never reads private documents',async()=>{const h=await fixture('/',false);try{assert.equal(h.requests.length,1);assert.match(h.w.document.body.textContent,/有服务器访问权限的助手/);}finally{h.dom.window.close();}});
 test('editing one application retains its Profile and uses row mutation',async()=>{const h=await fixture();try{await click(h,'编辑');fill(h,'岗位名称','Edited Intern');await tick();await click(h,'保存');await until(()=>h.docs.appliedList.value[0].jobTitle==='Edited Intern');assert.equal(h.docs.appliedList.value[0].profileName,'Intern');assert(h.requests.some(r=>r.url==='/api/manage/applications'));assert(!h.requests.some(r=>r.url==='/api/manage/state'&&r.body));assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});

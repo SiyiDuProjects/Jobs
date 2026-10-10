@@ -42,7 +42,8 @@ export type ApplicationProgress = {
   observed_at: number | null;
   source: string;
   summary: string;
-  assessment_type?: "unknown" | "automatic" | "screened";
+  assessment_type?: "unknown" | "automatic" | "screened" | "owner_confirmed";
+  highest_stage?: "no_answer" | "assessment" | "interview" | "offer";
   display_stage?: string;
   ever_advanced?: boolean;
   label?: string;

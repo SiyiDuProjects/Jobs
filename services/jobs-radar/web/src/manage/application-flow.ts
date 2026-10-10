@@ -74,9 +74,18 @@ export function applicationFlow(rows: Application[]) {
     add("applications", "applications", "Applications", null, 0, aid);
     let parent = "applications";
     const p = row.progress;
-    const steps = p?.chart_path?.length
+    const path = p?.chart_path?.length
       ? p.chart_path
       : [{ stage: "no_answer" }];
+    const stages = new Set(path.map((step) => step.stage));
+    const highest = p?.highest_stage ||
+      (["offer", "accepted", "offer_declined"].some((stage) => stages.has(stage)) ? "offer" :
+        ["phone_screen", "interview"].some((stage) => stages.has(stage)) ? "interview" :
+          stages.has("assessment") ? "assessment" : "no_answer");
+    const outcome = p?.stage || row.status;
+    const steps: { stage: string; round?: number | null; final?: boolean }[] = [{ stage: highest }];
+    if (highest !== "no_answer" && ["rejected", "withdrawn", "archived", "accepted", "offer_declined"].includes(outcome))
+      steps.push({ stage: outcome });
     steps.forEach((step, index) => {
       const stage = step.stage === "applied" ? "no_answer" : step.stage;
       const label =

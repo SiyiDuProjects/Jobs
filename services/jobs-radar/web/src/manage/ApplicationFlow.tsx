@@ -72,7 +72,7 @@ export function ApplicationFlow({
       <Card.Header>
         <Card.Title>投递进展</Card.Title>
         <Card.Description>
-          共 {rows.length} 条 · 按已确认的招聘路径统计，包含外部投递。
+          共 {rows.length} 条 · 每条申请按达到的最高阶段统计，包含外部投递。
         </Card.Description>
       </Card.Header>
       <Card.Content>
@@ -120,7 +120,7 @@ export function ApplicationFlow({
       </Card.Content>
       <Card.Footer>
         <p className="text-xs text-muted">
-          在线测评包含笔试、游戏和录播题；HR 面试单列，其他面试按轮次记录。自动发放或发放方式未确认的测评不计入有效推进，具体状态见下表。
+          推进统一分为在线测评、面试和 Offer；面试轮次与类型保留在详情中。被拒后仍计入曾达到的阶段。自动发放或尚未核对的测评不计入推进。
         </p>
       </Card.Footer>
     </Card>
