@@ -20,7 +20,6 @@ export type Job = {
   posted_at: number | null;
   added_at: number;
   status: string;
-  opened_at: number | null;
   can_undo_submission: boolean;
   active: boolean;
   application_version: number;
@@ -34,68 +33,36 @@ export type Job = {
     evidence: Evidence[];
   };
 };
-export type Recent = Pick<
-  Job,
-  "id" | "company" | "title" | "application_version"
->;
 export type UndoTarget = { id: string; version: number };
 export type Listing = {
   groups: Record<string, number>;
   jobs: Job[];
-  recent_opened: Recent[];
   application_counts: Record<string, number>;
   total: number;
   source_health: { last_success: number; stale: boolean }[];
-};
-export type Counts = {
-  newgrad: { total: number; submitted: number };
-  internship: { total: number; submitted: number };
-  total: number;
 };
 export type Filters = {
   exclude_companies: string;
   company_newgrad: string;
   company_internship: string;
-  roles: string;
-  exclude_data_engineering: string;
-  exclude_titles: string;
   region: string;
   text: string;
-  location: string;
-  category: string;
   status: string;
-  group: string;
-  screening: string;
   added_date: string;
   page: number;
 };
-export const statusOptions = {
-  recent: "全部岗位",
-  unsubmitted: "未投递",
-  submitted: "已投递",
-};
 export const displayFilterStatus = (status: string) =>
-  status === "submitted" ||
   [
-    "received",
-    "assessment",
-    "interview",
-    "offer",
-    "rejected",
-    "withdrawn",
+    "unsubmitted",
+    "not_started",
+    "needs_input",
+    "skipped",
+    "retryable_failure",
+    "in_progress",
+    "submitted_unconfirmed",
   ].includes(status)
-    ? "submitted"
-    : [
-          "unsubmitted",
-          "not_started",
-          "needs_input",
-          "skipped",
-          "retryable_failure",
-          "in_progress",
-          "submitted_unconfirmed",
-        ].includes(status)
-      ? "unsubmitted"
-      : "recent";
+    ? "unsubmitted"
+    : "recent";
 export const names: Record<string, string> = {
   simplify: "Simplify",
   speedyapply: "SpeedyApply",
@@ -123,20 +90,13 @@ export const defaults: Filters = {
   exclude_companies: "",
   company_newgrad: "",
   company_internship: "1",
-  roles: "",
-  exclude_data_engineering: "",
-  exclude_titles: "",
   region: "focus_remote",
   text: "",
-  location: "",
-  category: "",
   status: "recent",
-  group: "",
-  screening: "",
   added_date: "",
   page: 1,
 };
-export const filterKey = "radar-filters-shared-v7";
+export const filterKey = "radar-filters-shared-v8";
 export const statusColor = (job: Job) =>
   job.status === "submitted" ? "success" : "default";
 export const safe = (url: string | null) => {

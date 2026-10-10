@@ -118,15 +118,13 @@ def test_website_click_is_a_hint_not_permission_to_override_mismatched_job(setup
     assert result['job_id']==jid
 
 
-def test_numeric_workday_alias_matches_after_dismissing_opened_reminder(setup):
+def test_numeric_workday_alias_matches_without_open_tracking(setup):
     store,sync,_=setup
     url='https://hpe.wd5.myworkdayjobs.com/en-US/jobsathpe/job/San-Jose-California/AI-Workflow-Specialist-Graduate_1211885'
     store.ingest('speedyapply:newgrad:swe',[observation('speedyapply',url=url)],'numeric')
     with store.connect() as c:
         from jobs_radar.job_match import job_key
         jid=c.execute('SELECT id FROM jobs WHERE job_key=?',(job_key(url),)).fetchone()['id']
-    Board(store).opened(jid,'newgrad')
-    Board(store).opened(jid,'newgrad',dismiss=True)
     payload={**receipt(),'job_url':url.replace('San-Jose-California','San-Jose%2C-California'),
              'proof':'tracker_record','website_job_id':jid}
     wrong={**payload,'event_id':str(uuid.uuid4()),'job_url':payload['job_url'].replace('_1211885','_1211886')}

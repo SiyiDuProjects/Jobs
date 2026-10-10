@@ -60,7 +60,7 @@ def consolidate(c, dry_run=True, *, keys=None):
             for table, columns in (
                 ('observations', 'stream,source_id,job_id'),
                 ('search_index', 'stream,source_id,job_id'),
-                ('job_screening', '*'), ('web_opened', '*'))}
+                ('job_screening', '*'))}
         before['job_aliases'] = [dict(r) for r in c.execute(
             f'SELECT * FROM job_aliases WHERE canonical_id IN ({marks}) OR alias_id IN ({marks})', [*ids, *ids])]
         before['first_seen'] = c.execute('SELECT first_seen FROM jobs WHERE id=?', (canonical,)).fetchone()[0]
@@ -80,8 +80,6 @@ def consolidate(c, dry_run=True, *, keys=None):
             c.execute('INSERT OR REPLACE INTO job_screening VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                       (canonical, kind, chosen['state'], chosen['reason'], chosen['detail'], chosen['evidence'],
                        chosen['fingerprint'], chosen['reviewed_at'], chosen['expires_at'], version, chosen['manual_keep']))
-        for row in c.execute(f'SELECT kind,max(opened_at) opened_at FROM web_opened WHERE job_id IN ({marks}) GROUP BY kind', ids).fetchall():
-            c.execute('INSERT OR REPLACE INTO web_opened VALUES(?,?,?)', (canonical, row['kind'], row['opened_at']))
         c.execute(f'UPDATE jobs SET first_seen=(SELECT min(first_seen) FROM jobs WHERE id IN ({marks})) WHERE id=?', [*ids, canonical])
         c.execute("INSERT INTO audit(job_id,event,actor,created,payload) VALUES(?,'source_alias_consolidation','jobs-admin',?,?)",
                   (canonical, now, json.dumps({**group, 'before': before})))

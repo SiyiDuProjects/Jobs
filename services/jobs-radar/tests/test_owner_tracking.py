@@ -17,29 +17,10 @@ def subject(tmp_path):
     return board,board.list()['jobs'][0]['id']
 
 
-def test_opened_is_not_submission_and_survives_filters_sync_and_restart(subject):
-    b,jid=subject
-    before=b.store.get_jobs([jid])[0]
-    b.opened(jid,'newgrad')
-    b.store.ingest('simplify:newgrad',[observation()],'next-sync')
-    b=Board(Store(b.store.path))
-    filtered=b.list(text='no matching company',added_since=time.time()+1)
-    assert filtered['total']==0
-    assert filtered['recent_opened'][0]['id']==jid
-    after=b.store.get_jobs([jid])[0]
-    for key in ['status','version','detail','evidence']:
-        assert after[key]==before[key]
-    assert b.list(kind='internship')['recent_opened']==[]
-    b.opened(jid,'newgrad',dismiss=True)
-    assert b.list()['recent_opened']==[]
-
-
 def test_one_click_confirmation_idempotence_and_undo(subject):
     b,jid=subject
-    b.opened(jid,'newgrad')
     done=b.mark_submitted(jid,0,key='one-click-test')
     assert b.mark_submitted(jid,0,key='one-click-test')==done
-    assert b.list()['recent_opened']==[]
     assert b.list()['total']==0
     assert b.list(status='submitted')['jobs'][0]['can_undo_submission']
     with b.store.connect() as c:
@@ -48,7 +29,7 @@ def test_one_click_confirmation_idempotence_and_undo(subject):
     undone=b.undo_submitted(jid,1,'undo-one-click')
     assert b.undo_submitted(jid,1,'undo-one-click')==undone
     assert undone['status']=='not_started' and undone['version']==2
-    assert b.list()['recent_opened'][0]['application_version']==2
+    assert b.list()['jobs'][0]['application_version']==2
     assert b.list()['jobs'][0]['can_undo_submission'] is False
     with pytest.raises(ValueError): b.mark_submitted(jid,0,key='stale-click')
 
@@ -145,13 +126,14 @@ def test_private_http_actions_no_receipt_prompt(subject):
     b,jid=subject
     origin='http://127.0.0.1:8796'
     with TestClient(create_server(b.store,origin).streamable_http_app(),headers={'X-Jobs-Protocol': '2'}, base_url=origin) as client:
-        payload={'action':'opened','job_id':jid,'kind':'newgrad'}
+        payload={'action':'submitted','job_id':jid,'version':0,'key':'http-one-click'}
         assert client.post('/api/actions',json=payload,headers={'Origin':origin}).status_code==401
         WebAccess(b.store,origin).approve(client.get('/api/session').json()['request_id'])
         assert client.post('/api/actions',json=payload).status_code==403
-        assert client.post('/api/actions',json=payload,headers={'Origin':origin}).status_code==200
-        assert client.get('/api/jobs').json()['recent_opened'][0]['id']==jid
-        done=client.post('/api/actions',json={'action':'submitted','job_id':jid,'version':0,'key':'http-one-click'},headers={'Origin':origin})
+        listing=client.get('/api/jobs').json()
+        assert 'recent_opened' not in listing and 'opened_at' not in listing['jobs'][0]
+        assert client.post('/api/actions',json={'action':'opened','job_id':jid,'kind':'newgrad'},headers={'Origin':origin}).status_code==400
+        done=client.post('/api/actions',json=payload,headers={'Origin':origin})
         assert done.status_code==200,done.text
         assert client.get('/api/jobs').json()['total']==0
         assert client.post('/api/actions',json={'action':'undo_submitted','job_id':jid,'version':1,'key':'http-undo'},headers={'Origin':origin}).status_code==200

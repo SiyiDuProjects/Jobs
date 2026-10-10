@@ -2,49 +2,32 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SiteApp } from "./SiteApp";
 import type { BoardProps } from "./JobWorkspace";
-import { CLIENT_PROTOCOL_HEADERS } from "./client-protocol";
 import {
   Alert,
-  Card,
   Button,
-  Chip,
   Input,
   Label,
-  ListBox,
-  Select as HeroSelect,
   Modal,
-  Table,
   TextArea,
   TextField,
 } from "@heroui/react";
-import { Segment } from "@heroui-pro/react";
 import "./style.css";
 import { ExtensionSync } from "./ExtensionSync";
 import { createBoardLoader } from "./board-loader";
 import { DateWindowFilter } from "./DateWindowFilter";
-import { addedRange, normalizeDateWindow, rangeLabel } from "./date-window";
+import { addedRange, normalizeDateWindow } from "./date-window";
 
 import { JobTable } from "./JobTable";
-import { Select } from "./BoardSelect";
 import {
   api,
-  date,
-  safe,
-  statusColor,
-  names,
-  screenings,
-  statusOptions,
   displayFilterStatus,
   defaults,
   filterKey,
   splitCompanies,
   type Job,
-  type Recent,
   type UndoTarget,
   type Listing,
-  type Counts,
   type Filters,
-  type Kind,
 } from "./job-board-model";
 export function JobsBoard({ kind, trash }: BoardProps) {
   const kindRef = useRef(kind);
@@ -53,7 +36,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
   const [data, setData] = useState<Listing | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [advanced, setAdvanced] = useState(false),
+    [exclusionsOpen, setExclusionsOpen] = useState(false),
     [notice, setNotice] = useState("");
   const [filters, setFilters] = useState<Filters>(() => {
     if (trash)
@@ -65,57 +48,48 @@ export function JobsBoard({ kind, trash }: BoardProps) {
         status: "",
       };
     try {
-      const saved = localStorage.getItem(filterKey);
-      if (saved) {
-        const prior = JSON.parse(saved),
-          f = { ...defaults, ...prior, page: 1 };
-        return {
-          ...f,
-          added_date: normalizeDateWindow(f.added_date),
-          roles: "",
-          exclude_data_engineering: "",
-          exclude_titles: "",
-          status: displayFilterStatus(f.status),
-        };
-      }
       const raw =
+        localStorage.getItem(filterKey) ||
+        localStorage.getItem("radar-filters-shared-v7") ||
         localStorage.getItem("radar-filters-shared-v5") ||
         localStorage.getItem("radar-filters-shared-v4") ||
         localStorage.getItem("radar-filters-shared-v3");
       if (!raw) return defaults;
-      const { compact, intern_companies, ...old } = JSON.parse(raw);
-      // Preserve deliberate search, exclusion and region preferences; the new
-      // employer switches are independent and remembered per employment kind.
+      const prior = JSON.parse(raw);
+      // Copy only controls still available in the toolbar. Retired fine filters
+      // must not silently hide jobs; preserve explicit company/region choices.
       return {
         ...defaults,
-        ...old,
-        company_newgrad: "",
-        company_internship: "1",
-        region: old.region || (compact === false ? "" : "focus_remote"),
-        added_date: normalizeDateWindow(old.added_date),
-        roles: "",
-        exclude_data_engineering: "",
-        exclude_titles: "",
-        status: displayFilterStatus(old.status),
-        page: 1,
+        exclude_companies:
+          typeof prior.exclude_companies === "string"
+            ? prior.exclude_companies
+            : "",
+        text: typeof prior.text === "string" ? prior.text : "",
+        company_newgrad: ["", "1"].includes(prior.company_newgrad)
+          ? prior.company_newgrad
+          : defaults.company_newgrad,
+        company_internship: ["", "1"].includes(prior.company_internship)
+          ? prior.company_internship
+          : defaults.company_internship,
+        region: ["", "ca", "ca_remote", "focus_remote"].includes(prior.region)
+          ? prior.region
+          : prior.compact === false
+            ? ""
+            : defaults.region,
+        added_date: normalizeDateWindow(prior.added_date),
+        status: displayFilterStatus(prior.status),
       };
     } catch {
       return defaults;
     }
   });
-  const [draft, setDraft] = useState<Filters | null>(null);
-  const [countsUnavailable, setCountsUnavailable] = useState(false);
-  const [counts, setCounts] = useState<Counts | null>(null),
-    [preview, setPreview] = useState<Counts | null>(null),
-    [previewError, setPreviewError] = useState("");
+  const [excludedCompanies, setExcludedCompanies] = useState("");
   const [query, setQuery] = useState(filters.text),
     [action, setAction] = useState<{ type: "trash"; job: Job } | null>(null),
     [detail, setDetail] = useState(""),
     [actionError, setActionError] = useState(""),
     [saving, setSaving] = useState(false);
-  const [undo, setUndo] = useState<UndoTarget[] | null>(null),
-    [showRecent, setShowRecent] = useState(false),
-    [batchProgress, setBatchProgress] = useState("");
+  const [undo, setUndo] = useState<UndoTarget | null>(null);
   const mutation = useRef(false),
     keys = useRef(new Map<string, string>());
   const serial = useRef(0),
@@ -128,8 +102,6 @@ export function JobsBoard({ kind, trash }: BoardProps) {
       current = () => seq === serial.current;
     setBusy(true);
     setError("");
-    setCounts(null);
-    setCountsUnavailable(false);
     const { added_date, ...rest } = filters;
     const params = new URLSearchParams({
       ...rest,
@@ -138,24 +110,10 @@ export function JobsBoard({ kind, trash }: BoardProps) {
       kind,
       view: trash ? "trash" : "jobs",
       page_size: "50",
-      ...(trash ? { status: "", screening: "" } : {}),
+      ...(trash ? { status: "" } : {}),
     });
     try {
       const v = await loader.jobs(params);
-      // Start secondary totals only after the primary list has returned.
-      if (!trash && current()) {
-        void loader.counts(params).then(
-          (v) => {
-            if (current()) setCounts(v);
-          },
-          () => {
-            if (current()) {
-              setCounts(null);
-              setCountsUnavailable(true);
-            }
-          },
-        );
-      }
       if (current()) {
         if (filters.page > 1 && !v.jobs.length)
           setFilters((f) => ({ ...f, page: 1 }));
@@ -215,32 +173,6 @@ export function JobsBoard({ kind, trash }: BoardProps) {
       return () => clearTimeout(timer);
     }
   }, [notice, undo]);
-  useEffect(() => {
-    if (!auth || !advanced || !draft || trash) return;
-    let active = true;
-    setPreview(null);
-    setPreviewError("");
-    const timer = setTimeout(() => {
-      const { added_date, page, ...rest } = draft;
-      void api(
-        "/api/filter-counts?" +
-          new URLSearchParams({ ...rest, ...addedRange(added_date) }),
-      )
-        .then((v) => {
-          if (active) setPreview(v);
-        })
-        .catch((e) => {
-          if (active) setPreviewError(e.message);
-        });
-    }, 200);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [auth, advanced, draft]);
-  function draftFilter(key: keyof Filters, value: string) {
-    setDraft((f) => (f ? { ...f, [key]: value } : f));
-  }
   const companyKey =
     kind === "newgrad" ? "company_newgrad" : "company_internship";
   function toggleRegion(selected: boolean) {
@@ -282,15 +214,11 @@ export function JobsBoard({ kind, trash }: BoardProps) {
     };
   }
   async function send(payload: unknown) {
-    try {
-      return await api("/api/actions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } finally {
-      loader.invalidate();
-    }
+    return api("/api/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
   }
   async function restore(job: Job) {
     if (saving) return;
@@ -305,88 +233,53 @@ export function JobsBoard({ kind, trash }: BoardProps) {
       setSaving(false);
     }
   }
-  async function trackOpened(job: Recent, dismiss = false) {
-    try {
-      await send({ action: "opened", job_id: job.id, kind, dismiss });
-      await load();
-    } catch (e) {
-      setError("打开记录未保存：" + (e as Error).message);
-    }
-  }
-  async function submission(input: Recent | Recent[]) {
+  async function submission(job: Job) {
     if (mutation.current) return;
     mutation.current = true;
     setSaving(true);
-    const jobs = Array.isArray(input) ? [...input] : [input],
-      completed: UndoTarget[] = [],
-      failures: string[] = [];
     setError("");
     try {
-      for (const [index, job] of jobs.entries()) {
-        if (jobs.length > 1) setBatchProgress(`${index + 1} / ${jobs.length}`);
-        const token = "submitted:" + job.id + ":" + job.application_version;
-        if (!keys.current.has(token))
-          keys.current.set(token, crypto.randomUUID());
-        try {
-          const v = await send({
-            action: "submitted",
-            job_id: job.id,
-            version: job.application_version,
-            key: keys.current.get(token),
-          });
-          completed.push({ id: job.id, version: v.version });
-        } catch (e) {
-          failures.push(`${job.company}：${(e as Error).message}`);
-        }
-      }
-      if (completed.length) {
-        setUndo(completed);
-        setNotice(
-          `已标记 ${completed.length} 个岗位为已投递${failures.length ? `，${failures.length} 个未确认成功` : ""}`,
-        );
-      }
+      const token = "submitted:" + job.id + ":" + job.application_version;
+      if (!keys.current.has(token))
+        keys.current.set(token, crypto.randomUUID());
+      const v = await send({
+        action: "submitted",
+        job_id: job.id,
+        version: job.application_version,
+        key: keys.current.get(token),
+      });
+      setUndo({ id: job.id, version: v.version });
+      setNotice("已标记为已投递");
       await load();
-      if (failures.length)
-        setError(
-          `${failures.length} 个岗位未确认标记成功，请查看刷新后的状态。${failures[0]}`,
-        );
+    } catch (e) {
+      await load();
+      setError((e as Error).message);
     } finally {
       mutation.current = false;
       setSaving(false);
-      setBatchProgress("");
     }
   }
-  async function undoSubmission(input: UndoTarget | UndoTarget[]) {
+  async function undoSubmission(target: UndoTarget) {
     if (mutation.current) return;
     mutation.current = true;
     setSaving(true);
-    const targets = Array.isArray(input) ? input : [input],
-      remaining: UndoTarget[] = [];
-    let failure = "";
     setError("");
     try {
-      for (const target of targets) {
-        const token = "undo:" + target.id + ":" + target.version;
-        if (!keys.current.has(token))
-          keys.current.set(token, crypto.randomUUID());
-        try {
-          await send({
-            action: "undo_submitted",
-            job_id: target.id,
-            version: target.version,
-            key: keys.current.get(token),
-          });
-        } catch (e) {
-          remaining.push(target);
-          failure = (e as Error).message;
-        }
-      }
-      setUndo(remaining.length ? remaining : null);
-      setNotice(
-        `已撤销 ${targets.length - remaining.length} 个岗位的标记${remaining.length ? `，${remaining.length} 个未确认成功` : ""}`,
-      );
+      const token = "undo:" + target.id + ":" + target.version;
+      if (!keys.current.has(token))
+        keys.current.set(token, crypto.randomUUID());
+      await send({
+        action: "undo_submitted",
+        job_id: target.id,
+        version: target.version,
+        key: keys.current.get(token),
+      });
+      setUndo(null);
+      setNotice("已撤销投递标记");
       await load();
-      if (remaining.length) setError(failure);
+    } catch (e) {
+      await load();
+      setError((e as Error).message);
     } finally {
       mutation.current = false;
       setSaving(false);
@@ -406,89 +299,12 @@ export function JobsBoard({ kind, trash }: BoardProps) {
       setSaving(false);
     }
   }
-  const stale = data?.source_health.some((s) => s.stale),
-    synced = data?.source_health.length
-      ? Math.min(...data.source_health.map((s) => s.last_success || 0))
-      : 0;
-
-  const countText = (c: Counts) =>
-    `全职 ${c.newgrad.total} + 实习 ${c.internship.total} = ${c.total} 个`;
-  const unstarted = (c: Counts) =>
-    c.newgrad.total -
-    c.newgrad.submitted +
-    (c.internship.total - c.internship.submitted);
+  const stale = data?.source_health.some((s) => s.stale);
   return (
     <section aria-label={trash ? "回收站" : "岗位列表"}>
       {
         <>
           {!trash && <ExtensionSync onSynced={load} />}
-          {!trash && !!data?.recent_opened.length && (
-            <Card className="mb-5" aria-label="刚打开的岗位">
-              <Card.Content className="gap-3">
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <h2>刚打开 · {data.recent_opened.length}</h2>
-                  <span className="text-muted">
-                    自动同步未覆盖的岗位，可在此手动确认
-                  </span>
-                  <Button
-                    className="sm:ml-auto"
-                    size="sm"
-                    variant="secondary"
-                    isDisabled={saving || busy}
-                    isPending={!!batchProgress}
-                    onPress={() => submission(data.recent_opened)}
-                  >
-                    {batchProgress
-                      ? `正在标记 ${batchProgress}`
-                      : `全部标记已投递（${data.recent_opened.length}）`}
-                  </Button>
-                </div>
-                {(showRecent
-                  ? data.recent_opened
-                  : data.recent_opened.slice(0, 3)
-                ).map((job) => (
-                  <div
-                    className="flex flex-wrap items-center justify-between gap-3 py-2"
-                    key={job.id}
-                  >
-                    <div>
-                      <strong>{job.company}</strong>
-                      <span className="text-muted">{job.title}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 whitespace-nowrap">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        isDisabled={saving}
-                        onPress={() => submission(job)}
-                      >
-                        标记已投递
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        isDisabled={saving}
-                        onPress={() => trackOpened(job, true)}
-                      >
-                        暂不处理
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                {data.recent_opened.length > 3 && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onPress={() => setShowRecent((v) => !v)}
-                  >
-                    {showRecent
-                      ? "收起"
-                      : "展开其余 " + (data.recent_opened.length - 3) + " 个"}
-                  </Button>
-                )}
-              </Card.Content>
-            </Card>
-          )}
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:flex-wrap">
             {!trash && (
               <section
@@ -509,22 +325,29 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                 aria-label="搜索公司或岗位"
                 value={query}
                 onChange={setQuery}
-                className="min-w-48 flex-1 basis-full sm:basis-auto"
+                className="w-full sm:w-56 sm:shrink-0"
               >
                 <Input placeholder="搜索公司或岗位" variant="secondary" />
               </TextField>
               {!trash && (
-                <div className="w-44">
-                  <Select
-                    label="投递状态"
-                    value={filters.status}
-                    options={statusOptions}
-                    onChange={(v) => filter("status", v)}
-                  />
-                </div>
-              )}
-              {!trash && (
-                <div className="flex shrink-0 items-center gap-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={
+                      filters.status === "unsubmitted" ? "secondary" : "ghost"
+                    }
+                    aria-pressed={filters.status === "unsubmitted"}
+                    onPress={() =>
+                      filter(
+                        "status",
+                        filters.status === "unsubmitted"
+                          ? "recent"
+                          : "unsubmitted",
+                      )
+                    }
+                  >
+                    仅看未投递
+                  </Button>
                   <Button
                     size="sm"
                     variant={filters.region ? "secondary" : "ghost"}
@@ -546,33 +369,20 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                     公司筛选
                   </Button>
                   <Button
-                    variant="secondary"
+                    size="sm"
+                    variant="ghost"
                     onPress={() => {
-                      setDraft({ ...filters });
-                      setAdvanced(true);
+                      setExcludedCompanies(filters.exclude_companies);
+                      setExclusionsOpen(true);
                     }}
                     aria-haspopup="dialog"
                   >
-                    筛选设置
+                    排除公司
                   </Button>
                 </div>
               )}
             </section>
           </div>
-          {!trash && !!filters.region && (
-            <p className="text-xs leading-relaxed text-muted mt-2">
-              {filters.region === "focus_remote"
-                ? "地区：CA、WA、NY、MA、TX、美国远程及地点待定；FAANG+ 或精选公司在美国境内不限州。"
-                : filters.region === "ca"
-                  ? "地区：仅加州，不使用公司豁免。"
-                  : "地区：加州和美国远程，不使用公司豁免。"}
-            </p>
-          )}
-          {!trash && filters[companyKey] === "1" && (
-            <p className="text-xs leading-relaxed text-muted mt-2">
-              公司：只显示精选通过的岗位，全职和实习使用同一标准。尚未评估的岗位关闭此开关可见。
-            </p>
-          )}
           {!trash && !!filters.exclude_companies && (
             <div
               className="excluded-companies flex gap-2 flex-wrap mt-2"
@@ -599,11 +409,6 @@ export function JobsBoard({ kind, trash }: BoardProps) {
             </div>
           )}
 
-          {countsUnavailable && (
-            <p role="status" className="text-warning text-sm">
-              岗位数量暂时不可用
-            </p>
-          )}
           <div className="my-4 flex flex-wrap items-center gap-3">
             <h1>
               {trash ? "回收站" : kind === "newgrad" ? "全职" : "实习"}{" "}
@@ -625,11 +430,6 @@ export function JobsBoard({ kind, trash }: BoardProps) {
               </div>
             )}
             <div className="flex items-center gap-2 text-xs sm:ml-auto">
-              {!trash && (
-                <span className="text-muted">
-                  {rangeLabel(filters.added_date) + " · 每分钟更新"}
-                </span>
-              )}
               <span className={stale ? "text-warning" : "text-muted"}>
                 {busy ? "正在更新…" : stale ? "部分来源待更新" : ""}
               </span>
@@ -638,7 +438,6 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                 variant="ghost"
                 isDisabled={busy}
                 onPress={() => {
-                  loader.invalidate();
                   void load();
                 }}
               >
@@ -666,7 +465,6 @@ export function JobsBoard({ kind, trash }: BoardProps) {
               filters={filters}
               saving={saving}
               restore={restore}
-              trackOpened={trackOpened}
               submission={submission}
               undoSubmission={undoSubmission}
               open={open}
@@ -728,126 +526,48 @@ export function JobsBoard({ kind, trash }: BoardProps) {
               isDisabled={saving}
               onPress={() => undoSubmission(undo)}
             >
-              {undo.length > 1 ? "全部撤销" : "撤销"}
+              撤销
             </Button>
           )}
         </Alert>
       )}
-      <Modal.Backdrop isOpen={advanced} onOpenChange={setAdvanced}>
+      <Modal.Backdrop isOpen={exclusionsOpen} onOpenChange={setExclusionsOpen}>
         <Modal.Container>
-          <Modal.Dialog className="sm:max-w-lg">
+          <Modal.Dialog className="sm:max-w-sm">
             <Modal.CloseTrigger />
             <Modal.Header>
-              <Modal.Heading>筛选</Modal.Heading>
+              <Modal.Heading>排除公司</Modal.Heading>
             </Modal.Header>
-            <Modal.Body className="space-y-4">
-              {draft && (
-                <>
-                  {!trash && (
-                    <Select
-                      label="来源标记"
-                      value={draft.group}
-                      options={{
-                        "": "全部公司",
-                        faang: "来源标记 FAANG+",
-                        other: "无 FAANG+ 标记",
-                      }}
-                      onChange={(v) => draftFilter("group", v)}
-                    />
-                  )}
-                  <section aria-label="排除公司">
-                    <TextField
-                      value={draft.exclude_companies}
-                      onChange={(v) => draftFilter("exclude_companies", v)}
-                    >
-                      <Label>排除公司</Label>
-                      <Input
-                        placeholder="例如 TikTok, Amazon"
-                        variant="secondary"
-                      />
-                    </TextField>
-                    <p className="text-xs leading-relaxed text-muted mt-2">
-                      按完整公司名称匹配，不区分大小写；多家公司用逗号分隔。仅隐藏列表，不删除岗位。
-                    </p>
-                  </section>
-                  <section aria-label="地区范围">
-                    <p className="mb-1.5 text-sm">地区范围</p>
-                    <Select
-                      label="地域范围"
-                      value={draft.region}
-                      options={{
-                        "": "全部地区",
-                        focus_remote: "重点地区 + 美国远程",
-                        ca_remote: "加州 + 美国远程",
-                        ca: "仅加州",
-                      }}
-                      onChange={(v) => draftFilter("region", v)}
-                    />
-                    {draft.region === "focus_remote" && (
-                      <p className="text-xs leading-relaxed text-muted mt-2">
-                        CA、WA、NY、MA、TX、美国远程及地点待定；FAANG+
-                        或精选公司在美国境内不限州。
-                      </p>
-                    )}
-                  </section>
-                  {!trash && (
-                    <div
-                      className="flex flex-col gap-1 text-sm tabular-nums"
-                      role="status"
-                      aria-live="polite"
-                    >
-                      {previewError ? (
-                        <span className="text-danger">
-                          数量读取失败，请重新选择或稍后重试
-                        </span>
-                      ) : preview ? (
-                        <>
-                          <strong>{countText(preview)}</strong>
-                          <span className="text-muted">
-                            其中未投递 {unstarted(preview)} 个 ·{" "}
-                            {rangeLabel(draft.added_date)}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-muted">正在计算…</span>
-                      )}
-                    </div>
-                  )}
-                  <p className="text-xs leading-relaxed text-muted">
-                    只调整显示，不删除岗位。
-                  </p>
-                </>
-              )}
+            <Modal.Body>
+              <TextField
+                value={excludedCompanies}
+                onChange={setExcludedCompanies}
+              >
+                <Label>公司名称</Label>
+                <Input placeholder="例如 TikTok, Amazon" variant="secondary" />
+              </TextField>
+              <p className="mt-2 text-xs text-muted">多家公司用逗号分隔。</p>
             </Modal.Body>
             <Modal.Footer>
-              <Button
-                variant="ghost"
-                onPress={() => {
-                  setDraft((f) =>
-                    f
-                      ? {
-                          ...f,
-                          exclude_companies: "",
-                          roles: "",
-                          region: "",
-                          [companyKey]: "",
-                        }
-                      : f,
-                  );
-                }}
-              >
-                全部显示
+              <Button variant="ghost" onPress={() => setExcludedCompanies("")}>
+                清空
               </Button>
-              <Button variant="secondary" onPress={() => setAdvanced(false)}>
+              <Button
+                variant="secondary"
+                onPress={() => setExclusionsOpen(false)}
+              >
                 取消
               </Button>
               <Button
                 onPress={() => {
-                  if (draft) setFilters({ ...draft, page: 1 });
-                  setAdvanced(false);
+                  filter(
+                    "exclude_companies",
+                    splitCompanies(excludedCompanies).join(", "),
+                  );
+                  setExclusionsOpen(false);
                 }}
               >
-                保存并应用
+                保存
               </Button>
             </Modal.Footer>
           </Modal.Dialog>

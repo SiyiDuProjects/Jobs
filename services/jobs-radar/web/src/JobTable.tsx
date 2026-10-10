@@ -7,7 +7,6 @@ import {
   names,
   screenings,
   type Job,
-  type Recent,
   type UndoTarget,
 } from "./job-board-model";
 import type { JobKind } from "./JobWorkspace";
@@ -18,7 +17,6 @@ export function JobTable({
   filters,
   saving,
   restore,
-  trackOpened,
   submission,
   undoSubmission,
   open,
@@ -29,8 +27,7 @@ export function JobTable({
   filters: { added_date: string };
   saving: boolean;
   restore: (job: Job) => unknown;
-  trackOpened: (job: Recent, dismiss?: boolean) => unknown;
-  submission: (job: Recent) => unknown;
+  submission: (job: Job) => unknown;
   undoSubmission: (job: UndoTarget) => unknown;
   open: (type: "trash", job: Job) => unknown;
 }) {
@@ -141,11 +138,7 @@ export function JobTable({
                       </>
                     ) : (
                       <>
-                        <Chip
-                          size="sm"
-                          variant="soft"
-                          color={statusColor(job)}
-                        >
+                        <Chip size="sm" variant="soft" color={statusColor(job)}>
                           <span aria-hidden="true">
                             {job.status === "submitted" ? "✓" : ""}
                           </span>
@@ -187,17 +180,6 @@ export function JobTable({
                               href={safe(job.apply_url || job.source_url)}
                               target="_blank"
                               rel="noreferrer"
-                              onClick={() => {
-                                if (job.status !== "submitted")
-                                  void trackOpened(job);
-                              }}
-                              onAuxClick={(e) => {
-                                if (
-                                  e.button === 1 &&
-                                  job.status !== "submitted"
-                                )
-                                  void trackOpened(job);
-                              }}
                             >
                               {job.status === "submitted" ? "查看岗位" : "申请"}{" "}
                               ↗

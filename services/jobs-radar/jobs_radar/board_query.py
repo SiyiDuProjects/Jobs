@@ -9,7 +9,7 @@ from .scope import discovery_scope
 
 BASE = '''WITH board AS (
     SELECT b.*,a.status,a.version AS application_version,a.detail AS application_detail,
-        a.progress,p.keep AS company_recommended,w.opened_at,
+        a.progress,p.keep AS company_recommended,
         (a.status IN ('submitted','submitted_unconfirmed') AND u.version=a.version AND u.expires>?) AS can_undo_submission,
         CASE WHEN f.fingerprint=b.fingerprint AND f.family!='unknown' THEN f.family ELSE b.family END AS role_family,
         CASE WHEN f.fingerprint=b.fingerprint AND f.family!='unknown' THEN 'duties' ELSE b.basis END AS role_basis,
@@ -28,7 +28,6 @@ BASE = '''WITH board AS (
     LEFT JOIN job_screening q ON q.job_id=b.job_id AND q.kind=b.kind
     LEFT JOIN job_role_family f ON f.job_id=b.job_id AND f.kind=b.kind
     LEFT JOIN company_preferences p ON p.company_key=b.company_key
-    LEFT JOIN web_opened w ON w.job_id=b.job_id AND w.kind=b.kind
     LEFT JOIN owner_submission_undo u ON u.job_id=b.job_id
 ) '''
 
@@ -45,7 +44,7 @@ def hydrate(rows, c, *, public=False):
     for row in rows:
         item = json.loads(row['payload'])
         item.update({name:row[name] for name in ('status','application_version','application_detail',
-                    'opened_at','role_family','role_basis','screening')})
+                    'role_family','role_basis','screening')})
         item.update(group=row['board_group'],can_undo_submission=bool(row['can_undo_submission']),
                     review_version=row['review_version'] or 0,
                     company_recommended=bool(row['company_recommended']) if row['company_recommended'] is not None else None,
@@ -132,13 +131,5 @@ def listing(store, *, kind, view, status, text, location, category, group, scree
         order = 'added_at' if added_since is not None and view!='trash' else 'sort_at'
         selected = c.execute(BASE+'SELECT * FROM board WHERE '+where+f' ORDER BY {order} DESC,job_id LIMIT ? OFFSET ?',
                              [*params,page_size,(page-1)*page_size]).fetchall()
-        recent = []
-        if view=='jobs':
-            recent_scope, recent_values = scope(kind,status not in {'not_started','recent','unsubmitted'})
-            for r in c.execute(BASE+'''SELECT job_id,application_version,opened_at,
-                    json_extract(payload,'$.company') AS company,title FROM board WHERE '''+recent_scope+'''
-                    AND opened_at!=0 AND status NOT IN ('submitted','submitted_unconfirmed') AND screening!='trash'
-                    ORDER BY opened_at DESC''',[now,*recent_values]):
-                recent.append(dict(id=r['job_id'],company=r['company'],title=r['title'],application_version=r['application_version'],opened_at=r['opened_at']))
-        result.update(jobs=hydrate(selected,c,public=True),recent_opened=recent,groups=groups,page=page,page_size=page_size)
+        result.update(jobs=hydrate(selected,c,public=True),groups=groups,page=page,page_size=page_size)
     return result

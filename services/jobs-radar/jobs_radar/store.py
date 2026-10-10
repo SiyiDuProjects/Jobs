@@ -43,7 +43,6 @@ class Store:
                 updated REAL,detail TEXT DEFAULT '',evidence TEXT DEFAULT '[]',owner_run_id TEXT);
             CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,job_id TEXT,event TEXT,actor TEXT,created REAL,payload TEXT);
             CREATE TABLE IF NOT EXISTS idempotency(key TEXT PRIMARY KEY,hash TEXT,result TEXT);
-            CREATE TABLE IF NOT EXISTS web_opened(job_id TEXT,kind TEXT,opened_at REAL,PRIMARY KEY(job_id,kind));
             CREATE TABLE IF NOT EXISTS recruiting_sync(mailbox TEXT PRIMARY KEY,last_success REAL,summary TEXT);
             CREATE TABLE IF NOT EXISTS owner_submission_undo(job_id TEXT PRIMARY KEY,version INTEGER,expires REAL,application TEXT,reviews TEXT);
             CREATE TABLE IF NOT EXISTS locks(name TEXT PRIMARY KEY,owner TEXT,expires REAL);

@@ -272,8 +272,7 @@ def attach_web(server, store, origin):
         action = values.pop('action')
         if action == 'review':
             return board.review(**values, actor='web-owner')
-        return {'submitted': board.mark_submitted, 'undo_submitted': board.undo_submitted,
-                'opened': board.opened}[action](**values)
+        return {'submitted': board.mark_submitted, 'undo_submitted': board.undo_submitted}[action](**values)
 
     @server.custom_route('/assets/{name}',methods=['GET'])
     async def assets(request):

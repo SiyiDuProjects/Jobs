@@ -81,12 +81,11 @@ class AnswerJobRequest(RequestModel):
 
 
 class BoardAction(RequestModel):
-    action: Literal['submitted', 'undo_submitted', 'opened', 'review']
+    action: Literal['submitted', 'undo_submitted', 'review']
     job_id: str
     version: int | None = None
     key: str | None = None
     reference: str | None = None
-    dismiss: bool | None = None
     kind: str | None = None
     decision: str | None = None
     reason: str | None = None

@@ -6,6 +6,18 @@ applications view. Its row labels describe progress (“等待回复”, “面�
 The underlying submission ledger, confirmation requirements and undo checks
 are unchanged by this presentation boundary.
 
+The board toolbar has date/search, an unsubmitted-only toggle, and independent
+region/company toggles. Excluded companies are edited separately. Retired fine
+filters are removed when loading saved preferences, without dropping company
+exclusions or explicit region choices. Today and last-seven-day presets use local
+calendar days; custom ranges include their end date.
+
+Opening an application link no longer writes tracking data. The recent-opened
+card, batch mark/undo UI, opened action and browsing queries for opened history
+are retired. Per-job manual submission and its versioned undo remain available.
+Existing legacy opened-history storage is left untouched for rollback; the new
+runtime neither creates nor reads it.
+
 ## Query path
 
 `board_index.py` maintains rebuildable SQLite browsing fields from observations,
@@ -33,7 +45,8 @@ Blocking board and management work runs in a bounded worker pool.
 
 ## Browser loading
 
-The page requests jobs before secondary filter totals. Header counts use the
+The toolbar uses the counts already included with each list response; it does
+not fetch separate filter totals or calculate draft previews. Header counts use the
 authenticated `/api/application-counts` endpoint with browser-local day/week
 boundaries, independent of Profile loading. `/api/manage/state?applications=0`
 omits application history and pending recruiting mail; the default response
@@ -48,7 +61,8 @@ restore an earlier view's history or overwrite newer edits.
 cross-connection writes, rollback, future sources, expiry, company exceptions,
 small authenticated summaries and event-loop responsiveness. Existing board,
 geography, screening, title and application tests retain their business rules.
-Browser tests cover submission-only badges, progress labels and navigation races.
+Browser tests cover submission-only badges, progress labels, navigation races,
+manual marking/undo, date shortcuts and selecting visible adjacent-month dates.
 
 A local comparison using 16,000 synthetic jobs returned identical list/count
 results before and after the change. With a date filter, median computation fell

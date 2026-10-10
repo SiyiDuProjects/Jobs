@@ -205,7 +205,6 @@ try {
         total: 3,
         jobs,
         groups: { other: 3 },
-        recent_opened: [],
         source_health: [],
         application_counts: { submitted: 0 },
       };

@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { Button, Popover, RangeCalendar } from "@heroui/react";
-import { getLocalTimeZone, today } from "@internationalized/date";
-import { I18nProvider } from "react-aria-components";
-import { readDateWindow } from "./date-window";
+import {
+  getLocalTimeZone,
+  isSameMonth,
+  today,
+  type CalendarDate,
+} from "@internationalized/date";
+import { I18nProvider, RangeCalendarStateContext } from "react-aria-components";
+import { dateWindowLabel, readDateWindow } from "./date-window";
 
 export function DateWindowFilter({
   value,
@@ -14,9 +19,7 @@ export function DateWindowFilter({
   const [open, setOpen] = useState(false);
   const maximum = today(getLocalTimeZone());
   const selected = readDateWindow(value);
-  const label = selected
-    ? `${selected.start.toString().replaceAll("-", "/")} – ${selected.end.toString().replaceAll("-", "/")}`
-    : "全部时间";
+  const label = dateWindowLabel(value);
   return (
     <I18nProvider locale="zh-CN">
       <Popover isOpen={open} onOpenChange={setOpen}>
@@ -25,7 +28,28 @@ export function DateWindowFilter({
           <span aria-hidden="true">▾</span>
         </Button>
         <Popover.Content placement="bottom start">
-          <Popover.Dialog>
+          <Popover.Dialog aria-label="收录日期">
+            <div className="flex gap-1 px-3 pt-2 pb-1" aria-label="快捷日期">
+              {[
+                ["today", "今天"],
+                ["last7", "近 7 天"],
+                ["", "全部时间"],
+              ].map(([key, text]) => (
+                <Button
+                  key={key}
+                  slot={null}
+                  size="sm"
+                  variant={value === key ? "secondary" : "ghost"}
+                  aria-pressed={value === key}
+                  onPress={() => {
+                    onChange(key);
+                    setOpen(false);
+                  }}
+                >
+                  {text}
+                </Button>
+              ))}
+            </div>
             <RangeCalendar
               aria-label="选择开始和结束日期"
               value={selected}
@@ -56,7 +80,7 @@ export function DateWindowFilter({
                   )}
                 </RangeCalendar.GridHeader>
                 <RangeCalendar.GridBody>
-                  {(date) => <RangeCalendar.Cell date={date} />}
+                  {(date) => <DateCell date={date} />}
                 </RangeCalendar.GridBody>
               </RangeCalendar.Grid>
               <RangeCalendar.YearPickerGrid>
@@ -65,22 +89,59 @@ export function DateWindowFilter({
                 </RangeCalendar.YearPickerGridBody>
               </RangeCalendar.YearPickerGrid>
             </RangeCalendar>
-            <div className="flex justify-end px-3 pb-2">
-              <Button
-                slot={null}
-                size="sm"
-                variant="ghost"
-                onPress={() => {
-                  onChange("");
-                  setOpen(false);
-                }}
-              >
-                全部时间
-              </Button>
-            </div>
           </Popover.Dialog>
         </Popover.Content>
       </Popover>
     </I18nProvider>
+  );
+}
+
+// React Aria disables padding days solely for being outside the displayed month.
+// Use the same range state for those visible days without moving the month when
+// the first boundary is chosen. All in-month cells retain the native behavior.
+function DateCell({ date }: { date: CalendarDate }) {
+  const state = useContext(RangeCalendarStateContext)!;
+  if (isSameMonth(date, state.visibleRange.start))
+    return <RangeCalendar.Cell date={date} />;
+  const range = state.highlightedRange;
+  const selected =
+    !!range && date.compare(range.start) >= 0 && date.compare(range.end) <= 0;
+  const disabled =
+    state.isDisabled ||
+    state.isReadOnly ||
+    state.isInvalid(date) ||
+    state.isCellUnavailable(date);
+  const label = new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "full",
+    timeZone: state.timeZone,
+  }).format(date.toDate(state.timeZone));
+  return (
+    <td role="gridcell" aria-selected={selected} className="p-0 text-center">
+      <Button
+        slot={null}
+        size="sm"
+        variant={selected ? "secondary" : "ghost"}
+        className="size-9 min-w-0 p-0 text-muted"
+        aria-label={label}
+        isDisabled={disabled}
+        onPress={() => state.selectDate(date)}
+        onKeyDown={(event) => {
+          const step = {
+            ArrowLeft: -1,
+            ArrowRight: 1,
+            ArrowUp: -7,
+            ArrowDown: 7,
+          }[event.key];
+          if (step) {
+            event.preventDefault();
+            event.stopPropagation();
+            state.setFocusedDate(date.add({ days: step }));
+            state.setFocused(true);
+          }
+        }}
+      >
+        {date.day}
+      </Button>
+    </td>
   );
 }

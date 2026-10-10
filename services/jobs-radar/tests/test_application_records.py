@@ -68,11 +68,8 @@ def test_manual_record_updates_source_alias_and_undo_restores_both(tmp_path):
         assert read(c)==[];assert reconcile(c)==0
         assert {r[0] for r in c.execute('SELECT status FROM applications')}=={'not_started'}
 
-def test_history_links_without_open_reminder_and_never_cross_company(tmp_path):
+def test_history_links_matching_company_without_open_tracking(tmp_path):
     s=Store(tmp_path/'r.db');s.ingest('speedyapply:newgrad:swe',[observation('speedyapply',url=URL)],'test')
-    with s.connect() as c:jid=c.execute('SELECT id FROM jobs').fetchone()[0]
-    Board(s).opened(jid,'newgrad',dismiss=True)
-    m=Management(s)
     ApplicationRecords(s).mutate([dict(action='create',value=record(ALIAS.replace('hpe.wd5','other.wd5')))],'other-company')
     with s.connect() as c:assert c.execute('SELECT status FROM applications').fetchone()[0]=='not_started'
     ApplicationRecords(s).mutate([dict(action='create',value=record())],'matching-company')

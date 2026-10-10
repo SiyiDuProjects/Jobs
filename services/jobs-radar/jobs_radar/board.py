@@ -207,18 +207,6 @@ class Board:
             c.execute('INSERT INTO idempotency VALUES(?,?,?)',(key,checksum,json.dumps(result)))
             return result
 
-    def opened(self, job_id, kind, dismiss=False):
-        if kind not in KINDS: raise ValueError('Invalid kind')
-        with self.store.connect(True) as c:
-            self.store.require_current_job(c,job_id)
-            if not c.execute("SELECT 1 FROM observations WHERE job_id=? AND json_extract(payload,'$.kind')=?",(job_id,kind)).fetchone():
-                raise ValueError('Job missing')
-            if dismiss:
-                c.execute('DELETE FROM web_opened WHERE job_id=? AND kind=?',(job_id,kind))
-            else:
-                c.execute('INSERT INTO web_opened VALUES(?,?,?) ON CONFLICT(job_id,kind) DO UPDATE SET opened_at=excluded.opened_at',(job_id,kind,time.time()))
-        return {'job_id':job_id,'opened':not dismiss}
-
     def mark_submitted(self, job_id, version, reference='', key=None):
         # Explicit owner attestation; clicking an Apply link is never a submission.
         if not isinstance(reference,str) or len(reference)>1000: raise ValueError('Invalid confirmation reference')

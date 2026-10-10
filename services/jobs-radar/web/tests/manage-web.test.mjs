@@ -19,7 +19,7 @@ async function fixture(route='/',authenticated=true,legacy=false,applications,se
  let failProfile=false;
  w.fetch=async(url,init={})=>{requests.push({url,body:init.body});let data,status=200;const body=init.body?JSON.parse(init.body):null;
   if(url==='/api/session')data={authenticated};
-  else if(url.startsWith('/api/jobs?'))data={groups:{},jobs:[],recent_opened:[],application_counts:{submitted:0},total:0,source_health:[]};
+  else if(url.startsWith('/api/jobs?'))data={groups:{},jobs:[],application_counts:{submitted:0},total:0,source_health:[]};
   else if(url.startsWith('/api/filter-counts?'))data={newgrad:{total:0,submitted:0},internship:{total:0,submitted:0},total:0};
   else if(url.startsWith('/api/application-counts?'))data={today:1,week:1};
   else if(url==='/api/manage/state'||url==='/api/manage/state?applications=0'){if(body){for(const c of body.changes){if((docs[c.key]?.revision||0)!==c.revision){status=409;break;}}if(status===200)for(const c of body.changes)docs[c.key]={value:c.value,revision:c.revision+1};}data=status===409?{error:'Conflict'}:docs;if(status===200&&url.endsWith('applications=0')){const {appliedList,applicationProgressReview,...rest}=data;data=rest;}}
