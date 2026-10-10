@@ -75,7 +75,7 @@ async function fixture() {
     let data,
       status = 200;
     if (url === "/api/session") data = { authenticated: true };
-    else if (url === "/api/manage/state") {
+    else if (url === "/api/manage/state" || url === "/api/manage/state?applications=0") {
       if (body)
         for (const item of body.changes) {
           assert.equal(item.revision, docs[item.key]?.revision || 0);
@@ -84,7 +84,10 @@ async function fixture() {
             revision: item.revision + 1,
           };
         }
-      data = docs;
+      if (url.endsWith("applications=0")) {
+        const { appliedList, applicationProgressReview, ...rest } = docs;
+        data = rest;
+      } else data = docs;
     } else if (url.startsWith("/api/manage/profiles")) {
       const id = url.split("/")[4];
       if (method === "GET") {
@@ -452,3 +455,57 @@ for (const operation of ["refresh", "profile-save"])
       h.close();
     }
   });
+
+test("leaving applications discards history and ignores an older full-history response", async () => {
+  const h = await fixture();
+  try {
+    h.docs.appliedList = { revision: 0, value: [{ id: "synthetic-application" }] };
+    h.store.setApplicationsVisible(false);
+    await h.store.refresh();
+    assert.equal(h.store.state.docs.appliedList, undefined);
+    assert(h.requests.some(r => r.url === "/api/manage/state?applications=0"));
+    const entered = gate(), release = gate();
+    h.after(async (url) => {
+      if (url === "/api/manage/state") {
+        h.after(undefined);
+        entered.resolve();
+        await release.promise;
+      }
+    });
+    h.store.setApplicationsVisible(true);
+    await entered.promise;
+    h.store.setApplicationsVisible(false);
+    await h.store.refresh();
+    release.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(h.store.state.docs.appliedList, undefined);
+    assert.equal(h.store.state.applicationsLoading, false);
+    h.store.setApplicationsVisible(true);
+    await h.store.refresh();
+    assert.equal(h.store.state.docs.appliedList.value[0].id, "synthetic-application");
+  } finally { h.close(); }
+});
+
+test("a slow Profile list cannot replace application records loaded after navigation", async () => {
+  const h = await fixture();
+  try {
+    h.store.stop();
+    h.docs.appliedList = { revision: 0, value: [{ id: "synthetic-application" }] };
+    const entered = gate(), release = gate();
+    h.after(async url => {
+      if (url === "/api/manage/profiles") {
+        h.after(undefined);
+        entered.resolve();
+        await release.promise;
+      }
+    });
+    const starting = h.store.start({ authenticated: true }, false);
+    await entered.promise;
+    h.store.setApplicationsVisible(true);
+    await h.store.refresh();
+    assert.equal(h.store.state.docs.appliedList.value.length, 1);
+    release.resolve();
+    await starting;
+    assert.equal(h.store.state.docs.appliedList.value.length, 1);
+  } finally { h.close(); }
+});

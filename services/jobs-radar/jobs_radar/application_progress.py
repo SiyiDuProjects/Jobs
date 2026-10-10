@@ -173,8 +173,12 @@ def matching_jobs(c, row, index=None):
 
 def job_progress(c, job_id):
     row=c.execute('SELECT progress FROM applications WHERE job_id=?',(job_id,)).fetchone()
-    if not row or not row[0]:return None
-    current=json.loads(row[0])
+    return job_progress_value(job_id, row[0] if row else None)
+
+
+def job_progress_value(job_id, value):
+    if not value:return None
+    current=json.loads(value)
     return dict(job_id=job_id,stage='received' if current['stage']=='applied' and current['receipt_confirmed'] else current['stage'],
         received_at=current['observed_at'],message_id=current['reference'] if current['source']=='email' else '',
         summary=current['summary'],version=current['version'])

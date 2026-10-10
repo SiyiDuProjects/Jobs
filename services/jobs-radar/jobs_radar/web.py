@@ -5,6 +5,7 @@ import os
 import secrets
 import time
 from pathlib import Path
+from anyio import CapacityLimiter, to_thread
 
 from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from .board import Board
@@ -71,6 +72,7 @@ class WebAccess:
         return {'approved':True,'request_id':request_id}
 
 def attach_web(server, store, origin):
+    read_pool = CapacityLimiter(4)
     from .web_bundles import WebBundles
     bundles = WebBundles(STATIC, os.environ.get('JOBS_WEB_ROOT'))
     access, board = WebAccess(store,origin), Board(store)
@@ -157,7 +159,11 @@ def attach_web(server, store, origin):
     async def management_state(request, payload, principal):
         if payload and any(change.get('key') == 'appliedList' for change in payload.changes):
             return upgrade_required()
-        return management.snapshot() if request.method == 'GET' else management.write(payload.changes)
+        if request.method == 'GET':
+            return await to_thread.run_sync(lambda: management.snapshot(
+                include_applications=request.query_params.get('applications')!='0'),limiter=read_pool)
+        return await to_thread.run_sync(lambda: management.write(payload.changes,
+            include_applications=request.query_params.get('applications')!='0'),limiter=read_pool)
 
     @server.custom_route('/api/session',methods=['GET','DELETE'])
     async def session(request):
@@ -229,7 +235,7 @@ def attach_web(server, store, origin):
             p['page']=int(p.get('page',1));p['page_size']=int(p.get('page_size',50))
             for key in ('added_since','added_before'):
                 if key in p: p[key]=float(p[key]) if p[key] else None
-            return response(board.list(**p))
+            return await to_thread.run_sync(lambda: response(board.list(**p)),limiter=read_pool)
         except (ValueError,TypeError) as e: return response({'error':str(e)},400)
 
     @server.custom_route('/api/filter-counts',methods=['GET'])
@@ -240,7 +246,18 @@ def attach_web(server, store, origin):
             p=dict(request.query_params)
             for key in ('added_since','added_before'):
                 if key in p: p[key]=float(p[key]) if p[key] else None
-            return response(board.filter_counts(**p))
+            return await to_thread.run_sync(lambda: response(board.filter_counts(**p)),limiter=read_pool)
+        except (ValueError,TypeError) as e: return response({'error':str(e)},400)
+
+    @server.custom_route('/api/application-counts',methods=['GET'])
+    async def application_counts(request):
+        current=access.session(request)
+        if not current or not current['approved']: return response({'error':'Sign in first'},401)
+        try:
+            from .application_records import counts
+            today=float(request.query_params.get('today',''))
+            week=float(request.query_params.get('week',''))
+            return await to_thread.run_sync(lambda: response(counts(store,today,week)),limiter=read_pool)
         except (ValueError,TypeError) as e: return response({'error':str(e)},400)
 
     @server.custom_route('/api/application-overview',methods=['GET'])

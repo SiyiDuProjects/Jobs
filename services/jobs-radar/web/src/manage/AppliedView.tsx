@@ -16,18 +16,6 @@ import { ApplicationFlow } from "./ApplicationFlow";
 import { dateLabel } from "./application-format";
 import { Choice, Dialog, download, Field } from "./components";
 
-export function applicationCounts(rows: Application[], now = new Date()) {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const week = new Date(today);
-  week.setDate(week.getDate() - ((week.getDay() + 6) % 7));
-  const count = (start: Date) =>
-    rows.filter((r) => {
-      const time = +new Date(r.date);
-      return time >= +start && time <= +now;
-    }).length;
-  return { today: count(today), week: count(week) };
-}
 export function PendingMail() {
   const { docs } = useManagement();
   const rows = docs.applicationProgressReview?.value || [];
@@ -66,7 +54,7 @@ export function PendingMail() {
   );
 }
 export function AppliedView() {
-  const { docs, profiles, current } = useManagement();
+  const { docs, profiles, current, applicationsLoading } = useManagement();
   const all: Application[] = docs.appliedList?.value || [];
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
@@ -196,7 +184,7 @@ export function AppliedView() {
           options={{
             all: "全部进展",
             ...statuses,
-            applied: "已投递 · 等待回复",
+            applied: "等待回复",
             phone_screen: "初筛",
           }}
           onChange={(v) => {
@@ -252,7 +240,7 @@ export function AppliedView() {
         columns={columns}
         getRowId={(r) => r.key}
         renderEmptyState={() =>
-          all.length ? "没有符合筛选的投递" : "暂无投递记录"
+          applicationsLoading ? "正在读取投递记录…" : all.length ? "没有符合筛选的投递" : "暂无投递记录"
         }
       />
       <div className="flex items-center justify-between text-sm text-muted">

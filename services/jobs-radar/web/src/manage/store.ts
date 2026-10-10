@@ -13,6 +13,7 @@ import {
 } from "./model";
 type State = {
   loading: boolean;
+  applicationsLoading: boolean;
   draftDirty: boolean;
   authenticated: boolean;
   docs: Documents;
@@ -38,6 +39,7 @@ export async function api(path: string, body?: unknown) {
 export class ManagementStore {
   state: State = {
     loading: true,
+    applicationsLoading: false,
     draftDirty: false,
     authenticated: false,
     docs: {},
@@ -56,6 +58,8 @@ export class ManagementStore {
   private generation = 0;
   private profileRequest = 0;
   private lifecycle = 0;
+  private applicationsVisible = true;
+  private viewGeneration = 0;
   private timer?: ReturnType<typeof setInterval>;
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -63,6 +67,10 @@ export class ManagementStore {
   };
   snapshot = () => this.state;
   private set(patch: Partial<State>) {
+    if (patch.docs && !this.applicationsVisible) {
+      const { appliedList, applicationProgressReview, ...docs } = patch.docs;
+      patch = { ...patch, docs };
+    }
     this.state = { ...this.state, ...patch };
     this.listeners.forEach((fn) => fn());
   }
@@ -70,10 +78,32 @@ export class ManagementStore {
     this.set({ error: error instanceof Error ? error.message : String(error) });
   setDraftDirty = (draftDirty: boolean) => this.set({ draftDirty });
   clearError = () => this.set({ error: "" });
-  async start(existingSession?: { authenticated: boolean }) {
+  private statePath() {
+    return this.applicationsVisible ? "/api/manage/state" : "/api/manage/state?applications=0";
+  }
+  private async readDocuments(): Promise<Documents> {
+    const lifecycle = this.lifecycle;
+    for (;;) {
+      const view = this.viewGeneration;
+      const docs = await api(this.statePath());
+      if (view === this.viewGeneration || lifecycle !== this.lifecycle) return docs;
+    }
+  }
+  setApplicationsVisible(visible: boolean) {
+    if (visible === this.applicationsVisible) return;
+    this.applicationsVisible = visible;
+    this.viewGeneration++;
+    this.generation++;
+    const { appliedList, applicationProgressReview, ...docs } = this.state.docs;
+    this.set({ docs, applicationsLoading: visible });
+    if (this.state.authenticated) void this.refresh();
+  }
+  async start(existingSession?: { authenticated: boolean }, applicationsVisible = true) {
     clearInterval(this.timer);
     const lifecycle = ++this.lifecycle;
-    this.set({ loading: true, error: "" });
+    this.applicationsVisible = applicationsVisible;
+    this.viewGeneration++;
+    this.set({ loading: true, applicationsLoading: applicationsVisible, error: "" });
     try {
       const session = existingSession || (await api("/api/session"));
       if (lifecycle !== this.lifecycle) return;
@@ -82,10 +112,9 @@ export class ManagementStore {
         return;
       }
       this.set({ authenticated: true });
-      const docs = await api("/api/manage/state");
-      const profiles = await this.profileAPI();
+      const [, profiles] = await Promise.all([this.refresh(), this.profileAPI()]);
       if (lifecycle !== this.lifecycle) return;
-      this.set({ docs, profiles });
+      this.set({ profiles });
       const saved = sessionStorage.getItem("jobs:manage-profile"),
         id =
           profiles.find((p: ProfileSummary) => p.id === saved)?.id ||
@@ -98,7 +127,7 @@ export class ManagementStore {
       }, 15000);
     } catch (error) {
       if (lifecycle !== this.lifecycle) return;
-      this.set({ loading: false });
+      this.set({ loading: false, applicationsLoading: false });
       this.report(error);
     }
   }
@@ -112,6 +141,7 @@ export class ManagementStore {
       current: undefined,
       profiles: [],
       docs: {},
+      applicationsLoading: false,
       authenticated: false,
       pending: 0,
       unsaved: 0,
@@ -124,16 +154,18 @@ export class ManagementStore {
     const version = this.generation;
     const lifecycle = this.lifecycle;
     try {
-      const docs = await api("/api/manage/state");
+      const docs = await this.readDocuments();
       if (
         !this.state.pending &&
         lifecycle === this.lifecycle &&
-        version === this.generation &&
-        !same(this.state.docs, docs)
+        version === this.generation
       )
-        this.set({ docs });
+        this.set({ ...(!same(this.state.docs, docs) ? { docs } : {}), applicationsLoading: false });
     } catch (error) {
-      if (lifecycle === this.lifecycle) this.report(error);
+      if (lifecycle === this.lifecycle) {
+        this.set({ applicationsLoading: false });
+        this.report(error);
+      }
     }
   }
   async profileAPI(suffix = "", method = "GET", body?: unknown) {
@@ -234,7 +266,7 @@ export class ManagementStore {
     return this.task(
       "documents:" + Object.keys(desired).sort().join(","),
       async (check) => {
-        const remote: Documents = await api("/api/manage/state");
+        const remote: Documents = await this.readDocuments();
         check();
         const changes = Object.entries(desired)
           .map(([key, value]) => {
@@ -247,7 +279,7 @@ export class ManagementStore {
           })
           .filter((c) => !same(c.value, remote[c.key]?.value));
         const docs = changes.length
-          ? await api("/api/manage/state", { changes })
+          ? await api(this.statePath(), { changes })
           : remote;
         check();
         this.set({ docs });
@@ -268,9 +300,10 @@ export class ManagementStore {
         ...values,
       });
       check();
-      const docs = await api("/api/manage/state");
+      const docs = await this.readDocuments();
       check();
       this.set({ docs });
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("jobs:applications-changed"));
       return result;
     });
   }
@@ -290,9 +323,10 @@ export class ManagementStore {
         idempotency_key: key,
       });
       check();
-      const docs = await api("/api/manage/state");
+      const docs = await this.readDocuments();
       check();
       this.set({ docs });
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("jobs:applications-changed"));
       return result;
     });
   }

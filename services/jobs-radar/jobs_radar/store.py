@@ -18,6 +18,7 @@ def encoded(value):
 
 class Store:
     def __init__(self, path):
+        self._board_ready = False
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as c:
@@ -78,6 +79,10 @@ class Store:
         from .job_titles import initialize as initialize_titles
         with self.connect() as c:
             initialize_titles(c)
+        from .board_index import initialize as initialize_board
+        with self.connect(True) as c:
+            initialize_board(c)
+        self._board_ready = True
 
     @contextmanager
     def connect(self, write=False):
@@ -93,7 +98,17 @@ class Store:
                 c.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
             if write:
                 c.execute("BEGIN IMMEDIATE")
+            if self._board_ready:
+                from .board_index import pending, refresh
+                if pending(c):
+                    if not write:
+                        c.execute('BEGIN IMMEDIATE')
+                    refresh(c)
+                    if not write:
+                        c.commit()
             yield c
+            if self._board_ready and c.total_changes:
+                refresh(c)
             if deadline is not None:
                 c.execute('PRAGMA busy_timeout=' + str(max(1, int(remaining() * 1000))))
             c.commit()
@@ -115,11 +130,11 @@ class Store:
         now = time.time()
         accepted = 0
         accepted_ids = set()
+        accepted_sources = set()
         with self.connect(True) as c:
             from .job_match import posting_key, job_index
             from .job_duplicates import preferred_job
             matches = job_index(c)
-            c.execute("UPDATE observations SET present=0 WHERE stream=?", (stream,))
             for observation in observations:
                 observation = dict(observation)
                 previous = c.execute("SELECT payload,job_id FROM observations WHERE stream=? AND source_id=?", (stream, observation["source_id"])).fetchone()
@@ -130,6 +145,7 @@ class Store:
                 if scoped_only and observation.get("posted_at") is not None and observation["posted_at"] > now:
                     continue
                 accepted += 1
+                accepted_sources.add(observation['source_id'])
                 key = identity(observation["apply_url"]) if observation.get("apply_url") else f"{observation['source']}:{observation['source_id']}"
                 jid = stable_id(key)
                 match_key = posting_key(observation.get("apply_url"), c)
@@ -163,6 +179,8 @@ class Store:
                 c.execute("INSERT OR IGNORE INTO applications(job_id,status,updated) VALUES(?,?,?)", (jid, "not_started", now))
                 c.execute("UPDATE jobs SET job_key=? WHERE id=?", (match_key, jid))
                 c.execute("UPDATE applications SET job_key=? WHERE job_id=?", (match_key, jid))
+            c.execute('''UPDATE observations SET present=0 WHERE stream=? AND present=1
+                AND source_id NOT IN (SELECT value FROM json_each(?))''',(stream,json.dumps(sorted(accepted_sources))))
             if scoped_only:
                 from .screening import screen_titles
                 screen_titles(c, accepted_ids, now)

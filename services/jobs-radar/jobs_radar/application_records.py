@@ -74,6 +74,20 @@ def read(c):
     return rows
 
 
+def counts(store, today, week):
+    """Browser-local day/week boundaries; return counts without record payloads."""
+    import math
+    now = time.time()
+    if not all(math.isfinite(v) for v in (today,week)) or not 0 <= week <= today <= now or today-week > 7*86400:
+        raise ValueError('Invalid application count window')
+    with store.connect() as c:
+        row=c.execute('''SELECT coalesce(sum(unixepoch(json_extract(record,'$.date'))>=?),0),count(*)
+            FROM applications WHERE record IS NOT NULL AND deleted=0
+            AND unixepoch(json_extract(record,'$.date'))>=?
+            AND unixepoch(json_extract(record,'$.date'))<=?''',(today,week,now)).fetchone()
+    return {'today':row[0],'week':row[1]}
+
+
 def record(app):
     row=json.loads(app['record'])
     row.update(id=app['application_id'], job_id=app['job_id'], version=app['record_version'], submission=submission_state(app))

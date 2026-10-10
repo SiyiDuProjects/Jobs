@@ -3,9 +3,9 @@ import { Segment } from "@heroui-pro/react";
 import {
   AppliedView,
   PendingMail,
-  applicationCounts,
 } from "./manage/AppliedView";
 import { useManagement } from "./manage/store";
+import { ApplicationTotals } from "./ApplicationTotals";
 export type JobKind = "newgrad" | "internship";
 export type BoardProps = { kind: JobKind; trash: boolean };
 export function readKind(): JobKind {
@@ -25,14 +25,13 @@ export function JobWorkspace({
   kind: JobKind;
   route: string;
 }) {
-  const { docs, loading, error } = useManagement();
+  const { error } = useManagement();
   const view =
     route === "/applied" || route === "/applications"
       ? "applied"
       : route === "/trash"
         ? "trash"
         : "jobs";
-  const counts = applicationCounts(docs.appliedList?.value || []);
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -47,13 +46,9 @@ export function JobWorkspace({
           <Segment.Item id="applied">已投递</Segment.Item>
           <Segment.Item id="trash">已删除</Segment.Item>
         </Segment>
-        <span className="text-sm text-muted">
-          {loading
-            ? "正在读取投递数…"
-            : `今日已投 ${counts.today} · 本周已投 ${counts.week}`}
-        </span>
+        <ApplicationTotals />
       </div>
-      <PendingMail />
+      {view === "applied" && <PendingMail />}
       {error && (
         <p className="text-danger" role="alert">
           {error}

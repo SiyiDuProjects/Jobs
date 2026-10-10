@@ -179,5 +179,7 @@ export async function api(path: string, options: RequestInit = {}) {
         ? "登录已过期，请刷新页面重新连接"
         : v.error || "操作失败",
     );
+  if (path === "/api/actions" && options.method === "POST")
+    window.dispatchEvent(new Event("jobs:applications-changed"));
   return v;
 }

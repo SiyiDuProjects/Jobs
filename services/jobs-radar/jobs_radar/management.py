@@ -65,9 +65,11 @@ class Management:
                     if not c.execute('SELECT 1 FROM owner_profiles WHERE id=? AND deleted=0',(pid,)).fetchone(): raise ValueError('Profile unavailable')
         return raw
 
-    def snapshot(self):
+    def snapshot(self, *, include_applications=True):
         with self.store.connect() as c:
             result={r['key']: {'value': json.loads(r['value']), 'revision': r['revision']} for r in c.execute('SELECT * FROM management_documents') if self.valid_key(r['key'])}
+            if not include_applications:
+                return result
             from .application_progress import pending_reviews, project_display
             from .application_records import read
             result['appliedList']={'value':project_display(c,read(c)),'revision':0}
@@ -94,7 +96,7 @@ class Management:
     def _context_hash(value):
         return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
-    def write(self, changes, *, context_removals=None, return_snapshot=True):
+    def write(self, changes, *, context_removals=None, return_snapshot=True, include_applications=True):
         if not isinstance(changes,list) or len(changes)>120: raise ValueError('Invalid changes')
         checked=[]
         for item in changes:
@@ -125,4 +127,4 @@ class Management:
                 if old:
                     c.execute('INSERT OR IGNORE INTO management_revisions VALUES(?,?,?,?)',(key,old['revision'],old['value'],time.time()))
                 c.execute('INSERT INTO management_documents VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,revision=excluded.revision',(key,raw,rev+1))
-        return self.snapshot() if return_snapshot else {'written': [key for key, _, _ in checked]}
+        return self.snapshot(include_applications=include_applications) if return_snapshot else {'written': [key for key, _, _ in checked]}

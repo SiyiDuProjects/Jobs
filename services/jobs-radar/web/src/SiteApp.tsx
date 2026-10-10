@@ -85,7 +85,7 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
   }, [session?.authenticated, connect]);
   useEffect(() => {
     if (!session?.authenticated) return;
-    void store.start({ authenticated: true });
+    void store.start({ authenticated: true }, ["/applied", "/applications"].includes(activeRoute.current));
     const before = (e: BeforeUnloadEvent) => {
       if (store.state.pending || store.state.unsaved) {
         e.preventDefault();
@@ -98,6 +98,9 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
       window.removeEventListener("beforeunload", before);
     };
   }, [session?.authenticated]);
+  useEffect(() => {
+    store.setApplicationsVisible(["/applied", "/applications"].includes(route));
+  }, [route]);
   useEffect(() => {
     localStorage.setItem("radar-kind", kind);
     if (loading) return;

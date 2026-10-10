@@ -1,5 +1,4 @@
 """Private board and screening share canonical jobs and the application ledger."""
-from collections import Counter
 import hashlib
 import json
 import math
@@ -7,12 +6,10 @@ import re
 import time
 from urllib.parse import urlsplit
 
-from .scope import STREAM_IDS, discovery_scope
-from .geography import matches_region, non_us_only, screening_locations
-from .role_families import FAMILIES, classify
+from .scope import discovery_scope
+from .geography import non_us_only, screening_locations
+from .role_families import FAMILIES
 from .intern_companies import normalize_company
-from .screening_policy import POLICY
-from .recruiting import STAGES, email_url, authorized_mailbox
 
 KINDS = {'newgrad', 'internship'}
 REASONS = {'phd', 'data_analyst', 'data_science', 'off_target_role', 'non_us_only', 'no_sponsorship', 'citizenship', 'clearance', 'manual'}
@@ -43,59 +40,8 @@ class Board:
     def _rows(self, kind, include_history=False):
         if kind not in KINDS:
             raise ValueError('Choose full-time or internship')
-        scope, scope_values = discovery_scope()
-        with self.store.connect() as c:
-            observations = c.execute(f'''SELECT o.job_id,o.payload,o.present FROM observations o
-                JOIN search_index s USING(stream,source_id) WHERE s.kind=? AND o.present=1 AND s.active=1 AND s.visible=1 AND {scope}''',(kind,*scope_values)).fetchall()
-            active_ids = {r['job_id'] for r in observations}
-            if include_history:
-                observations = [*observations, *(r for r in c.execute('''SELECT o.job_id,o.payload,o.present FROM observations o
-                    JOIN applications a ON a.job_id=o.job_id WHERE json_extract(o.payload,'$.kind')=? AND a.version>0''',(kind,)) if r['job_id'] not in active_ids)]
-            applications = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM applications')}
-            from .application_progress import job_progress
-            progress = {jid:p for jid in applications if (p:=job_progress(c,jid))}
-            mailbox=authorized_mailbox(c,required=False)
-            for p in progress.values(): p['email_url']=email_url(p['message_id'],mailbox) if p['message_id'] else None
-            reviews = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM job_screening WHERE kind=?',(kind,))}
-            company_tags = {r['company_key']:bool(r['keep']) for r in c.execute('SELECT * FROM company_preferences')}
-            from .job_titles import display_titles
-            titles = display_titles(c)
-            role_families = {r['job_id']:dict(r) for r in c.execute('SELECT * FROM job_role_family WHERE kind=?',(kind,))}
-            opened = dict(c.execute('SELECT job_id,opened_at FROM web_opened WHERE kind=?',(kind,)))
-            undo = {r['job_id']:r['version'] for r in c.execute('SELECT job_id,version FROM owner_submission_undo WHERE expires>?',(time.time(),))}
-            first_seen = dict(c.execute('SELECT id,first_seen FROM jobs'))
-            added_at = dict(c.execute(f'''SELECT job_id,min(first_seen) FROM observations
-                WHERE stream IN ({','.join('?' for _ in STREAM_IDS)}) AND json_extract(payload,'$.kind')=?
-                GROUP BY job_id''',(*STREAM_IDS,kind)))
-            companies = {json.loads(r[0]).get('company','').casefold() for r in c.execute("SELECT payload FROM observations WHERE present=1 AND json_extract(payload,'$.section')='FAANG+'")}
-        grouped = {}
-        for row in observations:
-            grouped.setdefault(row['job_id'], []).append(json.loads(row['payload']))
-        result = []
-        for jid, sources in grouped.items():
-            sources.sort(key=lambda s:({'simplify':0,'speedyapply':1}.get(s['source'],9), s.get('source_id','')))
-            app, review = applications[jid], reviews.get(jid)
-            primary = sources[0]
-            locations = list(dict.fromkeys(loc for s in sources for loc in s.get('locations',[])))
-            urls = list(dict.fromkeys(s['apply_url'] for s in sources if safe_url(s.get('apply_url'))))
-            token = fingerprint(sources)
-            fp = review['fingerprint'] if review else None
-            family, basis = classify(sources, role_families.get(jid), token)
-            big = primary['company'].casefold() in companies or primary['company'].casefold() in {'google','alphabet','meta','facebook','apple','amazon','netflix'}
-            result.append({'id':jid,'kind':kind,'company':primary['company'],'title':titles.get(jid,primary['title']),
-                'role_family':family,'role_basis':basis,'locations':locations,'categories':list(dict.fromkeys(s.get('category','') for s in sources)),
-                'sources':list(dict.fromkeys(s['source'] for s in sources)), 'apply_url':urls[0] if urls else None,
-                'source_url':next((s.get('source_url') for s in sources if safe_url(s.get('source_url'))),None),
-                'posted_at':max((s.get('posted_at') or 0 for s in sources),default=0) or None,
-                'first_seen':first_seen[jid], 'added_at':added_at.get(jid,first_seen[jid]), 'status':app['status'], 'application_version':app['version'],
-                'application_detail':app['detail'],'progress':progress.get(jid),'group':'faang' if big else 'other','fingerprint':token,
-                'opened_at':opened.get(jid), 'can_undo_submission':app['status'] in {'submitted','submitted_unconfirmed'} and undo.get(jid)==app['version'],
-                'active':jid in active_ids, 'review_version':review['version'] if review else 0,'review':review,
-                'screening': 'pending' if not review or (fp != token and review['state'] != 'trash' and not review['manual_keep']) else review['state'],
-                'all_sources':sources})
-            row = result[-1]
-            row['company_recommended'] = company_tags.get(normalize_company(row['company']))
-        return result
+        from .board_query import rows
+        return rows(self.store,kind,include_history)
 
     def list(self, *args, **filters):
         if 'summary_only' in filters:
@@ -130,77 +76,17 @@ class Board:
             raise ValueError('Invalid added date timestamp')
         if added_since is not None and added_before is not None and added_before<=added_since:
             raise ValueError('Invalid added date range')
-        # Recent view keeps completed rows in place without importing old history.
-        rows = self._rows(kind,include_history=view=='jobs' and status not in {'not_started','recent','unsubmitted'})
-        # Trash may outlive its source listing during the 24-hour undo window.
-        if view == 'trash':
-            present = {r['id'] for r in rows}
-            with self.store.connect() as c:
-                missing = [dict(r) for r in c.execute("SELECT * FROM job_screening WHERE kind=? AND state='trash' AND expires_at>?",(kind,time.time())) if r['job_id'] not in present]
-            for review in missing:
-                job = self.store.get_jobs([review['job_id']])[0]
-                source = next((s for s in job['all_sources'] if s['kind']==kind), {})
-                rows.append({'id':job['id'],'kind':kind,'company':source.get('company',''),'title':source.get('title',''),
-                    'locations':source.get('locations',[]),'categories':[source.get('category','')],'sources':[source.get('source','')],
-                    'apply_url':source.get('apply_url'),'source_url':source.get('source_url'),'posted_at':source.get('posted_at'),
-                    'first_seen':job['first_seen'],'status':job['status'],'application_version':job['version'],'application_detail':job['detail'],
-                    'group':'other','fingerprint':review['fingerprint'],'review_version':review['version'],'review':review,'screening':'trash','all_sources':[]})
-        def visible(r):
-            # Country restrictions remain independent of model recommendations.
-            foreign = non_us_only(screening_locations(r['all_sources']))
-            trash = r['review'] and r['review']['state']=='trash'
-            if view=='trash':
-                if not trash or r['review']['expires_at'] <= time.time(): return False
-            elif trash: return False
-            if (view=='jobs' and foreign and r['status']=='not_started'
-                    and r['application_version']==0 and not (r['review'] and r['review']['manual_keep'])):
-                return False
-            if view=='jobs' and any(normalize_company(s.get('company','')) in excluded_companies for s in r['all_sources']): return False
-            # Legacy clients may still send intern_companies; it now selects the
-            # same recommendation, never the retired static company lists.
-            if view=='jobs' and company_filter=='1':
-                if r.get('company_recommended') is not True: return False
-            if view!='trash' and added_since is not None and r['added_at']<added_since: return False
-            if view!='trash' and added_before is not None and r['added_at']>=added_before: return False
-            if view!='trash' and status in STAGES:
-                if not r.get('progress') or r['progress']['stage']!=status: return False
-            elif view!='trash' and status=='unsubmitted':
-                if r['status'] in {'submitted','submitted_unconfirmed'}: return False
-            elif view!='trash' and status not in {'','recent'} and r['status']!=status: return False
-            if text.casefold() not in (r['company']+' '+r['title']).casefold(): return False
-            if location.casefold() not in ' '.join(r['locations']).casefold(): return False
-            # The visible focus preset keeps its domestic employer exception;
-            # an explicitly narrower region such as California has no exception.
-            region_exempt = (region=='focus_remote' and not foreign
-                             and (r['group']=='faang' or r.get('company_recommended') is True))
-            if not region_exempt and not matches_region(r['locations'],region): return False
-            if view!='trash' and r['role_family'] not in selected_roles: return False
-            if category=='engineering':
-                if not engineering_title(r['title']): return False
-            elif category and category not in r['categories']: return False
-            if view!='trash':
-                if exclude_data_engineering=='1' and re.search(r'\bdata[\s-]+engineer(?:ing|s)?\b',r['title'],re.I): return False
-                if any(p.search(r['title']) for p in title_patterns): return False
-            if group and group!=r['group']: return False
-            return not screening or screening==r['screening']
-        selected = [r for r in rows if visible(r)]
-        total = len(selected)
-        application_counts = {'submitted':0, 'not_started':0, **Counter(r['status'] for r in selected)}
-        # Counts share the exact predicate, without sorting/serializing a page,
-        # reading source health or asking the filesystem for disk usage.
-        if summary_only:
-            return {'total':total,'application_counts':application_counts}
-        recent = sorted((r for r in rows if r.get('opened_at') and r['status'] not in {'submitted','submitted_unconfirmed'} and r['screening']!='trash'), key=lambda r:-r['opened_at']) if view=='jobs' else []
-        recent = [{k:r[k] for k in ('id','company','title','application_version','opened_at')} for r in recent]
-        # One chronological list; the optional company-group filter selects FAANG+.
-        selected.sort(key=lambda r: (-(r['added_at'] if added_since is not None and view!='trash' else r['posted_at'] or r['first_seen']), r['id']))
-        counts = {g:sum(r['group']==g for r in selected) for g in ['faang','other']}
-        selected = selected[(page-1)*page_size:page*page_size]
-        for r in selected:
-            r.pop('all_sources',None)
-            if r['review']: r['review']['evidence']=json.loads(r['review']['evidence'])
-        return {'jobs':selected,'recent_opened':recent,'application_counts':application_counts,'total':total,'groups':counts,'page':page,'page_size':page_size,'rules':RULES,
-                'source_health':self.store.health()['sources']}
+        if kind not in KINDS:
+            raise ValueError('Choose full-time or internship')
+        from .board_query import listing
+        result = listing(self.store,kind=kind,view=view,status=status,text=text,location=location,
+            category=category,group=group,screening=screening,page=page,page_size=page_size,
+            added_since=added_since,added_before=added_before,region=region,company_filter=company_filter,
+            excluded_companies=excluded_companies,selected_roles=selected_roles,
+            exclude_data_engineering=exclude_data_engineering,title_patterns=title_patterns,summary_only=summary_only)
+        if not summary_only:
+            result.update(rules=RULES,source_health=self.store.health()['sources'])
+        return result
 
     def filter_counts(self, **filters):
         # Use the exact list predicate before pagination for both employment kinds.

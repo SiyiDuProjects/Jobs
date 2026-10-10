@@ -18,7 +18,7 @@ test('date buckets retain day week and month thresholds',()=>{assert.equal(model
 test('keyword generation is retired and credential exclusion remains intact',()=>{assert.equal(model.questionKeywords,undefined);for(const key of ['autofillAccount','password','lastSyncProfile','profile','apiKey'])assert.equal(model.allowed(key),false);assert.equal(model.allowed('jobsResponses:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'),true);assert.equal(model.defaultSettings.autofillSettings.autoSubmit,false);assert.equal(model.defaultSettings.autofillSettings.autoClickNextPage,false);});
 
 test('application rows show actual status, not the statistical no-answer bucket',()=>{
- assert.equal(model.progressLabel({...row,progress:{stage:'applied',label:'No Answer'}}),'已投递 · 等待回复');
+ assert.equal(model.progressLabel({...row,progress:{stage:'applied',label:'No Answer'}}),'等待回复');
  assert.equal(model.progressLabel({...row,progress:{stage:'rejected',label:'No Answer'}}),'已拒绝');
  assert.equal(model.progressLabel({...row,progress:{stage:'assessment',label:'No Answer · OA 自动发放',stage_label:'OA · 自动发放'}}),'测评 · 自动发放');
 });

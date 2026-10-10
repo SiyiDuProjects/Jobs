@@ -1,7 +1,4 @@
-import React, { useState } from "react";
-import { useManagement } from "./manage/store";
-import { appRows, progressLabel, type AppRow } from "./manage/model";
-import { ProgressEditor } from "./manage/application-editors";
+import React from "react";
 import { Button, Chip, Table } from "@heroui/react";
 import {
   date,
@@ -37,15 +34,6 @@ export function JobTable({
   undoSubmission: (job: UndoTarget) => unknown;
   open: (type: "trash", job: Job) => unknown;
 }) {
-  const { docs } = useManagement();
-  const applications = appRows(docs.appliedList?.value || []);
-  const rows = data.jobs.map((job) => ({
-    ...job,
-    record: applications.find(
-      (r) => r.job_id === job.id || r.job?.id === job.id,
-    ),
-  }));
-  const [progress, setProgress] = useState<AppRow | null>(null);
   return (
     <section className="mb-5" aria-label="岗位列表">
       <Table>
@@ -80,7 +68,7 @@ export function JobTable({
                 操作
               </Table.Column>
             </Table.Header>
-            <Table.Body items={rows}>
+            <Table.Body items={data.jobs}>
               {(job) => (
                 <Table.Row id={job.id}>
                   <Table.Cell>
@@ -153,29 +141,18 @@ export function JobTable({
                       </>
                     ) : (
                       <>
-                        {job.record ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onPress={() => setProgress(job.record!)}
-                          >
-                            {progressLabel(job.record!)}
-                          </Button>
-                        ) : (
-                          <Chip
-                            size="sm"
-                            variant="soft"
-
-                            color={statusColor(job)}
-                          >
-                            <span aria-hidden="true">
-                              {job.status === "submitted" ? "✓" : ""}
-                            </span>
-                            <Chip.Label>
-                              {job.status === "submitted" ? "已投递" : "未投递"}
-                            </Chip.Label>
-                          </Chip>
-                        )}
+                        <Chip
+                          size="sm"
+                          variant="soft"
+                          color={statusColor(job)}
+                        >
+                          <span aria-hidden="true">
+                            {job.status === "submitted" ? "✓" : ""}
+                          </span>
+                          <Chip.Label>
+                            {job.status === "submitted" ? "已投递" : "未投递"}
+                          </Chip.Label>
+                        </Chip>
                         <div
                           className="mt-1 text-xs text-muted"
                           title={job.review?.detail}
@@ -271,9 +248,6 @@ export function JobTable({
           </Table.Content>
         </Table.ScrollContainer>
       </Table>
-      {progress && (
-        <ProgressEditor row={progress} onClose={() => setProgress(null)} />
-      )}
     </section>
   );
 }

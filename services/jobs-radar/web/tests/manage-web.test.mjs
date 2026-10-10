@@ -21,7 +21,8 @@ async function fixture(route='/',authenticated=true,legacy=false,applications,se
   if(url==='/api/session')data={authenticated};
   else if(url.startsWith('/api/jobs?'))data={groups:{},jobs:[],recent_opened:[],application_counts:{submitted:0},total:0,source_health:[]};
   else if(url.startsWith('/api/filter-counts?'))data={newgrad:{total:0,submitted:0},internship:{total:0,submitted:0},total:0};
-  else if(url==='/api/manage/state'){if(body){for(const c of body.changes){if((docs[c.key]?.revision||0)!==c.revision){status=409;break;}}if(status===200)for(const c of body.changes)docs[c.key]={value:c.value,revision:c.revision+1};}data=status===409?{error:'Conflict'}:docs;}
+  else if(url.startsWith('/api/application-counts?'))data={today:1,week:1};
+  else if(url==='/api/manage/state'||url==='/api/manage/state?applications=0'){if(body){for(const c of body.changes){if((docs[c.key]?.revision||0)!==c.revision){status=409;break;}}if(status===200)for(const c of body.changes)docs[c.key]={value:c.value,revision:c.revision+1};}data=status===409?{error:'Conflict'}:docs;if(status===200&&url.endsWith('applications=0')){const {appliedList,applicationProgressReview,...rest}=data;data=rest;}}
   else if(url==='/api/manage/applications'){
     if(!body)data={applications:docs.appliedList.value};
     else {for(const change of body.changes){const index=docs.appliedList.value.findIndex(r=>r.id===change.application_id);if(change.action==='create')docs.appliedList.value.push({...change.value,id:w.crypto.randomUUID(),version:1});else if(index<0||docs.appliedList.value[index].version!==change.expected_version){status=409;data={error:'Application version conflict'};break;}else if(change.action==='delete')docs.appliedList.value.splice(index,1);else docs.appliedList.value[index]={...change.value,version:change.expected_version+1};}data??={ok:true};}

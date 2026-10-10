@@ -140,22 +140,22 @@ export function JobsBoard({ kind, trash }: BoardProps) {
       page_size: "50",
       ...(trash ? { status: "", screening: "" } : {}),
     });
-    // A slow statistics service must not hold the usable job list hostage.
-    if (!trash) {
-      void loader.counts(params).then(
-        (v) => {
-          if (current()) setCounts(v);
-        },
-        () => {
-          if (current()) {
-            setCounts(null);
-            setCountsUnavailable(true);
-          }
-        },
-      );
-    }
     try {
       const v = await loader.jobs(params);
+      // Start secondary totals only after the primary list has returned.
+      if (!trash && current()) {
+        void loader.counts(params).then(
+          (v) => {
+            if (current()) setCounts(v);
+          },
+          () => {
+            if (current()) {
+              setCounts(null);
+              setCountsUnavailable(true);
+            }
+          },
+        );
+      }
       if (current()) {
         if (filters.page > 1 && !v.jobs.length)
           setFilters((f) => ({ ...f, page: 1 }));

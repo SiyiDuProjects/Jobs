@@ -16,7 +16,8 @@ async function page(statsFail=false,jobState={},saved={},applications=[]){
  w.fetch=async(path)=>{
   const u=new URL(path,w.location.href);requests.push(u.pathname+u.search);let value;
   if(u.pathname==='/api/session')value={authenticated:true};
-  else if(u.pathname==='/api/manage/state')value={appliedList:{value:applications,revision:0}};
+  else if(u.pathname==='/api/manage/state')value=u.searchParams.get('applications')==='0'?{}:{appliedList:{value:applications,revision:0}};
+  else if(u.pathname==='/api/application-counts')value={today:2,week:5};
   else if(u.pathname==='/api/manage/profiles')value=[];
   else if(u.pathname==='/api/manage/progress')value={applications:[{history:[]}]};
   else if(u.pathname==='/api/extension/status')value={pending:0};
@@ -36,7 +37,7 @@ async function page(statsFail=false,jobState={},saved={},applications=[]){
  return {w,dom,requests,errors};
 }
 test('board keeps jobs usable when filter counts fail without requesting season totals',async()=>{
- const h=await page(true);try{assert(h.w.document.body.textContent.includes('Fixture Employer'));assert(h.w.document.body.textContent.includes('数量暂时不可用'));assert(!h.w.document.body.textContent.includes('申请季累计'));assert(!h.requests.some(path=>path.startsWith('/api/application-overview')));assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}
+ const h=await page(true);try{assert(h.w.document.body.textContent.includes('Fixture Employer'));await until(()=>h.w.document.body.textContent.includes('数量暂时不可用'));assert(!h.w.document.body.textContent.includes('申请季累计'));assert(!h.requests.some(path=>path.startsWith('/api/application-overview')));assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}
 });
 test('actual board pagination issues only a list request while fresh totals are shared',async()=>{
  const h=await page();try{
@@ -99,10 +100,17 @@ test('legacy preferences preserve explicit exclusions and strict regions during 
 });
 
 
-test('job status updates when application records arrive and opens progress',async()=>{
+test('job submission badges and application progress stay on their respective pages',async()=>{
  const app={id:'app-1',job_id:'fixture-1',version:1,jobTitle:'Engineer',companyName:'Fixture Employer',jobLink:'https://example.test/job',companyLink:'',date:new Date().toISOString(),profileName:'Newgrad',status:'interview',progress:{label:'Interview · Round 2',display_stage:'interview',stage:'interview',version:1}};
  const h=await page(false,{status:'submitted'}, {}, [app]);
  try {
+  await tick();
+  const badge=h.w.document.querySelector('[data-slot="chip"]') || h.w.document.querySelector('.chip--success');
+  assert(badge?.textContent.includes('已投递'));
+  assert(!h.w.document.body.textContent.includes('面试 · 第 2 轮'));
+  assert(!h.requests.includes('/api/manage/state'),'the jobs page does not load application history');
+  assert(h.w.document.body.textContent.includes('今日已投 2 · 本周已投 5'));
+  h.w.location.hash='/applications';
   await until(()=>h.w.document.body.textContent.includes('面试 · 第 2 轮'));
   [...h.w.document.querySelectorAll('button')].find(b=>b.textContent.includes('面试 · 第 2 轮')).click();
   await until(()=>h.w.document.body.textContent.includes('申请进度'));
