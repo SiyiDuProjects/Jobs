@@ -107,6 +107,9 @@ def attach_web(server, store, origin):
             return json_response({'error': 'Invalid origin'}, 403)
         return True
 
+    from .question_corpus import register_corpus_routes
+    register_corpus_routes(api, store, management_access)
+
     from .web_inputs import (ProgressRequest, ApplicationRequest, StateRequest, PairRequest,
         DeviceRequest, ResolveRequest, ReceiptRequest, AnswerJobRequest, BoardAction)
     from .application_records import ApplicationRecords

@@ -198,12 +198,14 @@ def answer(binding, meaning, field, profile, profile_id, version):
 class BindingCache:
     def __init__(self, store):
         self.store = store
+        from .question_corpus import QuestionCorpus
+        self.corpus = QuestionCorpus(store)
         with store.connect(True) as c:
             c.execute('CREATE TABLE IF NOT EXISTS answer_bindings(key TEXT PRIMARY KEY,binding TEXT NOT NULL)')
 
     def read(self, fields, context, model, profile, profile_id, version, saved):
         result = {}
-        with self.store.connect() as c:
+        with self.store.connect(True) as c:
             for field in fields:
                 # A saved person statement can conflict with the structured fact;
                 # only the existing independent verifier may resolve its scope.
@@ -217,6 +219,7 @@ class BindingCache:
                     value = answer(plan['binding'], plan['meaning'], field, profile, profile_id, version)
                 except (ValueError, KeyError, TypeError):
                     continue
+                self.corpus.link_binding(c, field, context, model, binding_key(field, context, model))
                 if value:
                     result[field['fieldId']] = value
         return result
@@ -237,4 +240,5 @@ class BindingCache:
                     continue
                 c.execute('INSERT OR REPLACE INTO answer_bindings VALUES(?,?)',
                           (binding_key(field, context, model), json.dumps({'meaning': check['meaning'], 'binding': binding})))
-            c.execute('DELETE FROM answer_bindings WHERE rowid NOT IN (SELECT rowid FROM answer_bindings ORDER BY rowid DESC LIMIT 4000)')
+                self.corpus.link_binding(c, field, context, model, binding_key(field, context, model))
+            c.execute('DELETE FROM answer_bindings WHERE key NOT IN (SELECT cache_key FROM corpus_bindings) AND rowid NOT IN (SELECT rowid FROM answer_bindings ORDER BY rowid DESC LIMIT 4000)')

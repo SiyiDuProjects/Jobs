@@ -3,6 +3,49 @@
 `release.sh` remains the only build/production release entrypoint.
 Production never builds an image. Local builds never contact SSH.
 
+## Private question corpus
+
+The authenticated `/api/extension/corpus` endpoint accepts bounded inert form
+trees, probes existing fingerprints, and exports compressed stored pages as JSON.
+Search terms are private owner data. No corpus export, database, report or
+independent annotation belongs in Git or ordinary diagnostics.
+
+The collector is additive: it leaves the current answer engine and verifier in
+place so its behavior can be measured before the planned answer-engine changes.
+Publishing this collector, reading server data and running real applications
+follow the task's separate authorization boundaries.
+
+After an authorized export, run from the service directory:
+
+```sh
+python -m deploy.question_corpus export --database <existing-database> --output .qa/corpus/pages.json
+python -m deploy.question_corpus baseline --input .qa/corpus/pages.json --output .qa/corpus/service-before.json
+```
+
+The baseline uses only fictional identities. It uses cached mappings by default;
+`--live` explicitly enables the existing provider on the server for unhandled
+questions. `--limit` bounds distinct questions (default 30). A live run also saves
+`service-before.corpus.json` with new mappings for subsequent offline replay.
+Unknown job countries stay unknown. Provider failures are reported separately
+from unanswered questions. Draft wording/entities still need independent review.
+
+Use `python -m deploy.question_corpus label --database <existing-database>
+--input .qa/corpus/annotation.json` only for an independently reviewed mapping.
+The annotation contains `questionId`, `binding` and `meaning`, never the person's
+answer. A review-card correction records only a question reference and count.
+
+Copy an authorized export to the extension's `.qa/corpus/pages.json`, then run
+`npm run corpus:test`. `node scripts/corpus.mjs test .qa/corpus/pages.json
+.qa/corpus/after.json .qa/corpus/before.json` also compares answers/readings.
+`npm run corpus:seed` generates explicitly synthetic bootstrap pages; those are
+implementation checks, not a real-page baseline. `npm test` and `npm run update`
+include the available local corpus. Reports distinguish missing controls,
+unrecognized questions, truncated captures, unrecorded searches, invariant
+failures and independent mapping accuracy (unavailable without labels).
+
+After a week of authorized collection, inspect compressed table size and search
+novelty before changing retention. The collector does not prune existing data.
+
 ## Independent website releases
 
 The repository stays together. Website-only changes have their own immutable
