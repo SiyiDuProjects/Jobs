@@ -92,3 +92,12 @@ def test_export_status_full_option_set_computes_unique_negative_only():
         row=answer(plan,None,f,{'applicationData':{'visaStatus':visa},'employmentData':{'citizenships':['Canada']}},'p','v')
         assert (row['value'] if row else None)==expected
     assert public_binding({**f,'options':f['options'][:-1]}) is None
+
+
+def test_defaults_do_not_expand_government_history_to_private_bids_or_crime_to_civil_liability():
+    for category,question in [('government','In the private sector have you participated in a bid or competition?'),
+                              ('criminal','Have you ever been found liable for a violation of the civil False Claims Act?')]:
+        f=field(question=question);profile={'applicationData':{'defaultAnswers':[category]}}
+        plan=mapping(route='default.'+category)['binding']
+        assert answer(plan,None,f,profile,'p','v') is None
+        assert checked(proposed(basis='default',defaultCategory=category,evidencePaths=[]),f,profile,'p','v',{}) is None

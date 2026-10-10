@@ -47,6 +47,12 @@ and official relationships, including federal/state/local, civilian/military,
 contract/program roles and past time windows. Narrower positive facts override it;
 an old note merely saying those facts were unspecified does not. For an all-No
 answer, alternative Yes choices with further timing/NDA qualifiers need no extra fact.
+Government employment defaults do NOT answer participation in private-sector bids
+or competitive proposals, even for a government contractor. Criminal/sanctions
+defaults do NOT answer a particular civil-liability judgment (including the civil
+False Claims Act). Those require their own applicable fact or person-saved answer.
+For compound questions explain only the unsupported clause: complete employer and
+contractor history does not establish whether a company security badge was issued.
 An enabled terms category covers application terms and information-accuracy declarations.
 It does not authorize an unrelated marketing consent or an unknown factual certification.
 Return a mapping when the ENTIRE question fits a supported binding; otherwise unknown.
@@ -164,7 +170,7 @@ def checked(raw, field, profile, pid, version, saved):
     if basis == 'profile' and not (evidence or quote): return None
     if basis == 'saved' and not ref: return None
     if basis == 'default':
-        if not category or saved: return None
+        if not category or saved or not bindings.default_applies(category,field): return None
         evidence = [*evidence,'applicationData.defaultAnswers']
     draft = basis == 'suggestion'
     if draft and (field['type'] not in {'text','textarea'} or raw.get('intent') not in {'motivation','preference','experience'}): return None

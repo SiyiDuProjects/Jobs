@@ -95,12 +95,20 @@ def public_binding(field):
     return None
 
 
+def default_applies(category, field):
+    text=(field['question']+' '+field.get('description','')).casefold()
+    if category=='government' and re.search(r'\bprivate sector\b',text) and re.search(r'\b(bid|proposal|capture|competition)\b',text): return False
+    if category=='criminal' and re.search(r'\bcivil\b',text) and re.search(r'\b(liable|liability|false claims)\b',text): return False
+    return True
+
+
 def checked(binding, meaning, field, context=None):
     if not isinstance(binding,dict) or set(binding)-{'predicate','options','argument','polarity'}:
         return None
     route=binding.get('predicate'); choices=binding.get('options')
     if not isinstance(route,str) or route not in PREDICATES or not isinstance(choices,list): return None
     if route!='unknown' and ambiguous_citizenship(field): return None
+    if route.startswith('default.') and not default_applies(route.split('.')[1],field): return None
     if route == 'unknown':
         return {'predicate':'unknown','options':['unused']*len(field.get('options',[])),'argument':'','polarity':True}
     question = (field['question'] + ' ' + field.get('description','')).casefold()
