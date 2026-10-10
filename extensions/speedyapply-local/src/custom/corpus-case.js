@@ -35,22 +35,26 @@ export function corpusRedactor(profile = {}, rows = []) {
     if (typeof value === "string" && normalize(value).length >= 2)
       values.add(normalize(value));
   }
-  for (const part of [profile.nameData, profile.contactData])
-    for (const value of Object.values(part || {})) add(value);
-  for (const key of ["line1", "line2", "postalCode", "city"])
+  for (const value of Object.values(profile.nameData || {})) add(value);
+  for (const key of ["email", "phoneNumber"]) add(profile.contactData?.[key]);
+  // Coarse locations and employment/education values are public vocabulary,
+  // not identifying strings to erase from every question and option.
+  for (const key of ["line1", "line2", "postalCode"])
     add(profile.addressData?.[key]);
   for (const key of ["fileName", "filename", "name", "resumeName"])
     add(profile.resumeData?.[key]);
   for (const row of rows) {
-    if (
-      ["text", "textarea", "email", "tel", "url", "search", "file"].includes(
-        row.public.type,
-      )
-    )
-      for (const value of [row.raw].flat()) add(value);
     for (const file of row.node?.files || []) add(file.name);
   }
   const terms = [...values].sort((a, b) => b.length - a.length);
+  const phone = String(profile.contactData?.phoneNumber || "").replace(
+    /\D/g,
+    "",
+  );
+  const phonePattern =
+    phone.length >= 7
+      ? new RegExp(`(?<!\\d)${[...phone].join("[\\s().-]*")}(?!\\d)`, "g")
+      : null;
   return (raw) => {
     let value = normalize(raw);
     for (const term of terms) {
@@ -60,6 +64,7 @@ export function corpusRedactor(profile = {}, rows = []) {
         "[private]",
       );
     }
+    if (phonePattern) value = value.replace(phonePattern, "[private]");
     return value
       .replace(/[^\s<>"/\\]+\.(?:pdf|docx?|rtf)\b/gi, "[attachment]")
       .replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, "[email]")
@@ -121,15 +126,15 @@ export function captureCorpus({
     )
       return null;
     const item = { tag: node.localName, attrs: {}, children: [] };
-    const choice = rows.find(
-      (row) =>
-        row.node === node &&
-        ["combobox", "search-choice"].includes(row.public.type),
-    );
+    const field = rows.find((row) => row.node === node);
+    const choice =
+      field && ["combobox", "search-choice"].includes(field.public.type)
+        ? field
+        : null;
     const answerSurface =
       !!choice ||
       node.matches(
-        '[contenteditable],.select__single-value,.select__multi-value,[data-automation-id="selectedItem"],[data-automation-id="fileName"]',
+        'input:not([type="radio"]):not([type="checkbox"]),textarea,output,[contenteditable],[role="textbox"],.select__single-value,.select__multi-value,[data-automation-id="selectedItem"],[data-automation-id="fileName"]',
       );
     if (markers.has(node))
       item.attrs["data-jobs-corpus-field"] = markers.get(node);
@@ -145,11 +150,9 @@ export function captureCorpus({
         ? raw.split(/\s+/).map(symbol).join(" ")
         : clean(raw).slice(0, 1200);
     }
-    if (choice) {
-      item.attrs["aria-label"] =
-        clean(choice.public.question).slice(0, 1200) +
-        (choice.public.required ? " Required" : "");
-      if (choice.public.required) item.attrs["aria-required"] = "true";
+    if (answerSurface && field) {
+      item.attrs["aria-label"] = clean(field.public.question).slice(0, 1200);
+      if (field.public.required) item.attrs["aria-required"] = "true";
     }
     // Only stable component classes matter; CSS and dynamic identifiers are not archived.
     const classes = [...node.classList].filter(
@@ -218,10 +221,14 @@ export function captureCorpus({
           value: "option-" + i,
           label: clean(option.label).slice(0, 500),
         })),
-      observations: corpusOptions(row.node),
+      observations: corpusOptions(row.node).map((observation) => ({
+        query: clean(observation.query),
+        options: observation.options.map(clean),
+      })),
     }));
   const value = {
     version: 1,
+    redactionVersion: 2,
     platform,
     build,
     company: clean(company).slice(0, 200),
@@ -230,8 +237,32 @@ export function captureCorpus({
     fields,
     coverage: { nodes, truncated },
   };
+  const reasons = corpusInputIssues(value);
+  value.quality = { excluded: reasons.length > 0, reasons };
   validateCorpus(value);
   return value;
+}
+
+// These markers mean the original public input is no longer recoverable. Do
+// not infer the missing words or use model outputs to reconstruct a benchmark.
+export function corpusInputIssues(page) {
+  const marker = /\[(?:private|email|attachment|token)\]/i;
+  const issues = new Set();
+  for (const field of page.fields || []) {
+    if (marker.test(field.question)) issues.add("redacted_question");
+    if (marker.test(field.description)) issues.add("redacted_description");
+    if ((field.options || []).some((option) => marker.test(option.label)))
+      issues.add("redacted_options");
+    if (
+      (field.observations || []).some(
+        (observation) =>
+          marker.test(observation.query) ||
+          observation.options.some((v) => marker.test(v)),
+      )
+    )
+      issues.add("redacted_search_results");
+  }
+  return [...issues].sort();
 }
 
 export function validateCorpus(value) {
