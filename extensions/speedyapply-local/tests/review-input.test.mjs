@@ -172,7 +172,7 @@ test("review Yes/No buttons write the original select and only confirmation cont
   }
 });
 
-test("unverified suggestions are preselected only in the card and one confirmation writes all", async () => {
+test("unverified suggestions leave every choice blank and cannot continue", async () => {
   const h = setup(
     '<label>Current clearance*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label><label>Prior government employment*<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label>',
   );
@@ -185,16 +185,16 @@ test("unverified suggestions are preselected only in the card and one confirmati
     );
     assert.equal(
       h.shadow().querySelectorAll('.choice[aria-pressed="true"]').length,
-      2,
+      0,
     );
-    assert.match(h.shadow().querySelector(".source").textContent, /AI 建议/);
+    assert.doesNotMatch(h.shadow().textContent, /AI 建议/);
     assert.equal(h.clicks(), 0);
     assert.equal(await h.w.JobsAIReview.confirm(), true);
     assert.deepEqual(
       [...h.w.document.querySelectorAll("select")].map((n) => n.value),
-      ["N", "N"],
+      ["", ""],
     );
-    assert.equal(h.clicks(), 1);
+    assert.equal(h.clicks(), 0);
   } finally {
     h.close();
   }
@@ -223,7 +223,7 @@ test("confirmation preserves a manual correction and never applies a changed pro
     await changed.run();
     changed.w.document.querySelector('option[value="N"]').textContent =
       "No current or prior clearance";
-    assert.equal(await changed.w.JobsAIReview.confirm(), false);
+    assert.equal(await changed.w.JobsAIReview.confirm(), true);
     assert.equal(changed.w.document.querySelector("select").value, "");
     assert.equal(changed.clicks(), 0);
   } finally {

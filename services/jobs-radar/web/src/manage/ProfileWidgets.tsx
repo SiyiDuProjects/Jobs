@@ -22,7 +22,6 @@ import {
   type Response,
 } from "./model";
 import options from "./profile-options.json";
-import { ApplicationDetailsCard } from "./ApplicationDetails";
 import {
   act,
   Choice,
@@ -82,7 +81,7 @@ export function SaveField({
               .finally(() => setSaving(false));
           }}
         >
-          Save
+          保存
         </Button>
       )}
     </div>
@@ -123,7 +122,7 @@ export function Tags({
       </div>
       <div className="flex gap-2">
         <TextField
-          aria-label={`Add ${label}`}
+          aria-label={`添加${label}`}
           value={draft}
           onChange={setDraft}
           onKeyDown={(e) => {
@@ -133,14 +132,14 @@ export function Tags({
             }
           }}
         >
-          <Input placeholder={`Add ${label.toLowerCase()}…`} />
+          <Input placeholder={`添加${label}…`} />
         </TextField>
         <Button
           variant="secondary"
           onPress={add}
           isDisabled={!draft.trim() || value.length >= limit}
         >
-          Add
+          添加
         </Button>
       </div>
     </div>

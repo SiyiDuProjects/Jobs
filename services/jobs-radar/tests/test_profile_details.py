@@ -26,7 +26,7 @@ def enriched():
     p=profile()
     p['educationData'][0]['graduationDate']='2027-05-17'
     p['applicationData']=dict(earliestStartDate='2027-06-01', weeklyHours='40', highestCompletedEducation='High School',
-        visaStatus='User-supplied status', sponsorshipNow=False, sponsorshipFuture=True,
+        visaStatus='F-1 OPT', sponsorshipNow=False, sponsorshipFuture=True,
         salaryPreference='custom', salaryCurrency='USD', salaryPeriod='annual_base', salaryMin='90000',
         salaryMax='120000', pronouns='They/them', interviewLanguage='Python', aiNotes='Confirmed preferences.')
     return p
@@ -90,3 +90,16 @@ def test_old_profile_and_unknown_boolean_remain_distinct():
 def test_weekly_hours_supported_choices(hours):
     p=profile();p['applicationData']={'weeklyHours':hours}
     assert Profiles.profile(p)['applicationData']['weeklyHours']==hours
+
+
+def test_legacy_visa_is_readable_and_preserved_without_guessing(tmp_path):
+    import json
+    api=Profiles(Store(tmp_path/'legacy.sqlite'))
+    record=api.save(profile())
+    value=profile();value['applicationData']={'visaStatus':'Existing nonstandard visa text'}
+    with api.store.connect(True) as c:c.execute('UPDATE owner_profiles SET profile=? WHERE id=?',(json.dumps(value),record['id']))
+    assert api.get(record['id'])['profile']==value
+    value['profileName']='Renamed'
+    api.save(value,profile_id=record['id'],expected_sync=record['last_sync'])
+    assert api.get(record['id'])['profile']['applicationData']['visaStatus']=='Existing nonstandard visa text'
+    with pytest.raises(ValueError): api.save(value)

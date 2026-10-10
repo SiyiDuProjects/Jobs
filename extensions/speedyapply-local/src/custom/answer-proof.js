@@ -10,11 +10,6 @@ export function evidenceField(field) {
 }
 export function bindAnswerEvidence(answer, field, bound) {
   const proof = answer.proof;
-  const reviewOnly =
-    answer.reviewOnly === true &&
-    answer.decision === "draft" &&
-    answer.needsConfirmation === true &&
-    proof?.status === "proposed";
   const verified =
     ["write", "draft"].includes(answer.decision) &&
     answer.state === "answer" &&
@@ -22,7 +17,8 @@ export function bindAnswerEvidence(answer, field, bound) {
       ? answer.source === "profile"
       : answer.source === "suggestion") &&
     proof?.version === ANSWER_PROTOCOL &&
-    (proof.status === "verified" || reviewOnly) &&
+    proof.status === "verified" &&
+    answer.reviewOnly !== true &&
     proof.profileId === bound.id &&
     proof.profileVersion === bound.lastSync &&
     JSON.stringify(evidenceField(proof.field || {})) ===
@@ -46,7 +42,6 @@ export function bindAnswerEvidence(answer, field, bound) {
           profileVersion: bound.lastSync,
           id: proof.id,
           paths: proof.paths,
-          reviewOnly,
         }
       : null,
   };
@@ -67,17 +62,6 @@ export function verifiedAnswer(answer, field) {
   return (
     answer.reviewOnly !== true &&
     !answer.verification?.reviewOnly &&
-    matchesAnswer(answer, field)
-  );
-}
-
-export function reviewProposal(answer, field) {
-  return (
-    answer.reviewOnly === true &&
-    answer.needsConfirmation === true &&
-    answer.decision === "draft" &&
-    answer.source === "suggestion" &&
-    answer.verification?.reviewOnly === true &&
     matchesAnswer(answer, field)
   );
 }

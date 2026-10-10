@@ -15,7 +15,7 @@ def run(payload):
         values = []
         for identity in payload['profiles']:
             row = answer(case['binding'], case['meaning'], field, identity, 'synthetic', 'synthetic')
-            value = evaluate(case['binding']['predicate'], identity)
+            value = evaluate(case['binding']['predicate'], identity, case['binding'].get('argument', ''))
             values.append({'identity': identity['id'], 'value': row['value'] if row else None,
                            'concept': value[0] if value else None, 'route': case['binding']['predicate']})
         results.append({'key': case['key'], 'answers': values})

@@ -13,12 +13,6 @@ export async function recordAppliedStatus(message, sender) {
   )
     throw Error("Applied status requires the current posting document");
   const url = publicJobUrl(message.url);
-  const settings =
-    /** @type {{autofillSettings?:{saveApplications?:boolean}}} */ (
-      (await chrome.storage.local.get("settings")).settings
-    );
-  if (settings?.autofillSettings?.saveApplications === false)
-    return { ok: true, state: "disabled" };
   async function verify() {
     const live = await chrome.tabs.sendMessage(
       sender.tab.id,

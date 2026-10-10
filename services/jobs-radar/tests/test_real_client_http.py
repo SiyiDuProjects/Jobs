@@ -135,9 +135,8 @@ def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, 
         async def post(self, url, json):
             data = __import__('json').loads(json['input'])
             calls.append(data)
-            result = {'answers': [{'fieldId': 'motivation', 'state': 'needs_input', 'value': None,
-                        'source': 'unknown', 'needsConfirmation': True, 'reason': 'Fixture missing fact'}]} if 'fields' in data else {
-                        'state': 'answer', 'text': 'Fixture answer', 'source': 'profile'}
+            result = {'drafts':[{'fieldId':f['fieldId'],'text':'I enjoy building reliable services.'} for f in data['fields']]} if 'profile' in data else {
+                'mappings':[{'fieldId':f['fieldId'],'binding':{'predicate':'draft.motivation','options':[],'argument':'','polarity':True}} for f in data['fields']]}
             class Response:
                 status_code = 200
                 def json(self):
@@ -157,10 +156,12 @@ def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, 
                 break
             time.sleep(.01)
         assert status['state'] == 'completed', status
-    assert len(calls) == 2
-    assert calls[0]['profile']['profileName'] == 'Fixture'
-    assert calls[1]['formContext'][0]['answer'] == 'Fixture'
-    assert calls[1]['fields'][0]['fieldId'] == 'motivation'
+    assert len(calls) == 4
+    assert 'profile' not in calls[0] and 'profile' not in calls[2]
+    assert calls[1]['profile']['profileName'] == 'Fixture'
+    assert calls[2]['fields'][0]['fieldId'] == 'motivation'
+    assert 'formContext' not in calls[2], 'recognition receives no personal form values'
+
 
 
 @pytest.mark.parametrize('name', ['submit_attempt', 'submit_validation_error', 'ats_confirmation',

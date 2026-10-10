@@ -46,9 +46,9 @@ def export(store, output):
 
 def identities():
     for identity, employment, application in [
-        ('citizen', dict(eligibilityUS=True, sponsorship=False), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='US citizen')),
-        ('opt', dict(eligibilityUS=True, sponsorship=True), dict(sponsorshipNow=False, sponsorshipFuture=True, visaStatus='F-1 OPT')),
-        ('resident', dict(eligibilityUS=True, sponsorship=False), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='Green card')),
+        ('citizen', dict(eligibilityUS=True, sponsorship=False, citizenships=['United States']), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='US citizen')),
+        ('opt', dict(eligibilityUS=True, sponsorship=True, citizenships=['Example country']), dict(sponsorshipNow=False, sponsorshipFuture=True, visaStatus='F-1 OPT')),
+        ('resident', dict(eligibilityUS=True, sponsorship=False, citizenships=['Example country']), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='Green card')),
         ('unknown', {}, {}),
     ]:
         yield identity, dict(profileName='Synthetic ' + identity, nameData={}, addressData={}, contactData={}, jobData=[],
@@ -56,7 +56,7 @@ def identities():
                              employmentData=employment, applicationData=application)
 
 
-def invariants(key, identity, field, row):
+def invariants(key, identity, field, row, profile=None):
     failures = []
     value, decision = row.get('value'), row.get('decision')
     if value is not None and field['options']:
@@ -70,10 +70,10 @@ def invariants(key, identity, field, row):
     if value is not None and field['type'] == 'date':
         failures.append('invented_date')
     if decision == 'draft':
-        if row.get('meaning', {}).get('topic') not in {'preference', 'motivation', 'salary_preference', 'work_preference'}:
+        if not row.get('route','').startswith('draft.'):
             failures.append('fact_as_draft')
-        if not isinstance(value, str) or not value.strip() or re.search(r'\[(?:insert|your|company|name)|\{\{|<placeholder>', value, re.I):
-            failures.append('invalid_draft')
+        from jobs_radar.draft_quality import sample_issues
+        failures.extend(sample_issues(value,field,profile or {}))
     return [dict(questionId=key, identity=identity, rule=rule) for rule in failures]
 
 
@@ -110,7 +110,7 @@ async def baseline(input_path, output, limit, live, client=None):
                 results.append(dict(questionId=key, identity=identity, country=mapping['country'] if mapping else '',
                                     route=route, decision=row.get('decision', 'ask'), value=row.get('value'),
                                     reviewOnly=row.get('reviewOnly', False)))
-                violations.extend(invariants(key, identity, field, row))
+                violations.extend(invariants(key, identity, field, row, profile))
 
             for key, field, mapping, supported in cases:
                 row = answer(mapping['binding'], mapping['meaning'], field, profile, record['id'], record['last_sync']) if mapping else None
@@ -138,7 +138,7 @@ async def baseline(input_path, output, limit, live, client=None):
                    drafts=sum(row['decision'] == 'draft' for row in results), violations=len(violations),
                    providerUnavailable=sum(row['route'] == 'provider_unavailable' for row in results))
     save(output, dict(version=1, source=corpus.get('source'), syntheticFactsOnly=True, live=live, summary=summary,
-                      results=results, violations=violations, limitations=['Draft entity accuracy and language need independent sampling.']))
+                      results=results, violations=violations, limitations=['Proper-name checks flag suspicious tokens, not semantic truth. Prose and grounding still need human sampling.']))
     if live:
         save(output.with_suffix('.corpus.json'), {**corpus, 'bindings': [*corpus.get('bindings', []), *generated]})
     return summary

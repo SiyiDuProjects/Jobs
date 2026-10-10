@@ -1,11 +1,17 @@
-// Local behavior preferences are independent of synced Profiles and answers.
+// Website settings own behavior preferences; retain the old local value until synced.
 export const workdaySkillsPreferenceKey = "jobsWorkdaySkillsAutofill";
 
 export async function readAutofillPreferences(
   storage = globalThis.chrome?.storage?.local,
 ) {
-  const values = await storage?.get(workdaySkillsPreferenceKey);
-  return { workdaySkills: values?.[workdaySkillsPreferenceKey] === true };
+  const values = /** @type {any} */ (
+    await storage?.get(["settings", workdaySkillsPreferenceKey])
+  );
+  return {
+    workdaySkills:
+      (values?.settings?.autofillSettings?.workdaySkills ??
+        values?.[workdaySkillsPreferenceKey]) === true,
+  };
 }
 
 export async function saveWorkdaySkillsPreference(enabled, storage) {

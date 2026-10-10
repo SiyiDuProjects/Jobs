@@ -113,7 +113,6 @@ export function initializeAutomaticBackground() {
           const result = await JobsSync.generateAnswer({
             profileId: bound.id,
             profileVersion: bound.lastSync,
-            reviewSuggestions: true,
             jobUrl: job?.appUrl || operation.url,
             jobCountry:
               JobsProfileAnswers.scope?.([

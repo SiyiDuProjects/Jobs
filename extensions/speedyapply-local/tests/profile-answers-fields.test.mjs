@@ -641,7 +641,10 @@ test("typed answers: employment is ordered by dates with positive-only incomplet
     ),
     null,
   );
-  assert.equal(typedAnswer(api, "Have you ever worked at Example?", p), null);
+  assert.equal(
+    typedAnswer(api, "Have you ever worked at Example?", p).answer,
+    "No",
+  );
 });
 
 test("typed answers: one public resolver preserves old sponsorship while explicit new facts stay isolated by Profile", () => {

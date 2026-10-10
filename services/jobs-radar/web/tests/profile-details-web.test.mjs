@@ -17,7 +17,7 @@ async function fixture(){
  store.state={...store.state,loading:false,authenticated:true,current:record,profiles:[{id:record.id,profileName:'Newgrad'}]};
  w.TextEncoder=TextEncoder;
  w.fetch=async(url,init)=>{assert(url.startsWith('/api/manage/profiles'));const req=init.body?JSON.parse(init.body):{};let value,status=200;if(init.method==='PUT'){writes.push({id:record.id,...req});if(fail){status=409;value={error:'Profile version conflict'};}else value={id:record.id,last_sync:'v'+(writes.length+1)};}else value=[{id:record.id,profileName:'Newgrad'}];return{ok:status===200,status,json:async()=>value};};
- w.fixture.render();await until(()=>w.document.body.textContent.includes('编辑申请资料'));
+ w.fixture.render();await until(()=>w.document.body.textContent.includes('默认答案'));
  return{w,dom,errors,writes,store,fail:()=>{fail=true;}};
 }
 async function click(h,text){const b=[...h.w.document.querySelectorAll('button')].find(b=>b.textContent.trim()===text||b.getAttribute('aria-label')===text);assert(b,'button '+text);b.click();await tick();await tick();}
@@ -25,57 +25,8 @@ function input(h,label){const l=[...h.w.document.querySelectorAll('label')].find
 async function fill(h,label,value){const i=input(h,label);assert(i,'input '+label);const proto=i.tagName==='TEXTAREA'?h.w.HTMLTextAreaElement.prototype:h.w.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(i,value);i.dispatchEvent(new h.w.Event('input',{bubbles:true}));await tick();}
 async function choose(h,label,text){const b=h.w.document.querySelector(`button[aria-label="${label}"]`)||[...h.w.document.querySelectorAll('button')].find(b=>b.getAttribute('aria-labelledby')?.split(' ').some(id=>h.w.document.getElementById(id)?.textContent===label));assert(b,'select '+label);b.click();await tick();const item=[...h.w.document.querySelectorAll('[role="option"]')].find(x=>x.textContent.trim()===text);assert(item,'option '+text);item.click();await tick();await tick();}
 
-test('new details save per profile, preserve old fields and distinguish false from unknown',async()=>{const h=await fixture();try{
- const previous=structuredClone(h.store.state.current.profile);await click(h,'编辑申请资料');
- await fill(h,'最早到岗日期','2027-06-01');await fill(h,'签证／身份类型','User confirmed status');await fill(h,'AI 补充说明','Confirmed location preferences.');
- await choose(h,'现在需要赞助','否');await choose(h,'未来需要赞助','是');await choose(h,'未来需要赞助','未填写');
- await click(h,'Save');await until(()=>h.writes.length===1&&!h.w.document.querySelector('[role="dialog"]'));
- const saved=h.writes[0];assert.equal(saved.id,'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa');assert.equal(saved.expected_sync,'v1');
- assert.deepEqual(saved.profile.applicationData,{earliestStartDate:'2027-06-01',visaStatus:'User confirmed status',aiNotes:'Confirmed location preferences.',sponsorshipNow:false});
- const {applicationData,...old}=saved.profile;assert.deepEqual(old,previous);assert.deepEqual(h.errors,[]);
- await click(h,'编辑申请资料');assert.equal(input(h,'最早到岗日期').value,'2027-06-01');
-}finally{h.dom.window.close();}});
 
-test('education retains month while attending and keeps optional exact day consistent',async()=>{const h=await fixture();try{
- await click(h,'Edit');assert.equal(input(h,'Graduation month').value,'2027-05');
- await fill(h,'Exact graduation date (optional)','2027-06-17');assert.equal(input(h,'Graduation month').value,'2027-06');
- await fill(h,'Exact graduation date (optional)','');assert.equal(input(h,'Graduation month').value,'2027-06');
- await fill(h,'Exact graduation date (optional)','2027-06-18');await fill(h,'Graduation month','2027-07');assert.equal(input(h,'Exact graduation date (optional)').value,'');
- await fill(h,'Exact graduation date (optional)','2027-07-19');await click(h,'Save');await until(()=>h.writes.length===1);
- const e=h.writes[0].profile.educationData[0];assert.equal(e.endDate,'2027-07');assert.equal(e.graduationDate,'2027-07-19');assert.equal(e.currentlyAttending,true);assert.deepEqual(h.errors,[]);
-}finally{h.dom.window.close();}});
-
-test('work preferences preserve explicit false and remain editable per profile',async()=>{const h=await fixture();try{
- await click(h,'编辑申请资料');
- await choose(h,'愿意搬迁','是');await choose(h,'愿意到办公室工作','是');
- await choose(h,'愿意出差或为面试出行','是');await choose(h,'存在需披露的关系人任职','否');
- await click(h,'Save');await until(()=>h.writes.length===1&&!h.w.document.querySelector('[role="dialog"]'));
- assert.deepEqual(h.writes[0].profile.applicationData,{willingToRelocate:true,willingToWorkOnsite:true,willingToTravel:true,hasRelatedPeopleAtWork:false});
- await click(h,'编辑申请资料');await choose(h,'愿意搬迁','未填写');
- await click(h,'Save');await until(()=>h.writes.length===2);
- assert.equal(h.writes[1].profile.applicationData.willingToRelocate,undefined);
- assert.equal(h.writes[1].profile.applicationData.hasRelatedPeopleAtWork,false);assert.deepEqual(h.errors,[]);
-}finally{h.dom.window.close();}});
-
-test('weekly hours stay unset until chosen and can be saved, reopened and cleared without changing dates or notes',async()=>{const h=await fixture();try{
- assert.equal(h.store.state.current.profile.applicationData?.weeklyHours,undefined);
- await click(h,'编辑申请资料');await fill(h,'最早到岗日期','2027-06-01');
- await fill(h,'AI 补充说明','Available for an internship June 1 through August 31, 2027.');
- await choose(h,'每周可工作时长','30 小时／周');await click(h,'Save');
- await until(()=>h.writes.length===1&&!h.w.document.querySelector('[role="dialog"]'));
- assert.equal(h.writes[0].profile.applicationData.weeklyHours,'30');
- assert(h.w.document.body.textContent.includes('30 小时／周'));
- await click(h,'编辑申请资料');await choose(h,'每周可工作时长','未填写');await click(h,'Save');
- await until(()=>h.writes.length===2&&!h.w.document.querySelector('[role="dialog"]'));
- assert.equal(h.writes[1].profile.applicationData.weeklyHours,undefined);
- assert.equal(h.writes[1].profile.applicationData.earliestStartDate,'2027-06-01');
- assert.equal(h.writes[1].profile.applicationData.aiNotes,h.writes[0].profile.applicationData.aiNotes);
- assert.deepEqual(h.errors,[]);
-}finally{h.dom.window.close();}});
-
-test('salary requires unambiguous units and failed save preserves the draft',async()=>{const h=await fixture();try{
- await click(h,'编辑申请资料');await choose(h,'薪资要求','指定金额或范围');await fill(h,'期望金额／下限','90000');await click(h,'Save');
- assert.equal(h.writes.length,0);assert.match(h.w.document.body.textContent,/三位币种代码/);
- await fill(h,'币种（如 USD）','usd');await choose(h,'计薪方式','年基本工资');h.fail();await click(h,'Save');
- await until(()=>h.w.document.body.textContent.includes('Profile version conflict'));assert(h.w.document.querySelector('[role="dialog"]'));assert.equal(input(h,'期望金额／下限').value,'90000');assert.equal(h.writes[0].profile.applicationData.salaryCurrency,'USD');assert.deepEqual(h.errors,[]);
-}finally{h.dom.window.close();}});
+test('new Profile fields and explicit false save without touching old fields',async()=>{const h=await fixture();try{const prior=structuredClone(h.store.state.current.profile);await fill(h,'最早到岗日期','2027-06-01');await fill(h,'可工作至','2027-08-31');await fill(h,'得知职位的渠道','Company website');await choose(h,'签证或身份','F-1 OPT');await choose(h,'现在需要雇主担保','否');await choose(h,'未来需要雇主担保','是');await choose(h,'未来需要雇主担保','未填写');await click(h,'保存更改');await until(()=>h.writes.length===1);const p=h.writes[0].profile;assert.equal(p.applicationData.sponsorshipNow,false);assert.equal(p.applicationData.sponsorshipFuture,undefined);assert.equal(p.applicationData.visaStatus,'F-1 OPT');assert.equal(p.applicationData.availableUntil,'2027-08-31');assert.deepEqual(p.educationData,prior.educationData);assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
+test('education month stays imprecise unless exact day is supplied',async()=>{const h=await fixture();try{assert.equal(input(h,'毕业日期').type,'month');assert.equal(input(h,'毕业日期').value,'2027-05');const toggle=[...h.w.document.querySelectorAll('[role="switch"]')].find(x=>x.closest('label')?.textContent.includes('只知道月份'));toggle.click();await tick();assert.equal(input(h,'毕业日期').type,'date');assert.equal(input(h,'毕业日期').value,'');await fill(h,'毕业日期','2027-05-26');await click(h,'保存更改');await until(()=>h.writes.length===1);assert.equal(h.writes[0].profile.educationData[0].endDate,'2027-05');assert.equal(h.writes[0].profile.educationData[0].graduationDate,'2027-05-26');assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
+test('default answer categories require explicit enabling',async()=>{const h=await fixture();try{const toggle=[...h.w.document.querySelectorAll('[role="switch"]')].find(x=>x.closest('label')?.textContent.includes('政府任职'));assert(toggle);assert.equal(toggle.checked,false);toggle.click();await tick();await click(h,'保存更改');await until(()=>h.writes.length===1);assert.deepEqual(h.writes[0].profile.applicationData.defaultAnswers,['government']);assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
+test('salary stays unsaved until currency and period are provided',async()=>{const h=await fixture();try{await choose(h,'薪资要求','指定金额或范围');await fill(h,'金额或下限','90000');await click(h,'保存更改');await tick();assert.equal(h.writes.length,0);await fill(h,'货币代码','USD');await choose(h,'薪资口径','年基本工资');await click(h,'保存更改');await until(()=>h.writes.length===1);assert.equal(h.writes[0].profile.applicationData.salaryPeriod,'annual_base');assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});

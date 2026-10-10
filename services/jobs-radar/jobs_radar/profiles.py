@@ -93,6 +93,14 @@ class Profiles:
         raw = json.dumps(value, ensure_ascii=False, sort_keys=True)
         with self.store.connect(True) as connection:
             old = connection.execute('SELECT * FROM owner_profiles WHERE id=?', (identifier,)).fetchone()
+            # Legacy free-text visa values remain readable and unchanged. Only
+            # a new selection must use the current enum; no fact is guessed or migrated.
+            from .profile_contract import SCHEMA
+            visa = value.get('applicationData', {}).get('visaStatus', '')
+            choices = SCHEMA['properties']['applicationData']['properties']['visaStatus']['x-legacyEnum']
+            old_visa = json.loads(old['profile']).get('applicationData', {}).get('visaStatus', '') if old else ''
+            if visa not in choices and visa != old_visa:
+                raise ValueError('请选择签证或身份类型；旧值已保留')
             if old:
                 if old['deleted']:
                     raise ProfileConflict('此资料已删除；请重新读取资料列表')

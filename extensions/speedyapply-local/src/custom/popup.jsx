@@ -15,7 +15,6 @@ import { createPopupProfiles } from "./popup-profiles.js";
 import { createPopupJob } from "./popup-job.js";
 import { PanelProgress } from "./panel-progress.jsx";
 import { PopupAccount } from "./popup-account.jsx";
-import { PopupAutofill } from "./popup-autofill.jsx";
 
 function useController(create, initial) {
   const [state, setState] = useState(initial);
@@ -119,7 +118,6 @@ export function Popup() {
       <Separator />
       <PopupAccount />
       <Separator />
-      <PopupAutofill />
       <Separator />
       <section
         id="jobs-current-job"

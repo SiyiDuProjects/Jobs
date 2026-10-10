@@ -33,6 +33,8 @@ def test_external_record_then_later_ingestion_and_duplicate_preserves_progress(t
     s.ingest('speedyapply:newgrad:swe',[observation('speedyapply',url=URL)],'test')
     with s.connect() as c:assert c.execute('SELECT status FROM applications').fetchone()[0]=='submitted_unconfirmed'
     snap=m.snapshot()['appliedList']
+    assert snap['value'][0]['job'] is not None
+    assert snap['value'][0]['job']['title']
     import pytest
     from jobs_radar.profiles import ProfileConflict
     with pytest.raises(ProfileConflict):ApplicationRecords(s).mutate([dict(action='create',value=record(URL))],'duplicate-create')
@@ -83,3 +85,14 @@ def test_match_rules_company_scope_and_application_paths():
     assert job_key('https://jobs.ashbyhq.com/acme/123')!=job_key('https://jobs.ashbyhq.com/other/123')
     assert job_key('https://boards.greenhouse.io/acme/jobs/123')==job_key('https://job-boards.greenhouse.io/acme/jobs/123?gh_src=test')
     assert job_key('https://job-boards.greenhouse.io/acme/jobs/123')!=job_key('https://job-boards.greenhouse.io/other/jobs/123')
+
+
+def test_external_applications_remain_visible_without_any_job_rows(tmp_path):
+    s=Store(tmp_path/'external.db')
+    rows=ApplicationRecords(s)
+    for i in range(3):
+        rows.mutate([dict(action='create',value=record(f'https://jobs.ashbyhq.com/outside/{i}'))],f'new-external-{i}')
+    snapshot=Management(s).snapshot()['appliedList']['value']
+    assert len(snapshot)==3
+    assert all(r['job'] is None for r in snapshot)
+    assert len({r['id'] for r in snapshot})==3

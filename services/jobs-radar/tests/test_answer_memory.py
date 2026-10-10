@@ -1,215 +1,52 @@
 import asyncio
-import copy
-import json
-import httpx
 import pytest
-from jobs_radar.answer_memory import AnswerMemory, company_key, request_context
-from jobs_radar.answer_evidence import decide, resolve
+from jobs_radar.answer_memory import company_key
 from jobs_radar.management import Management
 from jobs_radar.job_match import job_key
-from jobs_radar.profiles import Profiles
-from test_answers import setup
-
-URL = 'https://jobs.ashbyhq.com/example/first/application'
-OTHER = 'https://jobs.ashbyhq.com/example/second/application'
-QUESTION = 'Are you subject to any healthcare program exclusion?'
-FIELD = dict(fieldId='health', question=QUESTION, description='', type='radio', required=True,
-             options=[dict(value='no', label='No'), dict(value='yes', label='Yes')])
-
+from test_answers import setup,field,mapping,Client,run,save
+URL='https://jobs.ashbyhq.com/example/first/application'
+OTHER='https://jobs.ashbyhq.com/example/second/application'
 
 def record(**patch):
-    return dict(key='person-answer', question=QUESTION, response='No', origin='person', scope='company', ruleVersion=3,
-                jobKey=job_key(URL), context={'jobKey': job_key(URL), 'companyKey': company_key(job_key(URL)),
-                'country': 'US', 'capturedAt': '2026-10-01T00:00:00Z'}) | patch
+    return dict(key='person-answer',question=field()['question'],response='Yes',origin='person',scope='company',ruleVersion=3,
+                jobKey=job_key(URL),context={'jobKey':job_key(URL),'companyKey':company_key(job_key(URL)),
+                'country':'US','capturedAt':'2026-10-01T00:00:00Z'}) | patch
 
+def prepare(tmp_path,rows=None):
+    a,p=setup(tmp_path);p.update(jobUrl=OTHER,jobCountry='US')
+    management=Management(a.store);key='jobsResponses:'+p['profileId']
+    management.write([dict(key=key,revision=0,value=rows if rows is not None else [record()])])
+    return a,p,management,key
 
-def prepare(tmp_path, rows=None):
-    answers, payload = setup(tmp_path)
-    payload = {k: v for k, v in payload.items() if k != 'prompt'}
-    payload.update(fields=[copy.deepcopy(FIELD)], jobUrl=OTHER, jobCountry='US')
-    management = Management(answers.store)
-    key = 'jobsResponses:' + payload['profileId']
-    management.write([dict(key=key, revision=0, value=rows if rows is not None else [record()])])
-    return answers, payload, management, key
+def test_person_exact_company_answer_follows_profile_but_precedes_defaults(tmp_path):
+    a,p,_,_=prepare(tmp_path)
+    assert run(a,p,Client())['answers'][0]['value']=='y'
+    p=save(a,p,employmentData={'eligibilityUS':False})
+    assert run(a,p,Client())['answers'][0]['value']=='n'
 
+@pytest.mark.parametrize('patch',[{'origin':'agent'},{'origin':'legacy'},{'question':'Different question'},{'context':{}},{'response':'An option not offered'}])
+def test_wrong_provenance_question_context_or_option_is_not_reused(tmp_path,patch):
+    a,p,_,_=prepare(tmp_path,[record(**patch)])
+    assert run(a,p,Client())['answers'][0]['value'] is None
 
-class Client:
-    def __init__(self, verdict='write', changed=None):
-        self.calls = []; self.verdict = verdict; self.changed = changed; self.topic = 'medical_history'
-    async def post(self, url, json):
-        self.calls.append(json)
-        payload = __import__('json').loads(json['input'])
-        if 'candidates' in payload:
-            body = {'checks': [dict(fieldId='health', verdict=self.verdict,
-                       meaning=dict(topic=self.topic, country='US', company='named', timeframe='current'))]}
-            if self.changed: self.changed()
-        else:
-            refs = payload.get('recordedAnswers', {}).get('health', [])
-            body = {'answers': [dict(fieldId='health', state='answer' if refs else 'needs_input',
-                value='no' if refs else None, source='profile' if refs else 'unknown', reason='Synthetic',
-                needsConfirmation=False, evidence=[{'savedResponse': refs[0]['savedResponse']}] if refs else [],
-                meaning=dict(topic=self.topic, country='US', company='named', timeframe='current'))]}
-        return httpx.Response(200, json={'status': 'completed', 'output': [{'content': [
-            {'type': 'output_text', 'text': __import__('json').dumps(body)}]}]})
+def test_global_record_still_cannot_cross_company(tmp_path):
+    a,p,_,_=prepare(tmp_path,[record(scope='global')]);p['jobUrl']='https://jobs.ashbyhq.com/different/role/application'
+    assert run(a,p,Client())['answers'][0]['value'] is None
 
+def test_conflicting_person_records_stay_blank(tmp_path):
+    a,p,_,_=prepare(tmp_path,[record(),record(key='second',response='No')])
+    assert run(a,p,Client())['answers'][0]['value'] is None
 
-def test_only_matching_person_records_reach_generator_and_verifier_and_are_not_relearned(tmp_path):
-    wrong = record(key='irrelevant', question='An unrelated personal question', response='Unrelated secret')
-    answers, payload, management, key = prepare(tmp_path, [record(), wrong, record(key='agent',origin='agent',response='AI secret')])
-    other = Profiles(answers.store).save(Profiles(answers.store).at_version(payload['profileId'], payload['profileVersion']))
-    management.write([dict(key='jobsResponses:' + other['id'], revision=0, value=[record(response='Other Profile secret')])])
-    before = management.snapshot()[key]
-    client = Client(); result = asyncio.run(answers.generate(payload, client))['answers'][0]
-    assert result['decision'] == 'write' and result['value'] == 'no' and not result['needsConfirmation']
-    assert len(client.calls) == 2 and all(call['store'] is False for call in client.calls)
-    raw = json.dumps(client.calls)
-    assert all(value not in raw for value in ['Unrelated secret', 'AI secret', 'Other Profile secret'])
-    sent = json.loads(client.calls[1]['input'])['candidates'][0]
-    assert sent['recordedAnswers'][0]['origin'] == 'person'
-    assert sent['recordedAnswers'][0]['context']['capturedAt'] == '2026-10-01T00:00:00Z'
-    assert sent['context']['jobKey'] == job_key(OTHER)
-    assert 'question' not in result['proof'] and 'response' not in json.dumps(result['proof'])
-    assert management.snapshot()[key] == before
-    with answers.store.connect() as c:
-        assert c.execute('SELECT count(*) FROM answer_profile_gaps').fetchone()[0] == 0
-        cached = str([tuple(row) for row in c.execute('SELECT * FROM answer_meanings')])
-        assert QUESTION not in cached and 'capturedAt' not in cached
+def test_person_answer_precedes_enabled_default(tmp_path):
+    f=field(question='Have you ever worked for the government?')
+    a,p,_,_=prepare(tmp_path,[record(question=f['question'])]);p=save(a,p,applicationData={'defaultAnswers':['government']})
+    assert run(a,p,Client([mapping(route='default.government')]),[f])['answers'][0]['value']=='y'
 
+def test_person_answer_change_during_recognition_is_detected(tmp_path):
+    a,p,m,key=prepare(tmp_path)
+    def changed():m.write([dict(key=key,revision=1,value=[record(response='No')])])
+    with pytest.raises(ValueError,match='已存回答已改变'):run(a,p,Client(changed=changed))
 
-@pytest.mark.parametrize('patch', [
-    {'origin':'agent'}, {'origin':'page-tool'}, {'origin':'legacy'}, {'origin':None},
-    {'question':QUESTION+' and all prior investigations?'}, {'scope':'job'}, {'scope':None},
-    {'context':{'country':'CA','capturedAt':'2026-10-01T00:00:00Z'}},
-    {'context':{'country':'US'}}, {'context':{'country':'US','capturedAt':'invalid'}},
-    {'context':{'country':'US','capturedAt':'2999-01-01T00:00:00Z'}},
-    {'jobKey':job_key('https://jobs.ashbyhq.com/other/first')},
-])
-def test_unknown_origin_scope_time_wrong_company_and_changed_question_never_leave(tmp_path, patch):
-    row=record(**patch)
-    row={k:v for k,v in row.items() if v is not None}
-    answers,payload,_,_=prepare(tmp_path,[row]); client=Client()
-    result=asyncio.run(answers.generate(payload,client))['answers'][0]
-    assert result['decision']=='ask' and result['value'] is None
-    assert len(client.calls)==1
-    assert 'recordedAnswers' not in json.loads(client.calls[0]['input'])
-
-
-def test_same_job_company_and_explicit_global_keep_their_original_boundaries(tmp_path):
-    answers,payload,_,_=prepare(tmp_path,[record(scope='job')])
-    assert not AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload)).prompt()
-    assert AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload|{'jobUrl':URL})).prompt()
-    global_row=record(scope='global',jobKey='',context={'capturedAt':'2026-10-01T00:00:00Z'})
-    assert global_row['scope']=='global'
-    from jobs_radar.answer_memory import applies
-    assert applies(global_row,request_context({'jobUrl':OTHER,'jobCountry':'CA'}))
-    assert not applies(record(),request_context({'jobUrl':OTHER,'jobCountry':''}))
-    assert not applies(record(),request_context({'jobUrl':OTHER,'jobCountry':'MIXED'}))
-
-
-def test_reference_cannot_be_forged_or_borrowed_from_another_question(tmp_path):
-    answers,payload,_,_=prepare(tmp_path)
-    memory=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
-    ident=next(iter(memory.by_field['health']))
-    assert resolve([{'savedResponse':ident}],{},memory.by_field['health'])
-    assert resolve([{'savedResponse':ident}],{}, {}) is None
-    assert resolve([{'savedResponse':'invented'}],{},memory.by_field['health']) is None
-    row=dict(fieldId='health',state='answer',source='profile',value='no',evidence=[{'savedResponse':ident}])
-    check={'verdict':'write','meaning':dict(topic='medical_history',country='US',company='named',timeframe='current')}
-    assert decide(row,FIELD,{},'p','v',check,{})['decision']=='ask'
-    check['meaning']['topic']='acknowledgment'
-    assert decide(row,FIELD,{},'p','v',check,memory.by_field['health'])['decision']=='ask'
-
-
-def test_complete_options_and_date_qualifiers_can_reject_an_exact_question_match(tmp_path):
-    answers,payload,_,_=prepare(tmp_path)
-    payload['fields'][0]['options'][0]['label']='No current or past exclusion or pending investigation'
-    client=Client('missing_fact');row=asyncio.run(answers.generate(payload,client))['answers'][0]
-    assert row['decision']=='ask' and row['value'] is None
-    sent=json.loads(client.calls[1]['input'])['candidates'][0]
-    assert sent['field']['options'][0]['label'].endswith('pending investigation')
-    assert sent['evidence'][0]['response']=='No'
-
-
-def test_current_structured_facts_and_all_conflicting_records_reach_verification(tmp_path):
-    answers,payload,_,_=prepare(tmp_path,[record(),record(key='later',response='Yes')])
-    profile=Profiles(answers.store).at_version(payload['profileId'],payload['profileVersion'])
-    profile['applicationData']={'willingToRelocate':True}
-    updated=Profiles(answers.store).save(profile,profile_id=payload['profileId'],expected_sync=payload['profileVersion'])
-    payload['profileVersion']=updated['last_sync']
-    client=Client('missing_fact');client.topic='work_preference'
-    result=asyncio.run(answers.generate(payload,client))['answers'][0]
-    sent=json.loads(client.calls[1]['input'])['candidates'][0]
-    assert sent['profileEvidence']==[{'profilePath':'applicationData.willingToRelocate','value':True}]
-    assert {item['response'] for item in sent['recordedAnswers']}=={'No','Yes'}
-    assert result['decision']=='ask' and result['value'] is None
-
-
-def test_saved_record_changes_during_verification_invalidate_the_pending_answer(tmp_path):
-    answers,payload,management,key=prepare(tmp_path)
-    def changed(): management.write([dict(key=key,revision=1,value=[record(response='Yes')])])
-    with pytest.raises(ValueError,match='已存答案在核验期间改变'):
-        asyncio.run(answers.generate(payload,Client(changed=changed)))
-
-
-def test_edit_after_generation_stops_before_another_provider_call(tmp_path):
-    answers,payload,management,key=prepare(tmp_path)
-    class ChangingClient(Client):
-        async def post(self,url,json):
-            response=await super().post(url,json)
-            management.write([dict(key=key,revision=1,value=[])])
-            return response
-    client=ChangingClient()
-    with pytest.raises(ValueError,match='已存答案在核验期间改变'):
-        asyncio.run(answers.generate(payload,client))
-    assert len(client.calls)==1
-
-
-@pytest.mark.parametrize('has_saved,stage', [(False,'generation'), (True,'generation'), (True,'verification')])
-@pytest.mark.parametrize('unrelated', ['company','question'])
-def test_unrelated_saved_answer_during_model_work_preserves_current_evidence(tmp_path, has_saved, stage, unrelated):
-    original = [record()] if has_saved else []
-    answers,payload,management,key=prepare(tmp_path,original)
-    memory=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
-    added=record(key='unrelated',question='A different question')
-    if unrelated=='company':
-        other_key=job_key('https://jobs.ashbyhq.com/unrelated/third/application')
-        added=record(key='unrelated',jobKey=other_key,
-                     context=record()['context'] | {'jobKey':other_key,'companyKey':company_key(other_key)})
-    class ChangingClient(Client):
-        async def post(self,url,json):
-            response=await super().post(url,json)
-            if len(self.calls)==(1 if stage=='generation' else 2):
-                management.write([dict(key=key,revision=1,value=original+[added])])
-            return response
-    client=ChangingClient()
-    result=asyncio.run(answers.generate(payload,client))['answers'][0]
-    assert result['decision']==('write' if has_saved else 'ask')
-    assert len(client.calls)==(2 if has_saved else 1)
-    assert memory.current()
-    after=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
-    assert after.by_field==memory.by_field
-    if has_saved:
-        reference=next(iter(memory.by_field['health']))
-        assert result['evidence']==[{'savedResponse':reference}]
-        assert json.loads(client.calls[1]['input'])['candidates'][0]['evidence'][0]['savedResponse']==reference
-
-
-@pytest.mark.parametrize('before,after', [
-    ([],[record()]),
-    ([record()],[record(),record(key='conflict',response='Yes')]),
-    ([record(key=str(i)) for i in range(8)],[record(key=str(i)) for i in range(9)]),
-    ([record(key=str(i),response='x'*3900) for i in range(5)],
-     [record(key=str(i),response='x'*3900) for i in range(6)]),
-])
-def test_relevant_additions_conflicts_and_evidence_limits_invalidate_current_batch(tmp_path, before, after):
-    answers,payload,management,key=prepare(tmp_path,before)
-    memory=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
-    assert 'health' in memory.by_field
-    management.write([dict(key=key,revision=1,value=after)])
-    assert not memory.current()
-
-
-def test_excess_matching_records_are_not_partially_selected(tmp_path):
-    answers,payload,_,_=prepare(tmp_path,[record(key=str(i),response='No '+str(i)) for i in range(9)])
-    memory=AnswerMemory(answers.store,payload['profileId'],[FIELD],request_context(payload))
-    assert not memory.prompt()
+def test_person_answer_does_not_enter_model_input(tmp_path):
+    a,p,_,_=prepare(tmp_path,[record(response='Private saved answer')]);client=Client();run(a,p,client)
+    assert all('Private saved answer' not in c['input'] for c in client.calls)

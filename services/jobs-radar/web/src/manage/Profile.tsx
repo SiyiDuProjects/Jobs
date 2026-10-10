@@ -1,371 +1,472 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  Button,
-  Card,
-  Chip,
-  CloseButton,
-  Input,
-  Separator,
-  TextField,
-} from "@heroui/react";
-import { DataGrid, type DataGridColumn } from "@heroui-pro/react";
+import { useEffect, useState } from "react";
+import { Button, Card } from "@heroui/react";
 import { store, useManagement } from "./store";
-import { savedResponses } from "./saved-responses";
 import {
-  assertProfile,
   blankEducation,
   blankJob,
-  defaultProfile,
-  safeHref,
+  same,
   type Profile as ProfileData,
-  type ProfileRecord,
-  type Response,
 } from "./model";
-import options from "./profile-options.json";
-import { ApplicationDetailsCard } from "./ApplicationDetails";
-import {
-  act,
-  Choice,
-  Dialog,
-  download,
-  Field,
-  Menu,
-  Toggle,
-  Upload,
-} from "./components";
-
-import { SaveField, Tags } from "./ProfileWidgets";
-import {
-  PersonalEditor,
-  HistoryEditor,
-  Employment,
-  RenameProfile,
-  ResumeEditor,
-  ProfileImport,
-} from "./ProfileEditors";
-import { Responses } from "./Responses";
-export { SaveField } from "./ProfileWidgets";
+import { Field, Menu, Upload, Toggle, download } from "./components";
+import { Tags } from "./ProfileWidgets";
+import { HistoryFields, readResume } from "./ProfileEditors";
+import { ProfilePersonal, ProfilePreferences } from "./ProfilePreferences";
 export { NewProfile } from "./NewProfile";
+export { SaveField } from "./ProfileWidgets";
+const missingPaths = [
+  "nameData.firstName",
+  "nameData.lastName",
+  "contactData.email",
+  "contactData.phoneNumber",
+  "addressData.country",
+  "addressData.city",
+  "employmentData.citizenships",
+  "applicationData.visaStatus",
+  "applicationData.sponsorshipNow",
+  "applicationData.sponsorshipFuture",
+  "applicationData.earliestStartDate",
+];
+export function missingProfileFields(p: ProfileData) {
+  return missingPaths.filter((path) => {
+    const [group, key] = path.split(".");
+    const value = (p as any)[group]?.[key];
+    return (
+      value === undefined ||
+      value === "" ||
+      (Array.isArray(value) && !value.length)
+    );
+  }).length;
+}
 export function Profile() {
-  const { current, profiles } = useManagement(),
-    [edit, setEdit] = useState<{ type: string; index?: number } | null>(null);
+  const { current, docs, pending } = useManagement();
   if (!current)
     return (
-      <>
-        <h1 className="text-3xl font-semibold">Profile</h1>
-        <Card>
-          <Card.Content>No profile yet.</Card.Content>
-          <Card.Footer>
-            <Button
-              onPress={() => {
-                location.hash = "/profile/new";
-              }}
-            >
-              Create Profile
-            </Button>
-          </Card.Footer>
-        </Card>
-      </>
+      <div className="space-y-4">
+        <h1 className="text-2xl font-semibold">资料</h1>
+        <p>还没有资料。</p>
+        <Button
+          onPress={() => {
+            location.hash = "/profile/new";
+          }}
+        >
+          新建资料
+        </Button>
+      </div>
     );
-  const p = current.profile,
-    close = () => setEdit(null);
-  const setPart = (part: string, value: any) =>
-    act(store.saveProfile({ ...p, [part]: value }, current));
   return (
-    <>
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-semibold tracking-tight">Profile</h1>
+    <ProfileForm
+      key={current.id}
+      record={current}
+      responses={docs["jobsResponses:" + current.id]?.value || []}
+      busy={pending > 0}
+    />
+  );
+}
+function ProfileForm({
+  record,
+  responses,
+  busy,
+}: {
+  record: NonNullable<ReturnType<typeof useManagement>["current"]>;
+  responses: any[];
+  busy: boolean;
+}) {
+  const [p, setP] = useState<ProfileData>(() =>
+    structuredClone(record.profile),
+  );
+  const [base, setBase] = useState(record.profile);
+  const dirty = !same(p, base);
+  useEffect(() => {
+    if (!dirty) {
+      setP(structuredClone(record.profile));
+      setBase(record.profile);
+    }
+  }, [record.last_sync]);
+  useEffect(() => {
+    const before = (e: BeforeUnloadEvent) => {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", before);
+    return () => window.removeEventListener("beforeunload", before);
+  }, [dirty]);
+  useEffect(() => {
+    store.setDraftDirty(dirty);
+    return () => store.setDraftDirty(false);
+  }, [dirty]);
+  const part = (key: keyof ProfileData, value: any) =>
+    setP((old) => ({ ...old, [key]: value }));
+  const textGroup = (
+    group: "nameData" | "contactData" | "addressData" | "websiteData",
+    fields: Record<string, string>,
+  ) => (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {Object.entries(fields).map(([key, label]) => (
+        <Field
+          key={key}
+          label={label}
+          value={(p[group] as any)[key]}
+          onChange={(v) => part(group, { ...p[group], [key]: v })}
+        />
+      ))}
+    </div>
+  );
+  const save = async () => {
+    try {
+      await store.saveProfile(p, { ...record, profile: base });
+      const saved = store.state.current!.profile;
+      setBase(saved);
+      setP(structuredClone(saved));
+    } catch (e) {
+      store.report(e);
+    }
+  };
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold">{p.profileName}</h1>
+          <p className="text-sm text-muted mt-1">
+            常用资料还有 {missingProfileFields(p)} 项未填写
+          </p>
+        </div>
         <Menu
-          label={p.profileName}
+          label="管理资料"
           items={[
             {
               id: "new",
-              label: "New",
+              label: "新建资料",
+              disabled: dirty,
               action: () => {
                 location.hash = "/profile/new";
               },
             },
             {
-              id: "rename",
-              label: "Rename",
-              action: () => setEdit({ type: "rename" }),
+              id: "export",
+              label: "导出资料",
+              action: () =>
+                download(
+                  "profile.json",
+                  JSON.stringify(p, null, 2),
+                  "application/json",
+                ),
             },
             {
-              id: "import",
-              label: "Import",
-              action: () => setEdit({ type: "import" }),
+              id: "responses",
+              label: "导出旧回答",
+              action: () =>
+                download(
+                  "saved-responses.json",
+                  JSON.stringify(responses, null, 2),
+                  "application/json",
+                ),
             },
-            {
-              id: "delete",
-              label: "Delete",
-              danger: true,
-              disabled: profiles.length < 2,
-              action: () => setEdit({ type: "delete" }),
-            },
-            ...profiles.map((profile) => ({
-              id: profile.id,
-              label: profile.profileName,
-              action: () => act(store.selectProfile(profile.id)),
-            })),
           ]}
         />
       </div>
-      <Card>
-        <Card.Header className="flex-row justify-between items-start">
-          <div>
-            <Card.Title>
-              {[p.nameData.firstName, p.nameData.lastName]
-                .filter(Boolean)
-                .join(" ") || "Personal Details"}
-            </Card.Title>
-            <Card.Description>{p.contactData.email}</Card.Description>
-          </div>
-          <Button
-            variant="secondary"
-            onPress={() => setEdit({ type: "personal" })}
+      <nav
+        aria-label="资料分区"
+        className="sticky top-0 z-10 flex gap-5 bg-background py-3 border-b border-separator"
+      >
+        {[
+          ["experience", "经历"],
+          ["personal", "个人"],
+          ["preferences", "偏好"],
+        ].map(([id, label]) => (
+          <a
+            key={id}
+            href={`#/profile?section=${id}`}
+            className="text-sm text-accent"
+            onClick={(e) => {
+              e.preventDefault();
+              document
+                .getElementById(id)
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
           >
-            Edit Personal Details
+            {label}
+          </a>
+        ))}
+        {dirty && (
+          <Button size="sm" className="ml-auto" isPending={busy} onPress={save}>
+            保存更改
           </Button>
-        </Card.Header>
-        <Card.Content>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="text-muted text-sm">Phone</p>
-              <p>
-                {[p.contactData.phoneCountryCode, p.contactData.phoneNumber]
-                  .filter(Boolean)
-                  .join(" ") || "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted text-sm">Location</p>
-              <p>
-                {[
-                  p.addressData.line1,
-                  p.addressData.city,
-                  p.addressData.state,
-                  p.addressData.country,
-                ]
-                  .filter(Boolean)
-                  .join(", ") || "—"}
-              </p>
-            </div>
-            {!!p.languageData.length && (
-              <div className="sm:col-span-2">
-                <p className="text-muted text-sm">Languages</p>
-                <div className="flex gap-2 flex-wrap mt-2">
-                  {p.languageData.map((l, i) => (
-                    <Chip key={i} variant="soft">
-                      {l.language} · {l.proficiency}
-                    </Chip>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </Card.Content>
-      </Card>
-      <Card>
+        )}
+      </nav>
+      <Card id="experience" className="scroll-mt-16">
         <Card.Header>
-          <Card.Title>Resume, Websites, &amp; Skills</Card.Title>
+          <Card.Title>经历</Card.Title>
         </Card.Header>
         <Card.Content className="gap-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="font-medium">
-                {p.resumeData.fileName || "No resume uploaded"}
-              </p>
-              <p className="text-muted text-sm">
-                {p.resumeData.fileSize
-                  ? `${Math.round(p.resumeData.fileSize)} KB`
-                  : ""}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                onPress={() => setEdit({ type: "resume" })}
-              >
-                Upload Resume
-              </Button>
-            </div>
-          </div>
-          <Separator />
-          <div className="grid gap-4 sm:grid-cols-2">
-            {["linkedin", "github", "twitter", "personal"].map((key) => (
-              <SaveField
-                key={current.id + key}
-                label={
-                  key === "personal"
-                    ? "Personal Website"
-                    : key[0].toUpperCase() + key.slice(1)
-                }
-                value={p.websiteData[key] || ""}
-                onSave={(value) =>
-                  store.saveProfile(
-                    { ...p, websiteData: { ...p.websiteData, [key]: value } },
-                    current,
-                  )
-                }
-              />
-            ))}
-            {(p.websiteData.websites || []).map((url: string, i: number) => (
-              <div className="flex gap-2 items-end" key={i}>
-                <SaveField
-                  label={`Website ${i + 1}`}
-                  value={url}
-                  onSave={(value) =>
-                    store.saveProfile(
-                      {
-                        ...p,
-                        websiteData: {
-                          ...p.websiteData,
-                          websites: (p.websiteData.websites || []).map(
-                            (v: string, n: number) => (n === i ? value : v),
-                          ),
-                        },
-                      },
-                      current,
-                    )
-                  }
-                />
+          {(["jobData", "educationData"] as const).map((kind) => (
+            <section key={kind} className="space-y-4">
+              <div className="flex justify-between">
+                <h3 className="font-medium">
+                  {kind === "jobData" ? "工作经历" : "教育经历"}
+                </h3>
                 <Button
-                  aria-label={`Remove website ${i + 1}`}
-                  variant="ghost"
+                  size="sm"
+                  variant="secondary"
                   onPress={() =>
-                    setPart("websiteData", {
-                      ...p.websiteData,
-                      websites: (p.websiteData.websites || []).filter(
-                        (_: string, n: number) => n !== i,
+                    part(kind, [
+                      ...p[kind],
+                      structuredClone(
+                        kind === "jobData" ? blankJob : blankEducation,
                       ),
-                    })
+                    ])
                   }
                 >
-                  Remove
+                  添加
+                </Button>
+              </div>
+              {p[kind].map((item, i) => (
+                <div
+                  key={i}
+                  className="border-b border-separator pb-4 space-y-2"
+                >
+                  <HistoryFields
+                    kind={kind}
+                    item={item}
+                    onChange={(v) =>
+                      part(
+                        kind,
+                        p[kind].map((old, n) => (n === i ? v : old)),
+                      )
+                    }
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onPress={() =>
+                      part(
+                        kind,
+                        p[kind].filter((_, n) => n !== i),
+                      )
+                    }
+                  >
+                    移除这条经历
+                  </Button>
+                </div>
+              ))}
+            </section>
+          ))}
+          <section className="space-y-4">
+            <div className="flex justify-between">
+              <h3 className="font-medium">项目经历</h3>
+              <Button
+                size="sm"
+                variant="secondary"
+                onPress={() =>
+                  part("projectData", [
+                    ...(p.projectData || []),
+                    {
+                      name: "",
+                      link: "",
+                      startDate: "",
+                      endDate: "",
+                      description: "",
+                    },
+                  ])
+                }
+              >
+                添加项目
+              </Button>
+            </div>
+            {(p.projectData || []).map((project, i) => (
+              <div
+                key={i}
+                className="grid gap-4 sm:grid-cols-2 border-b border-separator pb-4"
+              >
+                {Object.entries({
+                  name: "名称",
+                  link: "链接",
+                  startDate: "开始月份",
+                  endDate: "结束月份",
+                  description: "描述",
+                }).map(([key, label]) => (
+                  <Field
+                    key={key}
+                    label={label}
+                    type={key.endsWith("Date") ? "month" : "text"}
+                    multiline={key === "description"}
+                    value={(project as any)[key]}
+                    onChange={(v) =>
+                      part(
+                        "projectData",
+                        p.projectData!.map((old, n) =>
+                          n === i ? { ...old, [key]: v } : old,
+                        ),
+                      )
+                    }
+                  />
+                ))}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onPress={() =>
+                    part(
+                      "projectData",
+                      p.projectData!.filter((_, n) => n !== i),
+                    )
+                  }
+                >
+                  移除项目
                 </Button>
               </div>
             ))}
-          </div>
-          <Button
-            variant="ghost"
-            className="self-start"
-            onPress={() =>
-              setPart("websiteData", {
-                ...p.websiteData,
-                websites: [...(p.websiteData.websites || []), ""],
-              })
-            }
-          >
-            Add Website
-          </Button>
+          </section>
           <Tags
-            key={current.id}
-            label="Skills"
+            label="技能"
             value={p.skillsData || []}
+            onChange={(v) => part("skillsData", v)}
             limit={25}
-            onChange={(value) => setPart("skillsData", value)}
           />
+          <section className="space-y-3">
+            <h3 className="font-medium">语言</h3>
+            {p.languageData.map((item, i) => (
+              <div className="flex flex-wrap gap-3 items-end" key={i}>
+                <Field
+                  label="语言"
+                  value={item.language}
+                  onChange={(v) =>
+                    part(
+                      "languageData",
+                      p.languageData.map((old, n) =>
+                        n === i ? { ...old, language: v } : old,
+                      ),
+                    )
+                  }
+                />
+                <Field
+                  label="熟练程度"
+                  value={item.proficiency}
+                  onChange={(v) =>
+                    part(
+                      "languageData",
+                      p.languageData.map((old, n) =>
+                        n === i ? { ...old, proficiency: v } : old,
+                      ),
+                    )
+                  }
+                />
+                <Toggle label="流利" value={!!item.fluent} onChange={(v) => part("languageData", p.languageData.map((old,n) => n === i ? {...old, fluent:v} : old))} />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onPress={() =>
+                    part(
+                      "languageData",
+                      p.languageData.filter((_, n) => n !== i),
+                    )
+                  }
+                >
+                  移除
+                </Button>
+              </div>
+            ))}
+            <Button
+              size="sm"
+              variant="secondary"
+              onPress={() =>
+                part("languageData", [
+                  ...p.languageData,
+                  { language: "", proficiency: "" },
+                ])
+              }
+            >
+              添加语言
+            </Button>
+          </section>
+          {textGroup("websiteData", {
+            linkedin: "LinkedIn",
+            github: "GitHub",
+            portfolio: "作品集",
+          })}
+          <Tags
+            label="其他链接"
+            value={p.websiteData.websites || []}
+            onChange={(v) =>
+              part("websiteData", { ...p.websiteData, websites: v })
+            }
+          />
+          <section className="space-y-2">
+            <h3 className="font-medium">简历</h3>
+            <p className="text-sm text-muted">
+              {p.resumeData.fileName || "未上传"}
+            </p>
+            <Upload
+              label="上传 PDF"
+              accept=".pdf"
+              onFile={async (f) => part("resumeData", await readResume(f))}
+            />
+          </section>
         </Card.Content>
       </Card>
-      {(["jobData", "educationData"] as const).map((kind) => (
-        <Card key={kind}>
-          <Card.Header className="flex-row justify-between">
-            <Card.Title>
-              {kind === "jobData" ? "Work History" : "Education History"}
-            </Card.Title>
-            <Button variant="secondary" onPress={() => setEdit({ type: kind })}>
-              {kind === "jobData" ? "Add Job" : "Add Education"}
-            </Button>
-          </Card.Header>
-          <Card.Content className="gap-4">
-            {p[kind].length ? (
-              p[kind].map((item, i) => (
-                <div key={i} className="flex justify-between gap-4 items-start">
-                  <div>
-                    <p className="font-medium">
-                      {kind === "jobData" ? item.jobTitle : item.school}
-                    </p>
-                    <p className="text-muted">
-                      {kind === "jobData"
-                        ? item.company
-                        : [item.degree, item.fieldOfStudy]
-                            .filter(Boolean)
-                            .join(" · ")}
-                    </p>
-                    <p className="text-muted text-sm">
-                      {item.startDate} –{" "}
-                      {kind === "jobData" && item.currentlyWorkHere
-                        ? "Present"
-                        : item.graduationDate || item.endDate}
-                    </p>
-                    {item.description && (
-                      <p className="text-sm whitespace-pre-wrap mt-2">
-                        {item.description}
-                      </p>
-                    )}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    onPress={() => setEdit({ type: kind, index: i })}
-                  >
-                    Edit
-                  </Button>
-                </div>
-              ))
-            ) : (
-              <p className="text-muted">
-                {kind === "jobData"
-                  ? "No work history added"
-                  : "No education added"}
-              </p>
-            )}
-          </Card.Content>
-        </Card>
-      ))}
-      <Card>
+      <Card id="personal" className="scroll-mt-16">
         <Card.Header>
-          <Card.Title>Equal Employment Information</Card.Title>
+          <Card.Title>个人</Card.Title>
+        </Card.Header>
+        <Card.Content className="gap-5">
+          <Field
+            label="资料名称"
+            value={p.profileName}
+            onChange={(v) => part("profileName", v)}
+          />
+          {textGroup("nameData", {
+            firstName: "名",
+            middleName: "中间名",
+            lastName: "姓",
+            prefix: "称谓",
+            suffix: "姓名后缀",
+            preferredFirstName: "常用名",
+            preferredMiddleName: "常用中间名",
+            preferredLastName: "常用姓",
+          })}
+          <Toggle label="使用常用名" value={!!p.nameData.preferredName}
+            onChange={(v) => part("nameData", {...p.nameData, preferredName: v})} />
+          {textGroup("contactData", {
+            email: "邮箱",
+            phoneCountryCode: "电话国家代码",
+            phoneNumber: "电话",
+            phoneDeviceType: "电话类型",
+          })}
+          {textGroup("addressData", {
+            line1: "街道地址",
+            line2: "公寓或门牌补充",
+            city: "城市",
+            state: "州或省",
+            postalCode: "邮编",
+            country: "国家",
+          })}
+          <ProfilePersonal p={p} onChange={setP} />
+        </Card.Content>
+      </Card>
+      <Card id="preferences" className="scroll-mt-16">
+        <Card.Header>
+          <Card.Title>偏好</Card.Title>
         </Card.Header>
         <Card.Content>
-          <Employment
-            data={p.employmentData}
-            onChange={(data) => setPart("employmentData", data)}
-          />
+          <ProfilePreferences p={p} onChange={setP} />
         </Card.Content>
       </Card>
-      <ApplicationDetailsCard key={current.id} record={current} />
-      <Responses key={current.id} profileId={current.id} />
-      {edit?.type === "personal" && (
-        <PersonalEditor record={current} onClose={close} />
+      {dirty && (
+        <div className="flex justify-end gap-3">
+          <Button
+            variant="ghost"
+            isDisabled={busy}
+            onPress={() => {
+              setP(structuredClone(base));
+            }}
+          >
+            撤销未保存更改
+          </Button>
+          <Button isPending={busy} onPress={save}>
+            保存更改
+          </Button>
+        </div>
       )}
-      {(edit?.type === "jobData" || edit?.type === "educationData") && (
-        <HistoryEditor
-          record={current}
-          kind={edit.type}
-          index={edit.index}
-          onClose={close}
-        />
-      )}
-      {edit?.type === "rename" && (
-        <RenameProfile record={current} onClose={close} />
-      )}
-      {edit?.type === "delete" && (
-        <Dialog
-          title={`Delete ${p.profileName}?`}
-          danger
-          saveLabel="Delete"
-          onClose={close}
-          onSave={() => store.deleteProfile(current.id)}
-        >
-          <p>The selected profile will be removed. Other profiles are kept.</p>
-        </Dialog>
-      )}
-      {edit?.type === "resume" && (
-        <ResumeEditor record={current} onClose={close} />
-      )}
-      {edit?.type === "import" && (
-        <ProfileImport record={current} onClose={close} />
-      )}
-    </>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 """Explicit live-provider rehearsal using only the shared synthetic policy cases.
 
-Uses the production Answers path, temporary database and at most three batches, each with one generation and one verification request.
+Uses the production Answers path, temporary database and at most three batches, with public question recognition and optional open-text drafting.
 It never opens JOBS_DB or reads any owner Profile. Provider credentials remain in
 the existing environment/file mount; neither requests nor credentials are logged.
 """
@@ -9,7 +9,6 @@ import asyncio
 from collections import defaultdict
 import copy
 import json
-from json import loads
 from pathlib import Path
 import tempfile
 
@@ -46,7 +45,7 @@ async def run(client, *, live=False):
     for case in fixture['cases']:
         groups[json.dumps(case.get('profilePatch', {}), sort_keys=True)].append(case)
     assert len(groups) <= 3
-    results, usages, provider_answers = [], [], {}
+    results, usages = [], []
 
     class RecordingClient:
         async def post(self, url, json):
@@ -54,10 +53,6 @@ async def run(client, *, live=False):
             if response.status_code == 200:
                 body = response.json()
                 usages.append(body.get('usage', {}))
-                output = ''.join(part.get('text', '') for entry in body.get('output', [])
-                                 for part in entry.get('content', []) if part.get('type') == 'output_text')
-                for answer in loads(output).get('answers', []):
-                    provider_answers[answer['fieldId']] = answer
             return response
 
     with tempfile.TemporaryDirectory(prefix='synthetic-policy-') as directory:
@@ -72,11 +67,7 @@ async def run(client, *, live=False):
             received = {row['fieldId']: row for row in result['answers']}
             for case in cases:
                 checked = check(case, received[case['id']])
-                raw = check(case, provider_answers[case['id']])
-                results.append({**checked, 'providerPassed': raw['passed'],
-                                'providerMismatches': raw['mismatches'],
-                                'guardChanged': any(received[case['id']].get(key) != provider_answers[case['id']].get(key)
-                                                    for key in ('state', 'value', 'source', 'needsConfirmation'))})
+                results.append(checked)
     return {'evidence': 'live_provider' if live else 'mocked_provider', 'syntheticOnly': True,
             'model': result['model'], 'batches': len(groups), 'requests': len(usages), 'usage': usages, 'cases': results,
             'passed': all(row['passed'] for row in results)}

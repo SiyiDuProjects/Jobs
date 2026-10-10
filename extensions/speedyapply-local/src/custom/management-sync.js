@@ -141,6 +141,31 @@ export function initializeManagementSync() {
             revision: remote[k]?.revision || 0,
           });
       }
+      const legacySkills = (
+        await chrome.storage.local.get("jobsWorkdaySkillsAutofill")
+      ).jobsWorkdaySkillsAutofill;
+      if (
+        typeof legacySkills === "boolean" &&
+        remote.settings?.value?.autofillSettings?.workdaySkills === undefined
+      ) {
+        const existing = changes.find((change) => change.key === "settings");
+        const value =
+          existing?.value || remote.settings?.value || local.settings || {};
+        const next = {
+          ...value,
+          autofillSettings: {
+            ...value.autofillSettings,
+            workdaySkills: legacySkills,
+          },
+        };
+        if (existing) existing.value = next;
+        else
+          changes.push({
+            key: "settings",
+            value: next,
+            revision: remote.settings?.revision || 0,
+          });
+      }
       const rawAck = changes.length
         ? await JobsSync.managementRequest("POST", { changes })
         : rawRemote;

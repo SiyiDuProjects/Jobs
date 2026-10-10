@@ -11,7 +11,7 @@ from .profiles import ProfileConflict, Profiles
 
 
 class Management:
-    KEYS = {'boardCardOrder', 'settings', 'configList', 'dailyGoal', 'jobsKindProfiles'}
+    KEYS = {'settings', 'jobsKindProfiles'}
 
     def __init__(self, store):
         self.store = store
@@ -47,7 +47,7 @@ class Management:
             elif isinstance(item, list):
                 for v in item: inspect(v)
         inspect(value)
-        if key == 'configList' or key.startswith('jobsResponses:'):
+        if key.startswith('jobsResponses:'):
             if not isinstance(value, list): raise ValueError('Expected a list')
         if key.startswith('jobsResponses:'):
             from .saved_responses import normalize_list
@@ -55,9 +55,8 @@ class Management:
                 previous = c.execute('SELECT value FROM management_documents WHERE key=?', (key,)).fetchone()
             value = normalize_list(value, json.loads(previous['value']) if previous else [])
             raw = json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False)
-        if key in {'settings','boardCardOrder','jobsKindProfiles'} and not isinstance(value,dict):
+        if key in {'settings','jobsKindProfiles'} and not isinstance(value,dict):
             raise ValueError('Expected an object')
-        if key == 'dailyGoal' and (type(value) is not int or not 1 <= value <= 999): raise ValueError('Invalid daily goal')
         if key == 'jobsKindProfiles':
             if set(value)-{'intern','newgrad'}: raise ValueError('Invalid job kind')
             for pid in value.values():
@@ -68,11 +67,15 @@ class Management:
 
     def snapshot(self):
         with self.store.connect() as c:
-            result={r['key']: {'value': json.loads(r['value']), 'revision': r['revision']} for r in c.execute('SELECT * FROM management_documents')}
+            result={r['key']: {'value': json.loads(r['value']), 'revision': r['revision']} for r in c.execute('SELECT * FROM management_documents') if self.valid_key(r['key'])}
             from .application_progress import pending_reviews, project_display
             from .application_records import read
             result['appliedList']={'value':project_display(c,read(c)),'revision':0}
+            from .recruiting import authorized_mailbox, email_url
+            try: mailbox = authorized_mailbox(c, required=False)
+            except ValueError: mailbox = None
             pending=pending_reviews(c)
+            for item in pending: item['email_url'] = email_url(item.get('message_id',''), mailbox)
             if pending: result['applicationProgressReview']={'value':pending,'revision':0}
             return result
 

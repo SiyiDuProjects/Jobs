@@ -37,12 +37,12 @@ def test_rest_conflicts_versions_deletion_and_readonly_projection(tmp_path):
         first = path + "/" + created["id"]
         record = client.get(first).json()
         assert record["profile"] == value
-        assert record["schema_version"] == 1
+        assert record["schema_version"] == 2
         assert client.get(first).headers["cache-control"] == "no-store"
         assert "resumeBase64" not in profiles.agent_read(created["id"])["profile"]["resumeData"]
         assert "profile" not in profiles.agent_read()["profiles"][0]
         assert client.put(first, json={"profile": {**value, "profileName": "Changed"}}).status_code == 409
-        assert client.put(first, json={"profile": value, "schema_version": 2}).status_code == 426
+        assert client.put(first, json={"profile": value, "schema_version": 99}).status_code == 426
         assert client.put(first, json={"profile": value, "expected_sync": 5}).status_code == 400
         assert client.put(path + "/" + str(uuid.uuid4()), json={"profile": value}).status_code == 404
         changed = {**value, "applicationData": {"sponsorshipNow": False}}

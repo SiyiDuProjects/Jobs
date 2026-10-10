@@ -4,7 +4,7 @@ import { searchAnswerSpec } from "./search-answer.js";
 import { prepareAnswerBatch } from "./prepare-answers.js";
 import { createDraftReview } from "./draft-review.js";
 import { JobsOperator } from "./operator-state.js";
-import { verifiedAnswer, reviewProposal } from "./answer-proof.js";
+import { verifiedAnswer } from "./answer-proof.js";
 import { createRunState } from "./run-state.js";
 import { createFlow } from "./automatic-flow.js";
 import { diagnosticGuard } from "./diagnostic-evidence.js";
@@ -1085,18 +1085,6 @@ export function initializeAutomaticFill() {
                 leave(row, "AI returned an unknown option");
                 continue;
               }
-            }
-            if (reviewProposal(answer, previous.field)) {
-              toCard(row, {
-                needsInput: true,
-                source: "suggestion",
-                questionZh: answer.questionZh,
-                answerZh: answer.answerZh,
-                proposal: { value: answer.value },
-                needsConfirmation: true,
-              });
-              note("auto_review_proposal", row.node, rationale);
-              continue;
             }
             if (!verifiedAnswer(answer, previous.field)) {
               leave(row, "control_failure", { questionZh: answer.questionZh });

@@ -79,6 +79,8 @@ export type Profile = {
   "disability"?: boolean | "undisclosed" | "";
   "veteran"?: boolean | "undisclosed" | "";
   "hispanicOrLatino"?: boolean | "undisclosed" | "";
+  "citizenships"?: Array<string>;
+  "identityDefaults"?: "" | "cis_heterosexual" | "undisclosed";
   [key: string]: any;
 };
   "skillsData"?: Array<string>;
@@ -101,7 +103,17 @@ export type Profile = {
   "willingToWorkOnsite"?: boolean;
   "willingToTravel"?: boolean;
   "hasRelatedPeopleAtWork"?: boolean;
+  "defaultAnswers"?: Array<"government" | "clearance" | "obligations" | "criminal" | "termination" | "conflicts" | "screening" | "referral" | "terms" | "requirements" | "location">;
+  "defaultSource"?: string;
+  "availableUntil"?: string;
 };
+  "projectData"?: Array<{
+  "name"?: string;
+  "link"?: string;
+  "startDate"?: string;
+  "endDate"?: string;
+  "description"?: string;
+}>;
 };
 export type ApplicationDetails = {
   "earliestStartDate"?: string;
@@ -122,4 +134,7 @@ export type ApplicationDetails = {
   "willingToWorkOnsite"?: boolean;
   "willingToTravel"?: boolean;
   "hasRelatedPeopleAtWork"?: boolean;
+  "defaultAnswers"?: Array<"government" | "clearance" | "obligations" | "criminal" | "termination" | "conflicts" | "screening" | "referral" | "terms" | "requirements" | "location">;
+  "defaultSource"?: string;
+  "availableUntil"?: string;
 };

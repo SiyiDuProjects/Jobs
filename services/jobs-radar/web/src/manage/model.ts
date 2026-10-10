@@ -5,6 +5,16 @@ import { JobsProfileContract } from "./profile-contract.js";
 import type { Profile } from "./profile-types";
 export type { Profile, ApplicationDetails } from "./profile-types";
 export type Application = {
+  job_id?: string;
+  job?: {
+    id: string;
+    title?: string;
+    company?: string;
+    locations?: string[];
+    kind?: string;
+    apply_url?: string;
+    source_url?: string;
+  } | null;
   id?: string;
   version?: number;
   submission?: {
@@ -53,22 +63,33 @@ export type Response = {
   id?: string;
   jobKey?: string;
   scope?: "job" | "company" | "global";
-  context?: { jobKey?: string; companyKey?: string; country?: string; capturedAt?: string };
+  context?: {
+    jobKey?: string;
+    companyKey?: string;
+    country?: string;
+    capturedAt?: string;
+  };
 };
 export type ProfileRecord = { id: string; profile: Profile; last_sync: string };
 export type ProfileSummary = { id: string; profileName: string };
 export type Documents = Record<string, { revision: number; value: any }>;
-export const statuses: Record<string, string> = stageContract.statuses;
-export const displayStatuses: Record<string, string> =
-  stageContract.displayStatuses;
+export function chineseProgress(text: string): string {
+  return text.replace(/No Answer/g, "暂无推进").replace(/Interview/g, "面试")
+    .replace(/Screening/g, "初筛").replace(/Offer Declined/g, "已拒绝录用")
+    .replace(/Offer/g, "录用").replace(/Round (\d+)/g, "第 $1 轮")
+    .replace(/Final/g, "终面").replace(/\bOA\b/g, "测评");
+}
+const stageLabels = (values: Record<string, string>) => Object.fromEntries(Object.entries(values).map(([k,v]) => [k,chineseProgress(v)]));
+export const statuses: Record<string, string> = stageLabels(stageContract.statuses);
+export const displayStatuses: Record<string, string> = stageLabels(stageContract.displayStatuses);
 export function displayStage(row: Application): string {
   return row.progress?.display_stage || "no_answer";
 }
 export function progressLabel(row: Application): string {
-  return row.progress?.label || "等待同步";
+  return chineseProgress(row.progress?.label || "等待同步");
 }
 export function nextStages(row: Application): Record<string, string> {
-  return row.progress?.next_stages || {};
+  return stageLabels(row.progress?.next_stages || {});
 }
 export const blankJob = {
   jobTitle: "",
@@ -126,13 +147,8 @@ const stable = (v: any): any =>
 export const same = (a: any, b: any) =>
   JSON.stringify(stable(a)) === JSON.stringify(stable(b));
 export const allowed = (key: string) =>
-  [
-    "boardCardOrder",
-    "settings",
-    "configList",
-    "dailyGoal",
-    "jobsKindProfiles",
-  ].includes(key) || /^jobsResponses:[a-f0-9-]{36}$/i.test(key);
+  ["settings", "jobsKindProfiles"].includes(key) ||
+  /^jobsResponses:[a-f0-9-]{36}$/i.test(key);
 function indexed(list: any[], key: string) {
   const seen = new Map<string, number>();
   return new Map(

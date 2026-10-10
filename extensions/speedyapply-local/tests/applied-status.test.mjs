@@ -133,6 +133,7 @@ test("dated receipt passes live-document verification and reaches the ATS receip
       storage: { local: { get: async () => ({ settings: {} }) } },
       tabs: {
         sendMessage: async (_tab, _message, target) => {
+          await Promise.resolve();
           assert.equal(target.documentId, "dated-doc");
           verifies++;
           return h.w.detectAppliedStatus();
@@ -307,8 +308,10 @@ test("background verifies the live document and uses durable ATS receipt transpo
   assert.equal(h.writes[0][0].jobLink, url);
   assert.equal(h.writes[0][1].proof, "ats_confirmation");
   assert.equal(h.writes[0][0].profileName, undefined);
+  const legacyDisabled = background({ disabled: true });
+  await legacyDisabled.run();
+  assert.equal(legacyDisabled.writes.length, 1, "recording is always enabled");
   for (const options of [
-    { disabled: true },
     { resolved: { state: "unmatched" } },
     { resolved: { state: "matched", application: { confirmed: true } } },
   ]) {

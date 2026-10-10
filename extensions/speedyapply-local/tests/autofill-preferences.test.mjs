@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import { installAnswerResolver } from "./helpers/answer-resolver.mjs";
-import { popupPage, until } from "./helpers/popup-page.mjs";
 import {
   readAutofillPreferences,
   saveWorkdaySkillsPreference,
@@ -172,41 +171,14 @@ test("local preference defaults off, persists both ways and leaves all other dat
   assert.equal(values.untouched, "kept");
 });
 
-test("popup switch persists, reopens and reports save failure without changing its state", async () => {
-  const values = {};
-  let fail = false;
-  const local = {
-    get: async () => values,
-    set: async (update) => {
-      if (fail) throw Error("Storage unavailable");
-      Object.assign(values, update);
-    },
+test("synced settings take priority over the retired popup preference", async () => {
+  const storage = {
+    get: async () => ({
+      [workdaySkillsPreferenceKey]: true,
+      settings: { autofillSettings: { workdaySkills: false } },
+    }),
   };
-  const open = () => popupPage(async () => ({}), local);
-  let h = open();
-  try {
-    const control = () => h.w.document.querySelector('[role="switch"]');
-    await until(() => control() && !control().disabled);
-    assert.equal(control().checked, false);
-    control().click();
-    await until(
-      () => values[workdaySkillsPreferenceKey] === true && !control().disabled,
-    );
-    h.close();
-    h = open();
-    await until(() => control()?.checked && !control().disabled);
-    fail = true;
-    control().click();
-    await until(() => h.w.document.body.textContent.includes("保存失败"));
-    assert.equal(control().checked, true);
-    assert.equal(values[workdaySkillsPreferenceKey], true);
-    fail = false;
-    control().click();
-    await until(() => values[workdaySkillsPreferenceKey] === false);
-    assert.deepEqual(h.errors, []);
-  } finally {
-    h.close();
-  }
+  assert.equal((await readAutofillPreferences(storage)).workdaySkills, false);
 });
 
 test("worker exposes only the behavior preference to this extension's application tabs", async (t) => {
@@ -252,5 +224,7 @@ test("worker exposes only the behavior preference to this extension's applicatio
     w.handle(message, { ...sender, id: "untrusted" }),
     /Application tab required/,
   );
-  assert.deepEqual(reads, [workdaySkillsPreferenceKey]);
+  assert.deepEqual(JSON.parse(JSON.stringify(reads)), [
+    ["settings", workdaySkillsPreferenceKey],
+  ]);
 });

@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { Button, Spinner } from "@heroui/react";
+import { Segment } from "@heroui-pro/react";
+import {
+  JobWorkspace,
+  readKind,
+  type BoardProps,
+  type JobKind,
+} from "./JobWorkspace";
 import brand from "../../config/brand.json";
 import { ErrorBoundary, Management } from "./manage/main";
-import { useManagement } from "./manage/store";
+import { store, useManagement } from "./manage/store";
 import { CLIENT_PROTOCOL_HEADERS } from "./client-protocol";
 
 // Old extension links enter the same website and retain their requested view.
@@ -21,11 +28,16 @@ if (
   );
 }
 
-export function SiteApp({ Board }: { Board: ComponentType }) {
-  const { pending } = useManagement();
+export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
+  const { draftDirty, pending, docs, current, profiles, loading } =
+    useManagement();
+  const [kind, setKind] = useState<JobKind>(readKind);
   const [route, setRoute] = useState(
-    location.hash.slice(1).split("?")[0] || "/",
+    location.hash.slice(1).split("?")[0] ||
+      (location.pathname === "/trash" ? "/trash" : "/"),
   );
+  const activeRoute = useRef(route);
+  activeRoute.current = route;
   const [session, setSession] = useState<{
     authenticated: boolean;
     request_id?: string;
@@ -46,7 +58,15 @@ export function SiteApp({ Board }: { Board: ComponentType }) {
     }
   }, []);
   useEffect(() => {
-    const update = () => setRoute(location.hash.slice(1).split("?")[0] || "/");
+    const update = () => {
+      const next = location.hash.slice(1).split("?")[0] || "/";
+      if (store.state.draftDirty && next !== activeRoute.current) {
+        history.replaceState(null, "", "#" + activeRoute.current);
+        store.report(Error("请先保存或撤销资料更改"));
+        return;
+      }
+      setRoute(next);
+    };
     window.addEventListener("hashchange", update);
     void connect();
     return () => window.removeEventListener("hashchange", update);
@@ -57,17 +77,45 @@ export function SiteApp({ Board }: { Board: ComponentType }) {
       return () => clearInterval(timer);
     }
   }, [session?.authenticated, connect]);
-  const trash = location.pathname === "/trash";
+  useEffect(() => {
+    if (!session?.authenticated) return;
+    void store.start({ authenticated: true });
+    const before = (e: BeforeUnloadEvent) => {
+      if (store.state.pending || store.state.unsaved) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", before);
+    return () => {
+      store.stop();
+      window.removeEventListener("beforeunload", before);
+    };
+  }, [session?.authenticated]);
+  useEffect(() => {
+    localStorage.setItem("radar-kind", kind);
+    if (loading) return;
+    let id =
+      docs.jobsKindProfiles?.value?.[
+        kind === "internship" ? "intern" : "newgrad"
+      ];
+    if (!id || !profiles.some(p => p.id === id)) {
+      const pattern = kind === "internship" ? /^(intern|internship|实习)$/i : /^(new[ -]?grad|ng|全职)$/i;
+      const candidates = profiles.filter(p => pattern.test(p.profileName.trim()));
+      id = candidates.length === 1 ? candidates[0].id : undefined;
+    }
+    if (id && id !== current?.id && profiles.some((p) => p.id === id))
+      void store.selectProfile(id).catch(store.report);
+  }, [kind, loading]);
   const links = [
-    ["/", "岗位列表"],
-    ["/applications", "投递记录"],
-    ["/profile", "个人资料"],
-    ["/settings/autofill", "设置"],
+    ["/", "岗位"],
+    ["/profile", "资料"],
+    ["/settings", "设置"],
   ];
   return (
     <div className="workspace">
       <header className="header flex-wrap">
-        <a href={trash ? "/" : "#/"} className="brand">
+        <a href="#/" className="brand">
           {brand.name}
         </a>
         <nav
@@ -76,20 +124,18 @@ export function SiteApp({ Board }: { Board: ComponentType }) {
         >
           {links.map(([path, label]) => {
             const selected =
-              !trash &&
-              (path === "/"
-                ? route === "/"
-                : route.startsWith(path.split("/").slice(0, 2).join("/")));
+              path === "/"
+                ? ["/", "/applied", "/applications", "/trash"].includes(route)
+                : route.startsWith(path.split("/").slice(0, 2).join("/"));
             return (
               <Button
                 key={path}
                 variant={selected ? "secondary" : "ghost"}
                 size="sm"
-                isDisabled={pending > 0}
+                isDisabled={pending > 0 || draftDirty}
                 aria-current={selected ? "page" : undefined}
                 onPress={() => {
-                  if (trash) location.href = "/#" + path;
-                  else location.hash = path;
+                  location.hash = path;
                 }}
               >
                 {label}
@@ -97,9 +143,19 @@ export function SiteApp({ Board }: { Board: ComponentType }) {
             );
           })}
         </nav>
-        <a className={"recycle " + (trash ? "current" : "")} href="/trash">
-          回收站
-        </a>
+        {session?.authenticated && (
+          <Segment
+            aria-label="岗位类型"
+            selectedKey={kind}
+            isDisabled={pending > 0 || store.state.unsaved > 0 || draftDirty}
+            onSelectionChange={(v) => {
+              if (v === "newgrad" || v === "internship") setKind(v);
+            }}
+          >
+            <Segment.Item id="newgrad">全职</Segment.Item>
+            <Segment.Item id="internship">实习</Segment.Item>
+          </Segment>
+        )}
       </header>
       <main>
         {error && (
@@ -140,7 +196,11 @@ export function SiteApp({ Board }: { Board: ComponentType }) {
           </section>
         ) : (
           <ErrorBoundary>
-            {route === "/" || trash ? <Board /> : <Management route={route} />}
+            {["/", "/applied", "/applications", "/trash"].includes(route) ? (
+              <JobWorkspace Board={Board} kind={kind} route={route} />
+            ) : (
+              <Management route={route} kind={kind} />
+            )}
           </ErrorBoundary>
         )}
       </main>

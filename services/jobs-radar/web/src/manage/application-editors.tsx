@@ -8,11 +8,11 @@ import {
   displayStage,
   progressLabel,
   nextStages,
-  parseCSV,
+  chineseProgress,
   type Application,
   type AppRow,
 } from "./model";
-import { Choice, Dialog, Field, Upload } from "./components";
+import { Choice, Dialog, Field } from "./components";
 
 export function ApplicationEditor({
   row,
@@ -44,14 +44,14 @@ export function ApplicationEditor({
     setDraft((d) => ({ ...d, [key]: value }));
   return (
     <Dialog
-      title={row ? "Update Application" : "Add Application"}
+      title={row ? "编辑投递" : "手动补录"}
       onClose={onClose}
-      saveLabel={row ? "Update" : "Add"}
+      saveLabel={row ? "保存" : "添加"}
       onSave={async () => {
-        if (!draft.jobTitle.trim()) throw Error("Job title is required");
+        if (!draft.jobTitle.trim()) throw Error("请填写岗位名称");
         for (const key of ["jobLink", "companyLink"] as const)
           if (draft[key] && !safeHref(draft[key]))
-            throw Error("Enter a valid HTTP or HTTPS URL");
+            throw Error("请填写有效的 HTTP 或 HTTPS 链接");
         const value = { ...draft };
         delete (value as any).key;
         await store.mutateApplications([
@@ -79,7 +79,7 @@ export function ApplicationEditor({
           (key, i) => (
             <Field
               key={key}
-              label={["Job Title", "Company Name", "Job URL", "Company URL"][i]}
+              label={["岗位名称", "公司名称", "岗位链接", "公司链接"][i]}
               value={draft[key]}
               onChange={(v) => update(key, v)}
               required={key === "jobTitle"}
@@ -87,7 +87,7 @@ export function ApplicationEditor({
           ),
         )}
         <Field
-          label="Applied"
+          label="投递日期"
           type="date"
           value={localDay(new Date(draft.date))}
           onChange={(v) => {
@@ -97,13 +97,13 @@ export function ApplicationEditor({
         {!row && (
           <>
             <Choice
-              label="Status"
+              label="进展"
               value={draft.status}
               options={statuses}
               onChange={(v) => update("status", v)}
             />
             <Choice
-              label="Profile"
+              label="资料"
               value={profile}
               options={Object.fromEntries(
                 profiles.map((p) => [p.id, p.profileName]),
@@ -211,8 +211,8 @@ export function ProgressEditor({
       <p>当前：{progressLabel(row)}</p>
       {displayStage(row) === "no_answer" && (
         <p className="text-sm text-muted">
-          No Answer 包含尚无已确认推进的申请和推进前的拒信。原始记录：
-          {row.progress?.stage_label || row.status}。
+          暂无推进包含尚无已确认推进的申请和推进前的拒信。原始记录：
+          {chineseProgress(row.progress?.stage_label || statuses[row.status] || row.status)}。
         </p>
       )}
       {!!Object.keys(options).length && (
@@ -318,125 +318,6 @@ export function ProgressEditor({
           </div>
         ))}
       </div>
-    </Dialog>
-  );
-}
-export function ImportApplications({
-  all,
-  onClose,
-}: {
-  all: Application[];
-  onClose: () => void;
-}) {
-  const [csv, setCSV] = useState<string[][]>([]),
-    [mapping, setMapping] = useState<Record<string, string>>({});
-  const headers = csv[0] || [],
-    fields = {
-      ignore: "Do not import",
-      jobTitle: "Job Title",
-      jobLink: "Job URL",
-      companyName: "Company Name",
-      companyLink: "Company URL",
-      status: "Status",
-      date: "Applied Date",
-    };
-  return (
-    <Dialog
-      title="Import Applications"
-      onClose={onClose}
-      wide
-      saveLabel={`Import ${Math.max(0, csv.length - 1)} applications`}
-      onSave={async () => {
-        if (!Object.values(mapping).includes("jobTitle"))
-          throw Error("Map a Job Title column");
-        const { profiles, current } = store.state;
-        const additions = csv
-          .slice(1)
-          .map((cells) => {
-            const record: any = {
-              jobTitle: "",
-              jobLink: "",
-              companyName: "",
-              companyLink: "",
-              status: "applied",
-              date: new Date().toString(),
-            };
-            headers.forEach((h, i) => {
-              if (mapping[h] && mapping[h] !== "ignore")
-                record[mapping[h]] = cells[i] || "";
-            });
-            const status = Object.entries(statuses).find(([key, label]) =>
-              [key, label.toLowerCase()].includes(record.status.toLowerCase()),
-            );
-            if (!status) throw Error("Unknown status: " + record.status);
-            record.status = status[0];
-            if (isNaN(+new Date(record.date)))
-              throw Error("Invalid applied date");
-            record.date = new Date(record.date).toString();
-            record.profileName = /\b(intern|internship|co[ -]?op)\b/i.test(
-              record.jobTitle,
-            )
-              ? profiles.find((p) =>
-                  /^(intern|internship|实习)$/i.test(p.profileName),
-                )?.profileName ||
-                current?.profile.profileName ||
-                "Default"
-              : current?.profile.profileName || "Default";
-            return record as Application;
-          })
-          .filter((r) => r.jobTitle.trim());
-        const unique =
-          additions.length > 1
-            ? additions.filter(
-                (r) =>
-                  !all.some(
-                    (x) =>
-                      x.jobTitle === r.jobTitle &&
-                      x.jobLink === r.jobLink &&
-                      x.companyLink === r.companyLink &&
-                      x.date.slice(0, 15) === r.date.slice(0, 15) &&
-                      x.profileName === r.profileName,
-                  ),
-              )
-            : additions;
-        await store.mutateApplications(
-          unique.map((value) => ({ action: "create", value })),
-        );
-      }}
-    >
-      <Upload
-        label="Upload a CSV file"
-        accept=".csv,text/csv"
-        onFile={async (f) => {
-          const rows = parseCSV(await f.text());
-          setCSV(rows);
-          setMapping(
-            Object.fromEntries(
-              (rows[0] || []).map((h) => [
-                h,
-                Object.keys(fields).find(
-                  (k) =>
-                    k.toLowerCase() ===
-                    h.replaceAll(/[^a-z]/gi, "").toLowerCase(),
-                ) || "ignore",
-              ]),
-            ),
-          );
-        }}
-      />
-      {headers.map((h, i) => (
-        <div key={h} className="grid grid-cols-3 gap-4 items-center">
-          <span>{h}</span>
-          <Choice
-            label={`Map ${h}`}
-            hideLabel
-            value={mapping[h]}
-            options={fields}
-            onChange={(v) => setMapping((m) => ({ ...m, [h]: v }))}
-          />
-          <span className="text-muted text-sm truncate">{csv[1]?.[i]}</span>
-        </div>
-      ))}
     </Dialog>
   );
 }

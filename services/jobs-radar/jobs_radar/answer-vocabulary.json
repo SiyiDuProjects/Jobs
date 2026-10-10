@@ -1,522 +1,6 @@
 {
   "version": 4,
   "ruleVersion": 4,
-  "topics": {
-    "noncompete": {
-      "terms": [
-        "noncompete",
-        "non compete",
-        "restrictive covenant"
-      ],
-      "paths": [],
-      "notes": true
-    },
-    "criminal_history": {
-      "terms": [
-        "criminal",
-        "convicted",
-        "conviction",
-        "felony"
-      ],
-      "paths": [],
-      "notes": true
-    },
-    "medical_history": {
-      "terms": [
-        "healthcare",
-        "health care",
-        "medical",
-        "medicare",
-        "medicaid",
-        "license discipline"
-      ],
-      "paths": [],
-      "notes": true
-    },
-    "security_clearance": {
-      "terms": [
-        "security clearance",
-        "classified information"
-      ],
-      "paths": [],
-      "notes": true
-    },
-    "unrestricted_work_right": {
-      "terms": [
-        "unrestricted",
-        "indefinitely",
-        "permanent work"
-      ],
-      "paths": [],
-      "notes": true
-    },
-    "visa_status": {
-      "terms": [
-        "visa status",
-        "immigration status",
-        "export control",
-        "itar",
-        "u s person",
-        "united states person"
-      ],
-      "paths": [
-        "applicationData.visaStatus"
-      ],
-      "notes": true
-    },
-    "work_eligibility": {
-      "terms": [
-        "authorized to work",
-        "authorised to work",
-        "work authorization",
-        "work eligibility",
-        "legally eligible to work"
-      ],
-      "paths": [
-        "employmentData.eligibilityUS",
-        "applicationData.sponsorshipNow",
-        "applicationData.sponsorshipFuture",
-        "employmentData.sponsorship",
-        "applicationData.visaStatus"
-      ],
-      "notes": true
-    },
-    "sponsorship": {
-      "terms": [
-        "sponsor",
-        "sponsorship"
-      ],
-      "paths": [
-        "applicationData.sponsorshipNow",
-        "applicationData.sponsorshipFuture",
-        "employmentData.sponsorship"
-      ],
-      "notes": true
-    },
-    "degree": {
-      "terms": [
-        "degree",
-        "qualification",
-        "education level",
-        "completed education"
-      ],
-      "paths": [
-        "educationData.*.degree",
-        "applicationData.highestCompletedEducation"
-      ],
-      "notes": true
-    },
-    "graduation_date": {
-      "terms": [
-        "graduation",
-        "graduate",
-        "graduating",
-        "degree completion"
-      ],
-      "paths": [
-        "educationData.*.graduationDate",
-        "educationData.*.endDate"
-      ],
-      "notes": true
-    },
-    "availability": {
-      "terms": [
-        "start date",
-        "available to start",
-        "availability"
-      ],
-      "paths": [
-        "applicationData.earliestStartDate"
-      ],
-      "notes": true
-    },
-    "language_proficiency": {
-      "terms": [
-        "proficiency",
-        "language",
-        "overall"
-      ],
-      "paths": [
-        "languageData.*.proficiency",
-        "languageData.*.fluent"
-      ],
-      "notes": true
-    },
-    "phone_type": {
-      "terms": [
-        "phone device type",
-        "phone type"
-      ],
-      "paths": [
-        "contactData.phoneDeviceType"
-      ],
-      "notes": true
-    },
-    "signature": {
-      "terms": [
-        "signature",
-        "sign here"
-      ],
-      "paths": [
-        "nameData.firstName",
-        "nameData.middleName",
-        "nameData.lastName",
-        "calendar.today"
-      ],
-      "notes": true
-    },
-    "acknowledgment": {
-      "terms": [
-        "acknowledge",
-        "agree",
-        "consent",
-        "certify",
-        "attest",
-        "read and understood"
-      ],
-      "paths": [
-        "calendar.today"
-      ],
-      "notes": true
-    },
-    "preference": {
-      "terms": [
-        "prefer",
-        "desired",
-        "motivation",
-        "why",
-        "interested"
-      ],
-      "paths": [
-        "applicationData.*"
-      ],
-      "notes": true
-    },
-    "experience": {
-      "terms": [
-        "experience",
-        "project",
-        "example",
-        "describe",
-        "grit",
-        "ownership"
-      ],
-      "paths": [
-        "jobData.*.*",
-        "educationData.*.*",
-        "skillsData.*"
-      ],
-      "notes": true
-    },
-    "unknown": {
-      "terms": [],
-      "paths": [],
-      "notes": false
-    },
-    "interview_language": {
-      "terms": [
-        "preferred language",
-        "interview language",
-        "preferred programming language"
-      ],
-      "paths": [
-        "applicationData.interviewLanguage"
-      ],
-      "notes": true
-    },
-    "identity": {
-      "terms": [
-        "name",
-        "email",
-        "phone number",
-        "pronouns",
-        "linkedin",
-        "github",
-        "website"
-      ],
-      "paths": [
-        "nameData.*",
-        "contactData.*",
-        "websiteData.*",
-        "applicationData.pronouns"
-      ],
-      "notes": true
-    },
-    "address": {
-      "terms": [
-        "address",
-        "residence",
-        "city",
-        "state",
-        "postal code"
-      ],
-      "paths": [
-        "addressData.*"
-      ],
-      "notes": true
-    },
-    "education": {
-      "terms": [
-        "school",
-        "university",
-        "major",
-        "gpa",
-        "enrolled"
-      ],
-      "paths": [
-        "educationData.*.*",
-        "applicationData.highestCompletedEducation"
-      ],
-      "notes": true
-    },
-    "employment_history": {
-      "terms": [
-        "employer",
-        "worked for",
-        "employment history",
-        "job title"
-      ],
-      "paths": [
-        "jobData.*.*"
-      ],
-      "notes": true
-    },
-    "skills": {
-      "terms": [
-        "skill",
-        "technology",
-        "tool",
-        "programming"
-      ],
-      "paths": [
-        "skillsData.*",
-        "jobData.*.*",
-        "educationData.*.*"
-      ],
-      "notes": true
-    },
-    "work_preference": {
-      "terms": [
-        "relocate",
-        "onsite",
-        "travel",
-        "hybrid"
-      ],
-      "paths": [
-        "applicationData.willingToRelocate",
-        "applicationData.willingToWorkOnsite",
-        "applicationData.willingToTravel"
-      ],
-      "notes": true
-    },
-    "relationships": {
-      "terms": [
-        "relative",
-        "relationship",
-        "family"
-      ],
-      "paths": [
-        "applicationData.hasRelatedPeopleAtWork"
-      ],
-      "notes": true
-    },
-    "weekly_hours": {
-      "terms": [
-        "hours per week",
-        "weekly hours"
-      ],
-      "paths": [
-        "applicationData.weeklyHours"
-      ],
-      "notes": true
-    },
-    "salary_preference": {
-      "terms": [
-        "salary",
-        "compensation",
-        "pay"
-      ],
-      "paths": [
-        "applicationData.salaryPreference",
-        "applicationData.salaryMin",
-        "applicationData.salaryMax",
-        "applicationData.salaryCurrency",
-        "applicationData.salaryPeriod"
-      ],
-      "notes": true
-    },
-    "demographics": {
-      "terms": [
-        "gender",
-        "veteran",
-        "disability",
-        "ethnicity",
-        "race"
-      ],
-      "paths": [
-        "employmentData.gender",
-        "employmentData.ethnicity",
-        "employmentData.veteran",
-        "employmentData.disability"
-      ],
-      "notes": true
-    },
-    "citizenship": {
-      "terms": [
-        "citizenship",
-        "nationality",
-        "citizen"
-      ],
-      "paths": [],
-      "notes": true
-    },
-    "export_control": {
-      "terms": [
-        "export control",
-        "itar",
-        "u s person"
-      ],
-      "paths": [
-        "applicationData.visaStatus"
-      ],
-      "notes": true
-    },
-    "motivation": {
-      "terms": [
-        "motivation",
-        "why this",
-        "interest"
-      ],
-      "paths": [
-        "jobData.*.*",
-        "educationData.*.*",
-        "skillsData.*"
-      ],
-      "notes": true
-    },
-    "recruiting_source": {
-      "terms": [
-        "hear about",
-        "source of application"
-      ],
-      "paths": [],
-      "notes": true
-    },
-    "age": {
-      "terms": [
-        "age",
-        "at least 18"
-      ],
-      "paths": [
-        "employmentData.age"
-      ],
-      "notes": true
-    },
-    "hispanic_latino": {
-      "terms": [
-        "Hispanic",
-        "Latino"
-      ],
-      "paths": [
-        "employmentData.hispanicOrLatino"
-      ],
-      "notes": true
-    }
-  },
-  "optionConcepts": {
-    "degree": {
-      "associate": [
-        "Associate",
-        "Associates",
-        "Associate degree"
-      ],
-      "bachelor": [
-        "Bachelor",
-        "Bachelors",
-        "Bachelor degree",
-        "Bachelor of Science",
-        "Bachelor of Arts",
-        "BS",
-        "BA",
-        "BSc"
-      ],
-      "master": [
-        "Master",
-        "Masters",
-        "Master degree",
-        "Master of Science",
-        "Master of Arts",
-        "MS",
-        "MA",
-        "MSc"
-      ],
-      "doctorate": [
-        "Doctorate",
-        "Doctoral",
-        "PhD",
-        "Doctor of Philosophy"
-      ],
-      "high_school": [
-        "High School",
-        "High School Diploma",
-        "GED"
-      ]
-    },
-    "language_proficiency": {
-      "elementary": [
-        "Beginner",
-        "Basic",
-        "Elementary",
-        "Elementary Proficiency",
-        "Minimal Competency"
-      ],
-      "limited": [
-        "Intermediate",
-        "Limited working",
-        "Limited Working Proficiency",
-        "Limited Competency"
-      ],
-      "professional": [
-        "Advanced",
-        "Professional working",
-        "Professional Working Proficiency",
-        "Professional"
-      ],
-      "full_professional": [
-        "Full Professional Proficiency",
-        "Full Professional",
-        "Advanced Professional"
-      ],
-      "native": [
-        "Native",
-        "Native or bilingual",
-        "Native or Bilingual Proficiency",
-        "Native Speaker",
-        "Bilingual",
-        "Complete Mastery"
-      ],
-      "fluent": [
-        "Fluent",
-        "High",
-        "Fluent / Native Speaker"
-      ]
-    },
-    "boolean": {
-      "yes": [
-        "Yes",
-        "True",
-        "I agree",
-        "I acknowledge",
-        "I accept"
-      ],
-      "no": [
-        "No",
-        "False",
-        "I do not agree",
-        "I do not accept"
-      ]
-    }
-  },
   "degreeCatalog": {
     "levels": {
       "bachelor": [
@@ -1332,10 +816,98 @@
       "additional": true
     }
   },
-  "draftTopics": [
-    "preference",
-    "motivation",
-    "salary_preference",
-    "work_preference"
-  ]
+  "optionConcepts": {
+    "degree": {
+      "associate": [
+        "Associate",
+        "Associates",
+        "Associate degree"
+      ],
+      "bachelor": [
+        "Bachelor",
+        "Bachelors",
+        "Bachelor degree",
+        "Bachelor of Science",
+        "Bachelor of Arts",
+        "BS",
+        "BA",
+        "BSc"
+      ],
+      "master": [
+        "Master",
+        "Masters",
+        "Master degree",
+        "Master of Science",
+        "Master of Arts",
+        "MS",
+        "MA",
+        "MSc"
+      ],
+      "doctorate": [
+        "Doctorate",
+        "Doctoral",
+        "PhD",
+        "Doctor of Philosophy"
+      ],
+      "high_school": [
+        "High School",
+        "High School Diploma",
+        "GED"
+      ]
+    },
+    "language_proficiency": {
+      "elementary": [
+        "Beginner",
+        "Basic",
+        "Elementary",
+        "Elementary Proficiency",
+        "Minimal Competency"
+      ],
+      "limited": [
+        "Intermediate",
+        "Limited working",
+        "Limited Working Proficiency",
+        "Limited Competency"
+      ],
+      "professional": [
+        "Advanced",
+        "Professional working",
+        "Professional Working Proficiency",
+        "Professional"
+      ],
+      "full_professional": [
+        "Full Professional Proficiency",
+        "Full Professional",
+        "Advanced Professional"
+      ],
+      "native": [
+        "Native",
+        "Native or bilingual",
+        "Native or Bilingual Proficiency",
+        "Native Speaker",
+        "Bilingual",
+        "Complete Mastery"
+      ],
+      "fluent": [
+        "Fluent",
+        "High",
+        "Fluent / Native Speaker"
+      ]
+    },
+    "boolean": {
+      "yes": [
+        "Yes",
+        "True",
+        "I agree",
+        "I acknowledge",
+        "I accept"
+      ],
+      "no": [
+        "No",
+        "False",
+        "I do not agree",
+        "I do not accept"
+      ]
+    }
+  }
 }

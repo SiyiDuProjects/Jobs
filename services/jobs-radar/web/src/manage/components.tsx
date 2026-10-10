@@ -72,7 +72,7 @@ export function Choice({
       value={value || null}
       onChange={(v) => onChange(String(v ?? ""))}
       isDisabled={disabled}
-      placeholder="Select one…"
+      placeholder="请选择…"
     >
       {!hideLabel && <Label>{label}</Label>}
       <Select.Trigger>
@@ -116,7 +116,7 @@ export function Toggle({
   );
 }
 export function Menu({
-  label = "Manage",
+  label = "管理",
   ariaLabel,
   items,
 }: {
@@ -165,7 +165,7 @@ export function Dialog({
   children,
   onClose,
   onSave,
-  saveLabel = "Save",
+  saveLabel = "保存",
   danger = false,
   wide = false,
 }: {
@@ -227,7 +227,7 @@ export function Dialog({
                   isDisabled={saving}
                   onPress={onClose}
                 >
-                  Cancel
+                  取消
                 </Button>
                 {onSave && (
                   <Button
@@ -279,7 +279,7 @@ export function Upload({
       >
         <DropZone.Label>{label}</DropZone.Label>
         <DropZone.Description>{file || accept}</DropZone.Description>
-        <DropZone.Trigger>Select file</DropZone.Trigger>
+        <DropZone.Trigger>选择文件</DropZone.Trigger>
         <DropZone.Input
           accept={accept}
           onSelect={(files) => {

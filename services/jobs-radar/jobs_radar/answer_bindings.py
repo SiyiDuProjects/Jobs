@@ -1,244 +1,193 @@
-"""Closed, independently verified question predicates; never cached answers.
-
-A binding describes every offered option by position. It cannot supply a path,
-value, quotation, code, or a new predicate. Evaluation always uses the current
-bound server Profile. Unsupported qualifiers stay on the semantic verifier path.
-"""
+"""Public question mappings and deterministic answers, shared with corpus replay."""
+import hashlib
 import json
-import unicodedata
-from .answer_evidence import decide, facts
-from .answer_semantics import cache_key, classification
+import re
+from .answer_values import PREDICATES, PATHS, BOOLEAN, DISCLOSURE, evaluate, normalized
+from .answer_semantics import field_key
+from .field_answers import CHOICES, _exact_date
 
-BINDING_CACHE_VERSION = 3
-BOOLEAN = ('true', 'false')
-DISCLOSURE = (*BOOLEAN, 'undisclosed')
-GENDERS = ('male', 'female', 'nonbinary', 'undisclosed')
-RACES = ('asian', 'white', 'black', 'native_american', 'pacific_islander', 'multiracial', 'undisclosed')
-# The tuple fixes the evidence topic and complete result domain, not prose rules.
-PREDICATES = {
-    'us_work_eligible': ('work_eligibility', BOOLEAN),
-    'sponsorship_now': ('sponsorship', BOOLEAN),
-    'sponsorship_future': ('sponsorship', BOOLEAN),
-    'sponsorship_either': ('sponsorship', BOOLEAN),
-    'age_at_least_18': ('age', BOOLEAN),
-    'currently_enrolled': ('education', BOOLEAN),
-    'voluntary_gender': ('demographics', GENDERS),
-    'voluntary_race': ('demographics', RACES),
-    'voluntary_hispanic': ('hispanic_latino', DISCLOSURE),
-    'voluntary_current_disability': ('demographics', DISCLOSURE),
-}
-INSTRUCTIONS = """
-Also return binding=null unless the ENTIRE public field and EVERY option are
-exactly a supported closed predicate, independently of this person's answer.
-A binding is public question meaning, reusable for any Profile; never encode an
-answer or use the supplied personal evidence to guess the question's meaning.
-Allowed predicates: us_work_eligible (ordinary current US eligibility only),
-sponsorship_now, sponsorship_future, sponsorship_either (now OR future),
-age_at_least_18 (>=18 now, not >18 or at a future date), currently_enrolled
-(currently attending any education, without institution/degree/full-time limits),
-voluntary_gender, voluntary_race, voluntary_hispanic, voluntary_current_disability.
-Disclosure predicates require a voluntary self-identification question, not an
-employment qualification or a separate consent to processing these answers.
-Return null for ITAR/US-person/citizenship, unrestricted/permanent work rights,
-veteran/protected veteran, medical or criminal history, statements, certifications,
-agreements, mixed predicates, future dates, or any additional qualifier. Disability
-including 'ever' or 'previously' is history and is NOT current disability.
-Race options conditioned on non-Hispanic status are compound: return null.
-Set options to one closed concept per option in the original order; true/false
-mean the underlying POSITIVE predicate, including for a negated question. Use
-unused only for a placeholder/unrelated option; never discard a qualification.
-Only radio/select-one/custom-dropdown controls with complete supplied options
-are executable. A binding must be fully determined by the field's question,
-description, type, required flag, complete option labels in their original order
-and context.jobContext.country. Option values are opaque page-local IDs; never
-use them to infer meaning. Ambiguous or identical option labels require null.
-It will be reused across companies, job postings and form filling progress.
-Return null if interpreting the field needs a company, job title/description,
-additionalContext, formContext or another answer. Do not resolve references such
-as 'the conditions above' or 'the degree required for this role' into a binding.
-Those fields may still receive a verified answer for this request, without a
-reusable binding. Unrelated changes elsewhere in the form do not affect a
-self-contained field's binding.
-"""
-
-
-def option_labels(field):
-    # Preserve case, punctuation, negation and qualifiers; normalize display space
-    # and canonical Unicode only. Never sort or use a transport ID as meaning.
-    return [' '.join(unicodedata.normalize('NFC', option['label']).split())
-            for option in field['options']]
+BINDING_CACHE_VERSION = 4
+INSTRUCTIONS = '''Map each public question to exactly one supported Profile path, computed predicate,
+default category, draft intent, or unknown. You never answer a personal fact.
+Do not infer an answer from the job, other questions, option IDs or typical applicants.
+A route must cover the ENTIRE question including every qualifier and description.
+Mixed predicates, unsupported countries, conditions, histories, timeframes and
+ambiguous references are unknown. Map ordinary US eligibility to us_work_eligible;
+unrestricted/permanent rights to us_permanent_work_right; ITAR US-person to us_person;
+citizenship to us_citizen/citizen_of. Current disability is not disability history;
+protected veteran is not generic veteran. Do not discard these distinctions.
+Use direct Profile paths for personal facts including relocation, onsite and sponsorship.
+Use default categories for government employment/official relations, clearance,
+restrictive obligations, criminal/sanctions/debarment, termination, conflicts,
+screening, referral, application terms/accuracy, minimum qualifications/core duties,
+and willingness to commute/relocate/onsite only. Do not generalize to other commitments.
+previous_employer means EVER employed by a named company, including current employment.
+Its argument must be the company name verbatim from the public question/context;
+citizen_of argument must be the country name verbatim. Other arguments are empty.
+For choices, map EVERY option in its original order to the underlying positive
+predicate concept (true/false), including negated questions. unused is only for
+an actual placeholder or unrelated choice. For direct paths map options to the
+canonical value of that field. Never invent an option or use its opaque value.
+For boolean checkbox or free text, options=[]; polarity=true means positive,
+false means the boolean statement is negated. Do not negate non-boolean facts.
+No binding if option labels are ambiguous or the question cannot be expressed exactly.
+Only use draft.motivation, draft.preference or draft.experience for open prose
+requests for motivation, preferences or an experience narrative. Text boxes asking
+for facts (date, citizenship, visa, pay, employer, a count, contact, etc.) MUST use
+an existing field/predicate or unknown; never draft. No AI notes as a factual source.
+Return a row for each field. unknown is an explicit result, never a guessed default.
+'''
 
 
 def binding_key(field, context, model):
-    # Only independently verified, self-contained predicates use this scope.
-    # The namespace excludes old context-bound plans rather than upgrading them.
-    return cache_key({**field, 'options': option_labels(field)}, {
-        'bindingVersion': BINDING_CACHE_VERSION,
-        'country': context.get('jobContext', {}).get('country', ''),
-    }, model)
+    shape = field_key(field); shape.pop('fieldId')
+    shape['options'] = [normalized(option['label']) for option in field.get('options',[])]
+    # Posting IDs never affect a question's meaning. Keep public explanatory
+    # context because relative company/country references can depend on it.
+    scope = {'country':context.get('jobContext',{}).get('country','')}
+    raw = [BINDING_CACHE_VERSION, model, shape, scope, context.get('additionalContext','')]
+    return hashlib.sha256(json.dumps(raw,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
 def schema():
-    return {'anyOf': [{'type': 'null'}, {'type': 'object', 'properties': {
-        'predicate': {'type': 'string', 'enum': list(PREDICATES)},
-        'options': {'type': 'array', 'items': {'type': 'string', 'enum': sorted(
-            {'unused', *(value for _, domain in PREDICATES.values() for value in domain)})}},
-    }, 'required': ['predicate', 'options'], 'additionalProperties': False}]}
+    return {'type':'object','properties':{
+        'predicate':{'type':'string','enum':list(PREDICATES)},
+        'options':{'type':'array','items':{'type':'string'}},
+        'argument':{'type':'string'}, 'polarity':{'type':'boolean'},
+    },'required':['predicate','options','argument','polarity'],'additionalProperties':False}
 
 
-def checked(binding, meaning, field):
-    if (not isinstance(binding, dict) or set(binding) != {'predicate', 'options'}
-            or not isinstance(binding['predicate'], str) or binding['predicate'] not in PREDICATES
-            or not classification(meaning) or field['type'] not in {'radio', 'select-one', 'custom-dropdown'}):
+def checked(binding, meaning, field, context=None):
+    if not isinstance(binding,dict) or set(binding)-{'predicate','options','argument','polarity'}:
         return None
-    labels = option_labels(field)
-    if not all(labels) or len(set(labels)) != len(labels):
-        return None
-    topic, domain = PREDICATES[binding['predicate']]
-    values = binding['options']
-    if (meaning['topic'] != topic or meaning['company'] not in {'', 'any'}
-            or meaning['timeframe'] not in {'', 'current', 'future'}
-            or not isinstance(values, list) or len(values) != len(field['options'])
-            or any(not isinstance(value, str) or value not in (*domain, 'unused') for value in values)
-            or any(values.count(value) > 1 for value in domain)):
-        return None
-    if binding['predicate'] == 'us_work_eligible' and meaning['country'] != 'US':
-        return None
-    if binding['predicate'].startswith('sponsorship_') and meaning['country'] != 'US':
-        return None
-    if binding['predicate'] not in {'sponsorship_future', 'sponsorship_either'} and meaning['timeframe'] == 'future':
-        return None
-    # A partially mapped yes/no question cannot be applied to a different fact.
-    if domain in (BOOLEAN, DISCLOSURE) and any(value not in values for value in BOOLEAN):
-        return None
-    return {'predicate': binding['predicate'], 'options': list(values)}
+    route=binding.get('predicate'); choices=binding.get('options')
+    if not isinstance(route,str) or route not in PREDICATES or not isinstance(choices,list): return None
+    if route == 'unknown':
+        return {'predicate':'unknown','options':['unused']*len(field.get('options',[])),'argument':'','polarity':True}
+    question = (field['question'] + ' ' + field.get('description','')).casefold()
+    if route == 'default.location':
+        if re.search(r'\brelocat\w*\b',question): route='applicationData.willingToRelocate'
+        elif re.search(r'\b(on.?site|in.?office)\b',question): route='applicationData.willingToWorkOnsite'
+    if route == 'default.conflicts' and re.search(r'\b(relatives?|related people|family members?)\b',question):
+        route='applicationData.hasRelatedPeopleAtWork'
+    if not all(isinstance(v,str) and len(v)<=500 for v in choices) or len(choices)!=len(field.get('options',[])): return None
+    labels=[normalized(o['label']) for o in field.get('options',[])]
+    if len(set(labels))!=len(labels): return None
+    domain=PREDICATES[route]
+    if domain and any(v not in (*domain,'unused') for v in choices): return None
+    usable=[v for v in choices if v!='unused']
+    if len(set(usable))!=len(usable): return None
+    if domain in (BOOLEAN,DISCLOSURE) and choices and not all(v in choices for v in BOOLEAN): return None
+    arg=binding.get('argument',''); polarity=binding.get('polarity',True)
+    if not isinstance(arg,str) or len(arg)>300 or type(polarity) is not bool: return None
+    if route in {'previous_employer','citizen_of'}:
+        if not arg.strip(): return None
+        if context is not None:
+            public=' '.join([field['question'],field.get('description',''),context.get('additionalContext','')])
+            if normalized(arg) not in normalized(public): return None
+    elif arg: return None
+    if not polarity and domain not in (BOOLEAN,DISCLOSURE): return None
+    if route.startswith('draft.') and (field['type'] not in {'text','textarea'} or choices): return None
+    return {'predicate':route,'options':choices,'argument':arg,'polarity':polarity}
 
 
-def evaluate(predicate, profile):
-    available = facts(profile)
-    def boolean(path, disclosure=False):
-        value = available.get(path)
-        if type(value) is bool:
-            return ('true' if value else 'false'), [path]
-        if disclosure and value == 'undisclosed':
-            return 'undisclosed', [path]
-        return None
-    if predicate == 'us_work_eligible':
-        return boolean('employmentData.eligibilityUS')
-    if predicate.startswith('sponsorship_'):
-        now, future, legacy = [available.get(path) for path in (
-            'applicationData.sponsorshipNow', 'applicationData.sponsorshipFuture', 'employmentData.sponsorship')]
-        # Legacy sponsorship describes either time, never a specific time.
-        explicit = True if now is True or future is True else False if now is False and future is False else None
-        if type(legacy) is bool and explicit is not None and legacy != explicit:
-            return None
-        if legacy is False and (now is True or future is True):
-            return None
-        if predicate != 'sponsorship_either':
-            return boolean('applicationData.sponsorship' + ('Now' if predicate.endswith('now') else 'Future'))
-        if explicit is not None:
-            paths = [path for path in ('applicationData.sponsorshipNow', 'applicationData.sponsorshipFuture')
-                     if type(available.get(path)) is bool and (not explicit or available[path])]
-            return ('true' if explicit else 'false'), paths
-        if now is None and future is None:
-            return boolean('employmentData.sponsorship')
-        return None
-    if predicate == 'age_at_least_18':
-        value = available.get('employmentData.age')
-        if isinstance(value, str) and value.isascii() and value.isdigit():
-            value = int(value)
-        if type(value) is int and 0 <= value <= 130:
-            return ('true' if value >= 18 else 'false'), ['employmentData.age']
-        return None
-    if predicate == 'currently_enrolled':
-        records = profile.get('educationData', [])
-        paths = [f'educationData.{index}.currentlyAttending' for index in range(len(records))]
-        positive = [path for path in paths if available.get(path) is True]
-        if positive:
-            return 'true', positive[:1]
-        if paths and len(paths) <= 12 and all(available.get(path) is False for path in paths):
-            return 'false', paths
-        return None
-    if predicate in {'voluntary_hispanic', 'voluntary_current_disability'}:
-        return boolean('employmentData.' + ('hispanicOrLatino' if predicate == 'voluntary_hispanic' else 'disability'), True)
-    path = 'employmentData.' + ('gender' if predicate == 'voluntary_gender' else 'ethnicity')
-    value = available.get(path)
-    if not isinstance(value, str):
-        return None
-    normalized = ' '.join(value.casefold().split())
-    aliases = {'male': 'male', 'man': 'male', 'female': 'female', 'woman': 'female',
-               'nonbinary': 'nonbinary', 'non-binary': 'nonbinary', 'undisclosed': 'undisclosed',
-               'prefer not to disclose': 'undisclosed', 'asian': 'asian', 'white': 'white',
-               'black': 'black', 'black or african american': 'black',
-               'american indian or alaska native': 'native_american',
-               'native hawaiian or other pacific islander': 'pacific_islander',
-               'two or more races': 'multiracial'}
-    concept = aliases.get(normalized)
-    if concept in PREDICATES[predicate][1]:
-        return concept, [path]
-    return None
+def result(field, profile_id, version, value=None, paths=(), *, draft=False, reason='', route='unknown'):
+    decision='ask' if value is None else 'draft' if draft else 'write'
+    proof={'version':2,'vocabularyVersion':BINDING_CACHE_VERSION,'profileId':profile_id,'profileVersion':version,
+           'field':field_key(field),'value':value,'status':'unverified' if value is None else 'verified',
+           'paths':list(paths),'id':hashlib.sha256(json.dumps([field,value,list(paths)],sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:24]}
+    row={'fieldId':field['fieldId'],'state':'needs_input' if value is None else 'answer','value':value,
+         'source':'unknown' if value is None else 'suggestion' if draft else 'profile',
+         'decision':decision,'needsConfirmation':value is None or draft,'proof':proof,'reason':reason,
+         'route':route,'evidence':[{'profilePath':p} for p in paths]}
+    if value is None: row.update(interruptionReason='missing_fact', missingField=route)
+    return row
 
 
-def answer(binding, meaning, field, profile, profile_id, version):
-    binding = checked(binding, meaning, field)
-    if not binding:
-        return None
-    result = evaluate(binding['predicate'], profile)
-    if result is None or result[0] not in binding['options']:
-        return None
-    concept, paths = result
-    option = field['options'][binding['options'].index(concept)]
-    row = {'fieldId': field['fieldId'], 'state': 'answer', 'source': 'profile',
-           'value': option['value'], 'reason': 'Verified question evaluated against current structured facts.',
-           'evidence': [{'profilePath': path} for path in paths], 'meaning': meaning}
-    result = decide(row, field, profile, profile_id, version, {'verdict': 'write', 'meaning': meaning})
-    return result if result['decision'] == 'write' else None
+def field_value(value, field, binding=None):
+    """Transport shape and precision, independent of provider claims."""
+    kind=field['type']; options=field.get('options',[])
+    if binding and options:
+        values=value if isinstance(value,list) else [value]
+        selected=[]
+        for concept in values:
+            matches=[o['value'] for o,c in zip(options,binding['options']) if c!='unused' and normalized(c)==normalized(concept)]
+            if len(matches)!=1: return None
+            selected.append(matches[0])
+        return selected if kind=='select-multiple' else selected[0] if len(selected)==1 else None
+    if options:
+        values=value if isinstance(value,list) else [value]
+        selected=[]
+        for v in values:
+            matches=[o['value'] for o in options if normalized(o['label'])==normalized(v)]
+            if len(matches)!=1: return None
+            selected.append(matches[0])
+        return selected if kind=='select-multiple' else selected[0] if len(selected)==1 else None
+    if kind in CHOICES: return None
+    if kind in {'checkbox','custom-checkbox'}:
+        if value not in ('true','false',True,False): return None
+        return value in ('true',True)
+    if isinstance(value,list): value=', '.join(str(v) for v in value)
+    if isinstance(value,bool): value='Yes' if value else 'No'
+    elif value=='true': value='Yes'
+    elif value=='false': value='No'
+    if not isinstance(value,(str,int,float)): return None
+    value=str(value)
+    if not value.strip() or len(value)>4000: return None
+    if kind=='date' and not _exact_date(value): return None
+    if kind=='month':
+        value=value[:7]
+        if not re.fullmatch(r'\d{4}-(0[1-9]|1[012])',value): return None
+    if kind=='number' and not re.fullmatch(r'-?\d+(?:\.\d+)?',value): return None
+    return value
+
+
+def answer(binding, meaning, field, profile, profile_id, version, *, defaults=True):
+    binding=checked(binding,meaning,field)
+    if not binding: return None
+    route=binding['predicate']
+    fact=evaluate(route,profile,binding['argument'],defaults=defaults)
+    if fact is None: return None
+    value,paths=fact
+    # Option concepts already encode polarity; only bare boolean controls invert.
+    if not field.get('options') and not binding['polarity'] and value in BOOLEAN:
+        value='false' if value=='true' else 'true'
+    value=field_value(value,field,binding)
+    return result(field,profile_id,version,value,paths,reason='依据当前资料计算',route=route) if value is not None else None
 
 
 class BindingCache:
-    def __init__(self, store):
-        self.store = store
+    def __init__(self,store):
+        self.store=store
         from .question_corpus import QuestionCorpus
-        self.corpus = QuestionCorpus(store)
-        with store.connect(True) as c:
-            c.execute('CREATE TABLE IF NOT EXISTS answer_bindings(key TEXT PRIMARY KEY,binding TEXT NOT NULL)')
+        self.corpus=QuestionCorpus(store)
+        with store.connect(True) as c: c.execute('CREATE TABLE IF NOT EXISTS answer_bindings(key TEXT PRIMARY KEY,binding TEXT NOT NULL)')
 
-    def read(self, fields, context, model, profile, profile_id, version, saved):
-        result = {}
+    def plans(self, fields, context, model):
+        found={}
         with self.store.connect(True) as c:
             for field in fields:
-                # A saved person statement can conflict with the structured fact;
-                # only the existing independent verifier may resolve its scope.
-                if field['fieldId'] not in saved or saved.get(field['fieldId']):
-                    continue
-                row = c.execute('SELECT binding FROM answer_bindings WHERE key=?', (binding_key(field, context, model),)).fetchone()
-                if not row:
-                    continue
-                try:
-                    plan = json.loads(row[0])
-                    value = answer(plan['binding'], plan['meaning'], field, profile, profile_id, version)
-                except (ValueError, KeyError, TypeError):
-                    continue
-                self.corpus.link_binding(c, field, context, model, binding_key(field, context, model))
-                if value:
-                    result[field['fieldId']] = value
-        return result
+                key=binding_key(field,context,model)
+                row=c.execute('SELECT binding FROM answer_bindings WHERE key=?',(key,)).fetchone()
+                if not row: continue
+                try: binding=checked(json.loads(row[0])['binding'],None,field,context)
+                except (TypeError,KeyError,ValueError): continue
+                if binding:
+                    found[field['fieldId']]=binding
+                    self.corpus.link_binding(c,field,context,model,key)
+        return found
 
-    def save(self, fields, rows, checks, context, model, profile, profile_id, version, saved):
-        rows = {row['fieldId']: row for row in rows}
+    def save_plans(self, fields, plans, context, model):
         with self.store.connect(True) as c:
             for field in fields:
-                fid = field['fieldId']; row = rows[fid]; check = checks.get(fid, {})
-                if fid not in saved or saved.get(fid) or row.get('decision') != 'write' or check.get('verdict') != 'write':
-                    continue
-                binding = checked(check.get('binding'), check.get('meaning'), field)
-                value = answer(binding, check['meaning'], field, profile, profile_id, version) if binding else None
-                if not value or value['value'] != row['value']:
-                    continue
-                # No quoted fact or extra condition is promoted into a generic plan.
-                if row.get('evidence') != value['evidence']:
-                    continue
-                c.execute('INSERT OR REPLACE INTO answer_bindings VALUES(?,?)',
-                          (binding_key(field, context, model), json.dumps({'meaning': check['meaning'], 'binding': binding})))
-                self.corpus.link_binding(c, field, context, model, binding_key(field, context, model))
+                plan=checked(plans.get(field['fieldId']),None,field,context)
+                if not plan: continue
+                key=binding_key(field,context,model)
+                c.execute('INSERT OR REPLACE INTO answer_bindings VALUES(?,?)',(key,json.dumps({'binding':plan,'meaning':{'topic':'unknown','country':context.get('jobContext',{}).get('country',''),'company':'','timeframe':''}})))
+                self.corpus.link_binding(c,field,context,model,key)
             c.execute('DELETE FROM answer_bindings WHERE key NOT IN (SELECT cache_key FROM corpus_bindings) AND rowid NOT IN (SELECT rowid FROM answer_bindings ORDER BY rowid DESC LIMIT 4000)')
+
+    def read(self, fields, context, model, profile, profile_id, version, saved=None):
+        plans = self.plans(fields, context, model)
+        return {f['fieldId']: value for f in fields if f['fieldId'] in plans
+                and (value := answer(plans[f['fieldId']], None, f, profile, profile_id, version))}

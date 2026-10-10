@@ -64,11 +64,9 @@ def applies(record, context):
     if captured.get('companyKey') and captured['companyKey'] != company:
         return False
     same_job = bool(key and key == context['jobKey'])
+    if not company or company != context['companyKey']:
+        return False
     scope = record.get('scope')
-    if scope == 'job' and not same_job:
-        return False
-    if scope == 'company' and (not company or company != context['companyKey']):
-        return False
     if scope not in {'job', 'company', 'global'}:
         return False
     country = captured.get('country', '')

@@ -6,7 +6,7 @@ const entry=new URL('../src/main.tsx',import.meta.url).pathname.replace(/^\/(\w:
 const bundle=(await build({entryPoints:[entry],bundle:true,write:false,format:'iife',platform:'browser',loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
 const tick=()=>new Promise(r=>setTimeout(r,20));
 async function until(check){for(let i=0;i<100;i++){if(check())return;await tick();}assert(check(),'Board did not reach expected state');}
-async function page(statsFail=false,jobState={},saved={}){
+async function page(statsFail=false,jobState={},saved={},applications=[]){
  const errors=[],vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));vc.on('error',e=>errors.push(String(e)));
  const dom=new JSDOM('<body><div id="root"></div></body>',{url:'https://fixture.test/',runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc}),w=dom.window,requests=[];
  w.matchMedia=()=>({matches:false,addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}});
@@ -16,6 +16,9 @@ async function page(statsFail=false,jobState={},saved={}){
  w.fetch=async(path)=>{
   const u=new URL(path,w.location.href);requests.push(u.pathname+u.search);let value;
   if(u.pathname==='/api/session')value={authenticated:true};
+  else if(u.pathname==='/api/manage/state')value={appliedList:{value:applications,revision:0}};
+  else if(u.pathname==='/api/manage/profiles')value=[];
+  else if(u.pathname==='/api/manage/progress')value={applications:[{history:[]}]};
   else if(u.pathname==='/api/extension/status')value={pending:0};
   else if(u.pathname==='/api/filter-counts'){if(statsFail)throw Error('Synthetic statistics failure');value={total:100,newgrad:{total:100,submitted:0},internship:{total:0,submitted:0}};}
   else if(u.pathname==='/api/jobs')value={total:100,groups:{other:100},recent_opened:[],application_counts:{submitted:0},source_health:[],jobs:[{
@@ -63,7 +66,7 @@ test('all unsubmitted jobs retain the single Apply action and unsubmitted label'
 });
 
 const lastJobs=h=>new URL(h.requests.filter(p=>p.startsWith('/api/jobs?')).at(-1),'https://fixture.test').searchParams;
-const toggle=h=>[...h.w.document.querySelectorAll('input')].filter(n=>n.type==='checkbox');
+const toggle=h=>[...h.w.document.querySelectorAll('button[aria-pressed]')].filter(n=>['地区筛选','公司筛选'].includes(n.textContent));
 test('region and employer switches have independent defaults and remember both kinds',async()=>{
  const h=await page();try{
   assert.equal(lastJobs(h).get('region'),'focus_remote');
@@ -93,4 +96,17 @@ test('legacy preferences preserve explicit exclusions and strict regions during 
   assert(h.w.document.body.textContent.includes('仅加州，不使用公司豁免'));
   assert(h.requests.filter(p=>p.startsWith('/api/filter-counts')).every(p=>p.includes('company_newgrad=')&&p.includes('company_internship=1')));
  }finally{h.dom.window.close();}
+});
+
+
+test('job status updates when application records arrive and opens progress',async()=>{
+ const app={id:'app-1',job_id:'fixture-1',version:1,jobTitle:'Engineer',companyName:'Fixture Employer',jobLink:'https://example.test/job',companyLink:'',date:new Date().toISOString(),profileName:'Newgrad',status:'interview',progress:{label:'Interview · Round 2',display_stage:'interview',stage:'interview',version:1}};
+ const h=await page(false,{status:'submitted'}, {}, [app]);
+ try {
+  await until(()=>h.w.document.body.textContent.includes('面试 · 第 2 轮'));
+  [...h.w.document.querySelectorAll('button')].find(b=>b.textContent.includes('面试 · 第 2 轮')).click();
+  await until(()=>h.w.document.body.textContent.includes('申请进度'));
+  assert(h.requests.some(url=>url.startsWith('/api/manage/progress?')));
+  assert.deepEqual(h.errors,[]);
+ } finally {h.dom.window.close();}
 });

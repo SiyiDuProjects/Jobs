@@ -1,3 +1,4 @@
+import { extraProfileAnswer } from "./profile-extra.js";
 import { AnswerVocabulary } from "./answer-vocabulary.js";
 import { signatureAnswer } from "./signature-answer.js";
 import { JobsOptionMatch } from "./option-match.js";
@@ -1052,6 +1053,8 @@ export function initializeProfileAnswers() {
     const managed = (question) => Boolean(classify(question)?.field);
 
     function resolve(question, profile, context = {}) {
+      const extra = extraProfileAnswer(question, profile, context);
+      if (extra) return extra;
       const signed = signatureAnswer(
         questionText(question),
         profile,

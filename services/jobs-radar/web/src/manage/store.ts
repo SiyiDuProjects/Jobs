@@ -13,6 +13,7 @@ import {
 } from "./model";
 type State = {
   loading: boolean;
+  draftDirty: boolean;
   authenticated: boolean;
   docs: Documents;
   profiles: ProfileSummary[];
@@ -37,6 +38,7 @@ export async function api(path: string, body?: unknown) {
 export class ManagementStore {
   state: State = {
     loading: true,
+    draftDirty: false,
     authenticated: false,
     docs: {},
     profiles: [],
@@ -66,6 +68,7 @@ export class ManagementStore {
   }
   report = (error: unknown) =>
     this.set({ error: error instanceof Error ? error.message : String(error) });
+  setDraftDirty = (draftDirty: boolean) => this.set({ draftDirty });
   clearError = () => this.set({ error: "" });
   async start(existingSession?: { authenticated: boolean }) {
     clearInterval(this.timer);

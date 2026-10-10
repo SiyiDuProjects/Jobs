@@ -1,17 +1,39 @@
-from .answer_policy import COMMON_INSTRUCTIONS as INSTRUCTIONS
-"""Luna answers for the selected Profile; no provider credential leaves the server."""
-import hashlib
+"""Recognize public questions, compute facts, and draft open prose separately."""
 import asyncio
 import json
 import time
 import uuid
-from pathlib import Path
 import httpx
 from .luna_screening import MODEL, api_key
+from .profile_contract import project_answer_profile
+from . import answer_bindings as bindings
+from .answer_memory import AnswerMemory, request_context
+from .field_answers import fields_input
+from .draft_quality import basic_issues
 
-from .profile_contract import ANSWER_PROJECTION as PROFILE_CONTRACT, project_answer_profile
+INSTRUCTIONS = bindings.INSTRUCTIONS
 
-SCHEMA={'type':'object','properties':{'state':{'type':'string','enum':['answer','needs_input']},'text':{'type':'string'},'source':{'type':'string','enum':['profile','suggestion','unknown']}},'required':['state','text','source'],'additionalProperties':False}
+
+def unique_rows(body, name='mappings'):
+    """A missing/duplicate/invalid row affects only that field."""
+    found={}; duplicates=set()
+    for row in body.get(name,[]) if isinstance(body,dict) and isinstance(body.get(name),list) else []:
+        if not isinstance(row,dict) or not isinstance(row.get('fieldId'),str): continue
+        key=row['fieldId']
+        if key in found: duplicates.add(key)
+        found[key]=row
+    return {k:v for k,v in found.items() if k not in duplicates}
+
+
+def saved_answer(matches,field,pid,version):
+    values={json.dumps(bindings.field_value(row['response'],field),ensure_ascii=False) for row in matches.values()}
+    if len(values)!=1: return None
+    value=json.loads(next(iter(values)))
+    if value is None: return None
+    row=bindings.result(field,pid,version,value,reason='本人在同一公司对同一题保存的回答',route='saved_response')
+    row['evidence']=[{'savedResponse':key} for key in matches]
+    return row
+
 
 class Answers:
     def __init__(self,store):
@@ -22,136 +44,100 @@ class Answers:
             c.execute('CREATE TABLE IF NOT EXISTS answer_requests(id TEXT PRIMARY KEY,created REAL,state TEXT)')
 
     async def generate(self,payload,client=None):
-        batch=isinstance(payload,dict) and 'fields' in payload
-        if not isinstance(payload,dict) or (not batch and (not isinstance(payload.get('prompt'),str) or not 1<=len(payload['prompt'])<=8000)):
-            raise ValueError('题目为空或过长')
-        if 'responseContext' in payload:
-            raise ValueError('Personal answer context must be migrated into the selected server Profile')
-        from . import field_answers
-        field_data=field_answers.fields_input(payload) if batch else None
-        review_suggestions = payload.get('reviewSuggestions', False)
-        if type(review_suggestions) is not bool:
-            raise ValueError('Invalid review suggestion policy')
-        from .review_proposals import INSTRUCTIONS as REVIEW_INSTRUCTIONS, proposed
+        if not isinstance(payload,dict): raise ValueError('题目为空或过长')
+        if 'profile' in payload or 'responseContext' in payload:
+            raise ValueError('Use a bound server Profile reference')
+        batch='fields' in payload
+        prompt=payload.get('prompt')
+        if not batch and (not isinstance(prompt,str) or not 1<=len(prompt)<=8000): raise ValueError('题目为空或过长')
+        data=fields_input(payload if batch else {**payload,'fields':[{'fieldId':'text','question':prompt[:2000],'description':prompt[2000:],'type':'textarea','required':True,'options':[]}]})
+        fields=data['fields']
         from .profiles import Profiles
-        pid=Profiles.identifier(payload.get('profileId'))
-        if 'profile' in payload:
-            raise ValueError('Use a server Profile reference, not a client Profile snapshot')
-        # The server revision is fixed by the page. A later website edit cannot
-        # change its facts, and a client cannot inject a different Profile.
-        profile=project_answer_profile(Profiles(self.store).at_version(pid,payload.get('profileVersion')),partial=False)
-        data={'profile':profile,**(field_data if batch else {'question':payload['prompt']})}
+        pid=Profiles.identifier(payload.get('profileId')); version=payload.get('profileVersion')
+        profile=Profiles(self.store).at_version(pid,version)
+        context={'jobContext':request_context(payload)}
         for key,limit in [('additionalContext',6000),('jobTitle',500),('jobDescription',18000)]:
             value=payload.get(key,'')
             if not isinstance(value,str) or len(value)>limit: raise ValueError('题目上下文过长')
-            data[key]=value
-        from .answer_calendar import calendar_fact
-        calendar = calendar_fact(data['additionalContext']) if batch else {}
-        evidence_profile = {**profile, 'calendar': calendar}
-        if calendar: data['calendar'] = calendar
-        saved = {}; memory = None; memory_context = {}; cached = {}
-        all_fields = field_data['fields'] if batch else []
-        usage = {'fieldCount': len(all_fields), 'cacheHits': 0, 'modelFields': 0, 'modelCalls': 0}
-        if batch:
-            from .answer_memory import AnswerMemory, request_context
-            job_context = request_context(payload)
-            memory_context = {**job_context, 'profileVersion': payload['profileVersion'], **calendar}
-            memory = AnswerMemory(self.store, pid, field_data['fields'], memory_context)
-            saved = memory.by_field
-            if memory.prompt():
-                data['recordedAnswers'] = memory.prompt()
-                data['answerContext'] = memory_context
-            from .answer_semantics import MeaningCache, VOCABULARY
-            meanings = MeaningCache(self.store)
-            meaning_context = {key: data[key] for key in ['additionalContext','jobTitle','jobDescription','formContext']}
-            meaning_context['jobContext'] = job_context
-            from .answer_bindings import BindingCache
-            bindings = BindingCache(self.store)
-            cached = bindings.read(all_fields, meaning_context, MODEL, evidence_profile, pid, payload['profileVersion'], saved)
-            usage['cacheHits'] = len(cached)
-            field_data = {**field_data, 'fields': [f for f in all_fields if f['fieldId'] not in cached]}
-            data['fields'] = field_data['fields']
-            data['meaningHints'] = meanings.read(field_data['fields'], meaning_context, MODEL)
-            data['topicVocabulary'] = {key: VOCABULARY[key] for key in ['version','topics','optionConcepts','draftTopics']}
-            from .answer_policy import POLICY
-            data['standingAuthorizations'] = POLICY['standingAuthorizations']
-        def combined(rows, response_id):
-            if cached and not memory.current():
-                raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
-            by_id = {**cached, **{row['fieldId']: row for row in rows}}
-            return {'answers': [by_id[f['fieldId']] for f in all_fields], 'responseId': response_id, 'model': MODEL, 'answerUsage': dict(usage)}
-        def partial_failure(error):
-            if batch: error.answer_usage = dict(usage)
-            if not cached:
-                raise error
-            from .answer_evidence import decide
-            rows = [decide({'fieldId': f['fieldId'], 'state': 'needs_input', 'value': None,
-                            'source': 'unknown', 'reason': 'Answer service unavailable; verified fields remain usable.'},
-                           f, evidence_profile, pid, payload['profileVersion'], {'verdict': 'unavailable'})
-                    for f in field_data['fields']]
-            return combined(rows, str(uuid.uuid4()))
-        if batch and not field_data['fields']:
-            return combined([], str(uuid.uuid4()))
-        raw=json.dumps(data,ensure_ascii=False)
-        if len(raw.encode())>100000: raise ValueError('资料过大')
-        now=time.time();rid=str(uuid.uuid4())
+            context[key]=value
+        memory=AnswerMemory(self.store,pid,fields,{**context['jobContext'],'profileVersion':version})
+        cache=bindings.BindingCache(self.store); plans=cache.plans(fields,context,MODEL)
+        usage={'fieldCount':len(fields),'cacheHits':len(plans),'modelFields':0,'modelCalls':0}
+        pending=[f for f in fields if f['fieldId'] not in plans]
+        rid=str(uuid.uuid4()); now=time.time()
         with self.store.connect(True) as c:
-            if c.execute('SELECT count(*) FROM answer_requests WHERE created>?',(now-3600,)).fetchone()[0]>=60:
-                return partial_failure(ValueError('本小时 AI 请求较多，请稍后再试'))
-            c.execute('INSERT INTO answer_requests VALUES(?,?,?)',(rid,now,'started'))
-        async def call(active):
-            # Count attempts at the transport boundary, including failed requests.
-            # A batch can generate once and independently verify once.
-            class CountedClient:
-                async def post(self, *args, **kwargs):
-                    usage['modelFields'] = len(field_data['fields']) if batch else 0
-                    usage['modelCalls'] += 1
-                    return await active.post(*args, **kwargs)
-            counted = CountedClient()
-            result=await counted.post('https://api.openai.com/v1/responses',json={'model':MODEL,'store':False,'instructions':INSTRUCTIONS+('\n'+field_answers.INSTRUCTIONS if batch else '')+('\n'+REVIEW_INSTRUCTIONS if batch and review_suggestions else ''),'input':raw,
-                'reasoning':{'effort':'low'},'max_output_tokens':6000 if batch else 1800,
-                'text':{'format':{'type':'json_schema','name':'job_answer','strict':True,'schema':field_answers.schema(field_data['fields'], evidence_profile, {key: item for matches in saved.values() for key, item in matches.items()}) if batch else SCHEMA}}})
-            if result.status_code!=200: raise ValueError('Luna 暂时不可用（HTTP '+str(result.status_code)+'）')
-            body=result.json()
-            if body.get('status')!='completed': raise ValueError('Luna 回答未完成，请重试')
-            text=''.join(part.get('text','') for output in body.get('output',[]) for part in output.get('content',[]) if part.get('type')=='output_text')
-            answer=json.loads(text)
-            if batch:
-                rows=field_answers.checked_answers(answer,field_data['fields'],profile)
-                from .answer_evidence import decide
-                from .answer_verification import verify
-                if not memory.current():
-                    raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
-                checks = await verify(counted, rows, field_data['fields'], evidence_profile, MODEL, saved, memory_context, meaning_context)
-                if not memory.current():
-                    raise ValueError('已存答案在核验期间改变，请重试；当前填写已保留')
-                meanings.save(field_data['fields'], [{**row, 'meaning': checks.get(row['fieldId'], {}).get('meaning', row.get('meaning'))} for row in rows], meaning_context, MODEL)
-                fields_by_id = {f['fieldId']: f for f in field_data['fields']}
-                candidates = rows
-                rows = [decide(row, fields_by_id[row['fieldId']], evidence_profile, pid, payload['profileVersion'], checks.get(row['fieldId'], {'verdict': 'missing_fact'}), saved.get(row['fieldId'])) for row in rows]
-                if review_suggestions:
-                    rows = [proposed(candidate, fields_by_id[row['fieldId']], row) for candidate, row in zip(candidates, rows)]
-                bindings.save(field_data['fields'], rows, checks, meaning_context, MODEL, evidence_profile, pid, payload['profileVersion'], saved)
-                self.profile_gaps.record(pid,profile,field_data['fields'],rows)
-                state='needs_input' if any(r['state']=='needs_input' for r in rows) else 'answer'
-                with self.store.connect(True) as c:c.execute('UPDATE answer_requests SET state=? WHERE id=?',(state,rid))
-                return combined(rows, rid)
-            if answer.get('state') not in {'answer','needs_input'} or not isinstance(answer.get('text'),str) or not answer['text'].strip(): raise ValueError('Luna 返回的回答无效')
-            with self.store.connect(True) as c:c.execute('UPDATE answer_requests SET state=? WHERE id=?',(answer['state'],rid))
-            if answer['state']=='needs_input': raise ValueError('需要你确认：'+answer['text'][:600])
-            source=answer.get('source','unknown')
-            if source not in {'profile','suggestion','unknown'}:source='unknown'
-            self.profile_gaps.record(pid,profile,[{'fieldId':'text','question':payload['prompt'],'type':'textarea','options':[]}],
-                [{'fieldId':'text','state':'answer','value':answer['text'],'reason':'Generate Answer: derived from selected Profile','source':source}])
-            return {'text':answer['text'],'source':source,'responseId':rid,'remaining':None,'model':MODEL}
+            limited=c.execute('SELECT count(*) FROM answer_requests WHERE created>?',(now-3600,)).fetchone()[0]>=60
+
+        async def request(active, instructions, data, schema, count):
+            if active is None: raise ValueError('AI 服务暂时不可用')
+            with self.store.connect(True) as c:
+                c.execute('INSERT OR IGNORE INTO answer_requests VALUES(?,?,?)',(rid,now,'started'))
+            usage['modelCalls']+=1; usage['modelFields']=max(usage['modelFields'],count)
+            response=await active.post('https://api.openai.com/v1/responses',json={
+                'model':MODEL,'store':False,'instructions':instructions,'input':json.dumps(data,ensure_ascii=False),
+                'reasoning':{'effort':'low'},'max_output_tokens':6000,
+                'text':{'format':{'type':'json_schema','name':'job_question','strict':True,'schema':schema}}})
+            if response.status_code!=200: raise ValueError('AI 服务暂时不可用')
+            body=response.json()
+            if body.get('status')!='completed': raise ValueError('AI 返回未完成')
+            text=''.join(p.get('text','') for o in body.get('output',[]) for p in o.get('content',[]) if p.get('type')=='output_text')
+            return json.loads(text)
+
+        async def run(active):
+            if pending and not limited:
+                schema={'type':'object','properties':{'mappings':{'type':'array','items':{'type':'object','properties':{
+                    'fieldId':{'type':'string','enum':[f['fieldId'] for f in pending]},'binding':bindings.schema()},
+                    'required':['fieldId','binding'],'additionalProperties':False}}},'required':['mappings'],'additionalProperties':False}
+                try:
+                    body=await request(active,INSTRUCTIONS,{'fields':pending,'context':context},schema,len(pending))
+                    mapped=unique_rows(body)
+                    new={f['fieldId']:b for f in pending if (b:=bindings.checked(mapped.get(f['fieldId'],{}).get('binding'),None,f,context))}
+                    cache.save_plans(pending,new,context,MODEL); plans.update(new)
+                except (httpx.HTTPError,ValueError,KeyError,TypeError): pass
+            if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
+            answers={}; drafts=[]
+            for field in fields:
+                fid=field['fieldId']; plan=plans.get(fid)
+                row=bindings.answer(plan,None,field,profile,pid,version,defaults=False) if plan else None
+                if row is None: row=saved_answer(memory.by_field.get(fid,{}),field,pid,version)
+                saved=memory.by_field.get(fid,{})
+                if row is None and plan and not saved: row=bindings.answer(plan,None,field,profile,pid,version)
+                if row is None and plan and not saved and plan['predicate'].startswith('draft.'): drafts.append(field)
+                answers[fid]=row or bindings.result(field,pid,version,reason='缺少资料字段或题意未能对应，留空',route=plan['predicate'] if plan else 'unknown')
+            if drafts and not limited:
+                projected=project_answer_profile(profile,partial=False)
+                projected.get('applicationData',{}).pop('aiNotes',None)
+                schema={'type':'object','properties':{'drafts':{'type':'array','items':{'type':'object','properties':{
+                    'fieldId':{'type':'string','enum':[f['fieldId'] for f in drafts]},'text':{'type':'string'}},
+                    'required':['fieldId','text'],'additionalProperties':False}}},'required':['drafts'],'additionalProperties':False}
+                try:
+                    body=await request(active,'Draft concise answers only to the supplied open motivation, preference or experience prompts. Match the question language. Use only the structured Profile for any named person, school, company, skill or project. Never invent credentials, numbers, experiences or commitments. Do not output placeholders. If the request actually asks a missing fact, return empty text. These drafts are reviewed before submission.',
+                        {'fields':drafts,'profile':projected,'jobTitle':context['jobTitle'],'jobDescription':context['jobDescription']},schema,len(drafts))
+                    for fid,row in unique_rows(body,'drafts').items():
+                        field=next((f for f in drafts if f['fieldId']==fid),None)
+                        value=bindings.field_value(row.get('text'),field) if field else None
+                        if value and not basic_issues(value,field['question']):
+                            answers[fid]=bindings.result(field,pid,version,value,draft=True,reason='开放题草稿，提交前过目',route=plans[fid]['predicate'])
+                except (httpx.HTTPError,ValueError,KeyError,TypeError): pass
+            if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
+            rows=[answers[f['fieldId']] for f in fields]
+            self.profile_gaps.record(pid,profile,fields,rows)
+            with self.store.connect(True) as c:
+                c.execute('UPDATE answer_requests SET state=? WHERE id=?',('needs_input' if any(r['state']=='needs_input' for r in rows) else 'answer',rid))
+            if not batch:
+                row=rows[0]
+                if row['state']=='needs_input': raise ValueError('需要补充资料或本人回答')
+                return {'text':row['value'],'source':row['source'],'responseId':rid,'remaining':None,'model':MODEL}
+            return {'answers':rows,'responseId':rid,'model':MODEL,'answerUsage':usage}
         try:
-            if client is not None:return await call(client)
-            async with httpx.AsyncClient(headers={'Authorization':'Bearer '+api_key()},timeout=60) as active:
-                return await call(active)
+            if client is not None: return await run(client)
+            # A cache-only request needs no credential or network.
+            if not pending and not any(p['predicate'].startswith('draft.') for p in plans.values()): return await run(None)
+            try: key=api_key()
+            except ValueError: return await run(None)
+            async with httpx.AsyncClient(headers={'Authorization':'Bearer '+key},timeout=60) as active:
+                return await run(active)
         except asyncio.CancelledError as error:
-            if batch: error.answer_usage = dict(usage)
-            raise
-        except (httpx.HTTPError,json.JSONDecodeError,KeyError):
-            return partial_failure(ValueError('Luna 请求失败，未填入任何答案'))
+            error.answer_usage=dict(usage); raise
         except ValueError as error:
-            return partial_failure(error)
+            error.answer_usage=dict(usage); raise

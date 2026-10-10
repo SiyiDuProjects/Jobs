@@ -64,7 +64,13 @@ def write_state(c, job_id, changes, *, version_step=0, record_step=0, reason):
 def read(c):
     rows=[]
     for app in c.execute('SELECT * FROM applications WHERE record IS NOT NULL AND deleted=0 ORDER BY updated DESC,job_id'):
-        rows.append(record(app))
+        item = record(app)
+        observation = c.execute('SELECT payload FROM observations WHERE job_id=? ORDER BY present DESC,last_seen DESC LIMIT 1',(app['job_id'],)).fetchone()
+        item['job'] = None
+        if observation:
+            data = json.loads(observation[0])
+            item['job'] = {'id': app['job_id'], **{key: data.get(key) for key in ('title','company','locations','kind','apply_url','source_url')}}
+        rows.append(item)
     return rows
 
 

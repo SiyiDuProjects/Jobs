@@ -3,7 +3,7 @@
   "$id": "https://jobs.siyidu.com/contracts/profile.schema.json",
   "title": "Profile",
   "description": "Server-owned Profile contract. Missing optional facts mean unknown; false is explicit No. Additional legacy properties are retained, never stripped. Schema version is in record metadata, not personal facts.",
-  "x-version": 1,
+  "x-version": 2,
   "type": "object",
   "properties": {
     "profileName": {
@@ -307,6 +307,21 @@
               ]
             }
           ]
+        },
+        "citizenships": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "identityDefaults": {
+          "type": "string",
+          "enum": [
+            "",
+            "cis_heterosexual",
+            "undisclosed"
+          ]
         }
       },
       "additionalProperties": true
@@ -345,6 +360,18 @@
         },
         "visaStatus": {
           "type": "string",
+          "x-legacyEnum": [
+            "",
+            "US citizen",
+            "Green card",
+            "F-1",
+            "F-1 OPT",
+            "F-1 STEM OPT",
+            "F-1 CPT",
+            "H-1B",
+            "J-1",
+            "Other"
+          ],
           "maxLength": 200
         },
         "salaryPreference": {
@@ -408,6 +435,33 @@
         },
         "hasRelatedPeopleAtWork": {
           "type": "boolean"
+        },
+        "defaultAnswers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "government",
+              "clearance",
+              "obligations",
+              "criminal",
+              "termination",
+              "conflicts",
+              "screening",
+              "referral",
+              "terms",
+              "requirements",
+              "location"
+            ]
+          }
+        },
+        "defaultSource": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "availableUntil": {
+          "type": "string",
+          "format": "optional-date"
         }
       },
       "additionalProperties": false,
@@ -423,6 +477,30 @@
           "message": "请填写有效的薪资金额、计薪方式和三位币种代码。"
         }
       ]
+    },
+    "projectData": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "link": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "required": [
@@ -494,6 +572,9 @@
       "mode": "include"
     },
     "applicationData": {
+      "mode": "include"
+    },
+    "projectData": {
       "mode": "include"
     }
   },
@@ -900,5 +981,18 @@
       "Zambia",
       "Zimbabwe"
     ]
+  },
+  "x-defaultAnswers": {
+    "government": "政府任职或政府官员关系：否",
+    "clearance": "安全许可：无",
+    "obligations": "竞业或其他限制义务：无",
+    "criminal": "犯罪、制裁或除名：无",
+    "termination": "被解雇：否",
+    "conflicts": "亲属在职、利益冲突或外部兼职：无",
+    "screening": "背景调查与药检：愿意",
+    "referral": "内推：无",
+    "terms": "条款与信息真实准确声明：同意",
+    "requirements": "满足基本要求和核心职责：是",
+    "location": "为该职位搬迁、通勤或驻场：愿意"
   }
 }

@@ -18,7 +18,7 @@ class ProfileGaps:
         now=time.time()
         with self.store.connect(True) as c:
             for row in answers:
-                if row['state']!='answer' or row['source']!='profile' or row['value'] in (None,'',[]):continue
+                if row['state'] != 'needs_input': continue
                 if any('savedResponse' in item for item in row.get('evidence', []) if isinstance(item, dict)):continue
                 field=by_id[row['fieldId']]
                 c.execute('''INSERT INTO answer_profile_gaps VALUES(?,?,?,?,?,?,?,?,?,1)
@@ -26,4 +26,4 @@ class ProfileGaps:
                   field=excluded.field,answer=excluded.answer,reason=excluded.reason,
                   profile_stamp=excluded.profile_stamp,last_seen=excluded.last_seen,occurrences=occurrences+1''',
                   (pid,field['question'],field['type'],json.dumps(field,ensure_ascii=False),
-                   json.dumps(row['value'],ensure_ascii=False),row['reason'],stamp,now,now))
+                   json.dumps(None),row.get('missingField', 'unknown') + ': ' + row['reason'],stamp,now,now))

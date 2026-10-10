@@ -1,4 +1,3 @@
-from .answer_policy import FIELD_INSTRUCTIONS as INSTRUCTIONS, needs_confirmation
 """Structured field answers. This contract contains no navigation commands."""
 from datetime import date
 import re
@@ -46,21 +45,6 @@ def fields_input(payload):
                       'answer':_string(item.get('answer',''),4000,'context answer',True)})
     return {'fields':fields,'formContext':clean}
 
-def schema(fields, profile=None, saved=None):
-    from .answer_evidence import citation_schema
-    from .answer_semantics import classification_schema
-    return {'type':'object','properties':{'answers':{'type':'array','items':{
-        'type':'object','properties':{'fieldId':{'type':'string','enum':[f['fieldId'] for f in fields]},
-            'state':{'type':'string','enum':['answer','needs_input']},
-            'source':{'type':'string','enum':['profile','suggestion','unknown']},
-            'needsConfirmation':{'type':'boolean'},
-            'value':{'anyOf':[{'type':'string'},{'type':'boolean'},
-                {'type':'array','items':{'type':'string'}},{'type':'null'}]},
-            'evidence':citation_schema(profile, saved), 'meaning':classification_schema(),
-            'reason':{'type':'string'},'questionZh':{'type':'string'},'answerZh':{'type':'string'}},
-        'required':['fieldId','state','value','reason','source','needsConfirmation','questionZh','answerZh','evidence','meaning'],'additionalProperties':False}}},
-        'required':['answers'],'additionalProperties':False}
-
 def _exact_date(value):
     if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
         return None
@@ -68,66 +52,3 @@ def _exact_date(value):
         return date.fromisoformat(value).isoformat()
     except ValueError:
         return None
-
-
-def _date_fact_error(field, value, profile):
-    """A provider's provenance claim cannot manufacture missing date precision."""
-    if field['type'] != 'date':
-        return None
-    exact = _exact_date(value)
-    if not exact:
-        return '此题需要有效的完整日期；AI 未返回可用日期，请补充。'
-
-    return None
-
-
-def checked_answers(body,fields,profile=None):
-    results=body.get('answers') if isinstance(body,dict) else None
-    if not isinstance(results,list) or len(results)!=len(fields): raise ValueError('Luna 未完整返回每个字段')
-    expected={f['fieldId']:f for f in fields};seen=set();checked=[]
-    for row in results:
-        if not isinstance(row,dict) or row.get('fieldId') not in expected or row['fieldId'] in seen:
-            raise ValueError('Luna 返回了未知或重复字段')
-        field=expected[row['fieldId']];seen.add(row['fieldId']);value=row.get('value')
-        state=row.get('state');source=row.get('source','unknown');invalid_value=False
-        if source not in {'profile','suggestion','unknown'}:source='unknown'
-        try:
-            reason=_string(row.get('reason'),600,'reason',True)
-            if state=='needs_input':
-                if value is not None or not reason.strip(): raise ValueError('Invalid needs_input answer')
-            elif state=='answer':
-                options={o['value'] for o in field['options']};kind=field['type']
-                if kind=='select-multiple':
-                    valid=isinstance(value,list) and all(isinstance(v,str) and v in options for v in value) and len(set(value))==len(value) and (bool(value) or not field['required'])
-                elif kind in CHOICES: valid=isinstance(value,str) and value in options
-                elif kind in {'checkbox','custom-checkbox'}: valid=type(value) is bool
-                else:
-                    valid=isinstance(value,str) and len(value)<=4000 and (bool(value.strip()) or not field['required'] and bool(reason.strip()))
-                    if valid and not value.strip(): value=''
-                if not valid: raise ValueError('Invalid field value')
-            else: raise ValueError('Invalid answer state')
-        except ValueError:
-            # Keep correctly identified, valid answers usable. Invalid values
-            # stay unfilled and visible in the existing review card.
-            invalid_value=True
-            state,value,reason='needs_input',None,'这题的 AI 答案格式或选项不符，未填入；请检查此题。其他有效答案可正常填入。'
-        if state == 'answer':
-            date_error = _date_fact_error(field, value, profile)
-            if date_error:
-                state, value, reason = 'needs_input', None, date_error
-        if state=='needs_input':source='unknown'
-        result={'fieldId':row['fieldId'],'state':state,'value':value,'reason':reason,'source':source,
-                'needsConfirmation':needs_confirmation(state, source, row.get('needsConfirmation'),
-                    field['question'] + ' ' + field.get('description', ''))}
-        # Display metadata must never invalidate a usable form answer. Older
-        # clients/providers can omit it; the card then shows the actual text.
-        for key,limit in [('questionZh',200),('answerZh',1000)]:
-            display=row.get(key)
-            if isinstance(display,str) and display.strip() and len(display)<=limit:
-                result[key]=display.strip()
-        for key in ['evidence','meaning']:
-            if key in row: result[key] = row[key]
-        if invalid_value: result['invalidValue'] = True
-        if state=='needs_input':result.pop('answerZh',None)
-        checked.append(result)
-    return checked

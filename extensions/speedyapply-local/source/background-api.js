@@ -56,7 +56,12 @@ export async function handle(message, sender) {
     return {
       enabled: data.autofillEnabled !== false,
       hasProfile: !!bound,
-      autofillSettings: { ...defaults, ...data.settings?.autofillSettings },
+      autofillSettings: {
+        ...defaults,
+        ...data.settings?.autofillSettings,
+        saveApplications: true,
+        saveResponses: true,
+      },
       accountSettings: account,
     };
   }

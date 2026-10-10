@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   bindAnswerEvidence,
   verifiedAnswer,
-  reviewProposal,
 } from "../src/custom/answer-proof.js";
 import { answerNeedsReview } from "../src/custom/automatic-field-policy.js";
 const field = {
@@ -97,20 +96,8 @@ test("proposed proof is bound to the exact field but never authorizes autofill",
     proof: { ...answer.proof, status: "proposed" },
   };
   const boundProposal = bindAnswerEvidence(proposal, field, bound);
-  assert(reviewProposal(boundProposal, field));
+  assert.equal(boundProposal.verification, null);
   assert.equal(verifiedAnswer(boundProposal, field), false);
-  assert.equal(
-    reviewProposal(boundProposal, { ...field, question: "Changed question" }),
-    false,
-  );
-  assert.equal(reviewProposal({ ...boundProposal, value: "y" }, field), false);
-  assert.equal(
-    reviewProposal(
-      bindAnswerEvidence(proposal, field, { ...bound, lastSync: "new" }),
-      field,
-    ),
-    false,
-  );
   assert.equal(
     verifiedAnswer({ ...boundProposal, reviewOnly: false }, field),
     false,

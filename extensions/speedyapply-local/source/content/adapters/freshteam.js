@@ -16,7 +16,7 @@ import {
   jobsWaitForXPathNodes,
 } from "../shared/dom-controls.js";
 import {
-  jobsFormatProfileMonth,
+  jobsFormatProfileDate,
   jobsIsProfileMonthInPast,
   jobsProfileWebsiteEntries,
 } from "../shared/profile-format.js";
@@ -128,14 +128,15 @@ async function freshteamFillApplication(profile, canProceed = () => true) {
             find: field(`input`, `start_date`),
             answer:
               entry.startDate &&
-              jobsFormatProfileMonth(entry.startDate, `MMMM dd, yyyy`),
+              jobsFormatProfileDate(entry.startDate, `MMMM dd, yyyy`),
           },
           {
             name: "end-date",
             find: field(`input`, `end_date`),
-            answer:
-              entry.endDate &&
-              jobsFormatProfileMonth(entry.endDate, `MMMM dd, yyyy`),
+            answer: jobsFormatProfileDate(
+              entry.graduationDate || entry.endDate,
+              `MMMM dd, yyyy`,
+            ),
           },
           {
             name: "current",
@@ -168,14 +169,15 @@ async function freshteamFillApplication(profile, canProceed = () => true) {
             find: field(`start_date`),
             answer:
               entry.startDate &&
-              jobsFormatProfileMonth(entry.startDate, `MMMM dd, yyyy`),
+              jobsFormatProfileDate(entry.startDate, `MMMM dd, yyyy`),
           },
           {
             name: "end-date",
             find: field(`end_date`),
-            answer:
-              entry.endDate &&
-              jobsFormatProfileMonth(entry.endDate, `MMMM dd, yyyy`),
+            answer: jobsFormatProfileDate(
+              entry.graduationDate || entry.endDate,
+              `MMMM dd, yyyy`,
+            ),
           },
           {
             name: "current",

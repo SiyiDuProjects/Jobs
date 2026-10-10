@@ -77,7 +77,7 @@ class AnswerJobRequest(RequestModel):
     jobDescription: str | None = None
     jobUrl: str | None = None
     jobCountry: str | None = None
-    reviewSuggestions: bool = False
+    reviewSuggestions: bool = False  # Accepted for old clients; never enables proposals.
 
 
 class BoardAction(RequestModel):

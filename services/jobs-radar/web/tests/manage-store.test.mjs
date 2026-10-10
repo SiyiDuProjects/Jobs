@@ -60,7 +60,7 @@ async function fixture() {
   );
   const docs = {
     [key]: { revision: 1, value: [answer("first", "Before")] },
-    dailyGoal: { revision: 1, value: 10 },
+    settings: { revision: 1, value: {testValue: 10} },
   };
   const requests = [];
   let intercept,
@@ -163,9 +163,9 @@ test("a failed refresh resumes and is not an unsaved edit", async () => {
     await h.store.refresh();
     assert.equal(h.store.state.unsaved || 0, 0);
     h.intercept(undefined);
-    h.docs.dailyGoal = { value: 23, revision: 2 };
+    h.docs.settings = { value: {testValue: 23}, revision: 2 };
     await h.store.refresh();
-    assert.equal(h.store.state.docs.dailyGoal.value, 23);
+    assert.equal(h.store.state.docs.settings.value.testValue, 23);
   } finally {
     h.close();
   }
@@ -185,10 +185,10 @@ test("an earlier refresh cannot roll back a completed edit", async () => {
     });
     const polling = h.store.refresh();
     await entered.promise;
-    await h.store.write({ dailyGoal: 42 });
+    await h.store.write({ settings: {testValue: 42} });
     release.resolve();
     await polling;
-    assert.equal(h.store.state.docs.dailyGoal.value, 42);
+    assert.equal(h.store.state.docs.settings.value.testValue, 42);
   } finally {
     h.close();
   }
@@ -204,7 +204,7 @@ test("failed edits remain retryable and unrelated success cannot mask the unsave
     );
     h.offline(false);
     await h.store.profileAPI();
-    await h.store.write({ dailyGoal: 11 });
+    await h.store.write({ settings: {testValue: 11} });
     assert.equal(h.store.state.unsaved, 1);
     assert.match(h.store.state.error, /Offline/);
     assert.match(h.store.state.notice, /尚未保存/);
@@ -221,14 +221,14 @@ test("upload acknowledgements refresh unrelated changed data before its next edi
   try {
     h.intercept((url, body) => {
       if (url === "/api/manage/state" && body) {
-        h.docs.dailyGoal = { value: 20, revision: 2 };
+        h.docs.settings = { value: {testValue: 20}, revision: 2 };
         h.intercept(undefined);
       }
     });
     await h.store.write({ [key]: [answer("first", "Changed")] });
-    assert.equal(h.store.state.docs.dailyGoal.value, 20);
-    await h.store.write({ dailyGoal: 21 });
-    assert.equal(h.docs.dailyGoal.value, 21);
+    assert.equal(h.store.state.docs.settings.value.testValue, 20);
+    await h.store.write({ settings: {testValue: 21} });
+    assert.equal(h.docs.settings.value.testValue, 21);
   } finally {
     h.close();
   }

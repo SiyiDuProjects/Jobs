@@ -1,27 +1,13 @@
 import { Component, useEffect, type ReactNode } from "react";
 import { Button, Card, Spinner } from "@heroui/react";
-import { Applications } from "./Applications";
+import type { JobKind } from "../JobWorkspace";
 import { NewProfile, Profile } from "./Profile";
 import { Settings } from "./Settings";
 import { Choice } from "./components";
 import { store, useManagement } from "./store";
 
-export function Management({ route }: { route: string }) {
+export function Management({ route, kind }: { route: string; kind: JobKind }) {
   const state = useManagement();
-  useEffect(() => {
-    void store.start({ authenticated: true });
-    const before = (e: BeforeUnloadEvent) => {
-      if (store.state.pending || store.state.unsaved) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", before);
-    return () => {
-      store.stop();
-      window.removeEventListener("beforeunload", before);
-    };
-  }, []);
   return (
     <>
       {state.authenticated && (
@@ -32,23 +18,28 @@ export function Management({ route }: { route: string }) {
                 label="当前资料"
                 hideLabel
                 value={state.current?.id}
-                disabled={state.pending > 0}
+                disabled={state.pending > 0 || state.draftDirty}
                 options={Object.fromEntries(
                   state.profiles.map((p) => [p.id, p.profileName]),
                 )}
                 onChange={(id) => {
                   void store
                     .selectProfile(id)
-                    .then(() => {
-                      location.hash = "/profile";
-                    })
+                    .then(() =>
+                      store.write({
+                        jobsKindProfiles: {
+                          ...state.docs.jobsKindProfiles?.value,
+                          [kind === "internship" ? "intern" : "newgrad"]: id,
+                        },
+                      }),
+                    )
                     .catch(store.report);
                 }}
               />
             </div>
           )}
           <span role="status" className="text-muted">
-            {state.pending ? "正在保存…" : state.notice}
+            {state.pending ? "正在保存…" : ""}
           </span>
           {state.unsaved > 0 && (
             <Button
@@ -73,7 +64,7 @@ export function Management({ route }: { route: string }) {
               >
                 <p>{state.error}</p>
                 <Button variant="ghost" onPress={store.clearError}>
-                  Dismiss
+                  关闭
                 </Button>
               </div>
             </Card.Content>
@@ -81,7 +72,7 @@ export function Management({ route }: { route: string }) {
         )}
         {state.loading ? (
           <div className="py-20 flex justify-center">
-            <Spinner aria-label="Loading management" />
+            <Spinner aria-label="正在读取资料" />
           </div>
         ) : !state.authenticated ? (
           <Card>
@@ -102,7 +93,7 @@ export function Management({ route }: { route: string }) {
             route={route === "/settings" ? "/settings/autofill" : route}
           />
         ) : (
-          <Applications />
+          <Profile key={state.current?.id} />
         )}
       </section>
     </>
@@ -125,7 +116,7 @@ export class ErrorBoundary extends Component<
           </Card.Header>
           <Card.Content>服务器上的数据未更改。请刷新后重试。</Card.Content>
           <Card.Footer>
-            <Button onPress={() => location.reload()}>Reload</Button>
+            <Button onPress={() => location.reload()}>刷新</Button>
           </Card.Footer>
         </Card>
       </main>
