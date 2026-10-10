@@ -29,6 +29,7 @@ def employed_by(records, argument, *, affiliates=False):
     if affiliates:
         if any(target in group and any(name in group for name in names) for group in GROUPS):
             return 'true'
-        # No employment at all proves No; an unlisted relationship does not.
-        return None if records else 'false'
+        # The owner treats their recorded employment history as complete.
+        # Keep incomplete records unknown, just as for a single employer.
+        return None if any(not name for name in names) else 'false'
     return None if any(not name for name in names) else 'false'

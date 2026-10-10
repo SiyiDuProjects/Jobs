@@ -10,7 +10,7 @@ def test_employer_legal_suffixes_and_company_scope():
     assert evaluate('previous_employer', p, 'TikTok Inc.')[0] == 'true'
     assert evaluate('previous_employer', p, 'TikTok Analytics LLC')[0] == 'false'
     assert evaluate('previous_employer_group', p, '字节跳动')[0] == 'true'
-    assert evaluate('previous_employer_group', p, 'Unlisted Group') is None
+    assert evaluate('previous_employer_group', p, 'Unlisted Group')[0] == 'false'
     assert evaluate('previous_employer', {'jobData': []}, 'Other')[0] == 'false'
 
 

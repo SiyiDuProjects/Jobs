@@ -7,11 +7,11 @@ import httpx
 from .luna_screening import MODEL, api_key
 from .profile_contract import project_answer_profile
 from . import answer_bindings as bindings
+from . import flexible_answers as flexible
 from .answer_memory import AnswerMemory, request_context
 from .field_answers import fields_input
-from .draft_quality import basic_issues
 
-INSTRUCTIONS = bindings.INSTRUCTIONS
+INSTRUCTIONS = flexible.INSTRUCTIONS
 
 
 def unique_rows(body, name='mappings'):
@@ -64,7 +64,9 @@ class Answers:
         memory=AnswerMemory(self.store,pid,fields,{**context['jobContext'],'profileVersion':version})
         cache=bindings.BindingCache(self.store); plans=cache.plans(fields,context,MODEL)
         usage={'fieldCount':len(fields),'cacheHits':len(plans),'modelFields':0,'modelCalls':0}
-        pending=[f for f in fields if f['fieldId'] not in plans]
+        projected=project_answer_profile(profile,partial=False)
+        displays=cache.displays(fields,context,MODEL)
+        pending=[f for f in fields if f['fieldId'] not in plans or bindings.answer(plans[f['fieldId']],None,f,profile,pid,version) is None]
         rid=str(uuid.uuid4()); now=time.time()
         with self.store.connect(True) as c:
             limited=c.execute('SELECT count(*) FROM answer_requests WHERE created>?',(now-3600,)).fetchone()[0]>=60
@@ -76,7 +78,7 @@ class Answers:
             usage['modelCalls']+=1; usage['modelFields']=max(usage['modelFields'],count)
             response=await active.post('https://api.openai.com/v1/responses',json={
                 'model':MODEL,'store':False,'instructions':instructions,'input':json.dumps(data,ensure_ascii=False),
-                'reasoning':{'effort':'low'},'max_output_tokens':6000,
+                'reasoning':{'effort':'low'},'max_output_tokens':max(6000,min(24000,count*1000)),
                 'text':{'format':{'type':'json_schema','name':'job_question','strict':True,'schema':schema}}})
             if response.status_code!=200: raise ValueError('AI 服务暂时不可用')
             body=response.json()
@@ -85,46 +87,47 @@ class Answers:
             return json.loads(text)
 
         async def run(active):
+            generated={}
             mapping_failure = 'ai_rate_limited' if limited else 'unrecognized_question'
             if pending and not limited:
                 schema={'type':'object','properties':{'mappings':{'type':'array','items':{'type':'object','properties':{
                     'fieldId':{'type':'string','enum':[f['fieldId'] for f in pending]},'binding':bindings.schema()},
-                    'required':['fieldId','binding'],'additionalProperties':False}}},'required':['mappings'],'additionalProperties':False}
+                    'required':['fieldId','binding'],'additionalProperties':False}},
+                    'answers':{'type':'array','items':flexible.schema(pending,projected)}},'required':['mappings','answers'],'additionalProperties':False}
                 try:
-                    body=await request(active,INSTRUCTIONS,{'fields':pending,'context':context},schema,len(pending))
+                    body=await request(active,flexible.INSTRUCTIONS,{
+                        'fields':pending,'context':context,'profile':projected,
+                        'recordedAnswers':memory.prompt(),
+                        'defaultCategories':{k:bindings.DEFAULTS[k] for k in profile.get('applicationData',{}).get('defaultAnswers',[]) if k in bindings.DEFAULTS},
+                        'bindingDomains':bindings.PREDICATES,
+                    },schema,len(pending))
+                    generated=unique_rows(body,'answers')
                     mapped=unique_rows(body)
                     new={f['fieldId']:b for f in pending if (b:=bindings.checked(mapped.get(f['fieldId'],{}).get('binding'),None,f,context))}
-                    cache.save_plans(pending,new,context,MODEL); plans.update(new)
+                    views={f['fieldId']:flexible.presentation(generated.get(f['fieldId']),f) for f in pending}
+                    cache.save_plans(pending,new,context,MODEL,views); plans.update(new); displays.update(views)
                 except (httpx.HTTPError,ValueError,KeyError,TypeError): mapping_failure = 'ai_unavailable'
             if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
-            answers={}; drafts=[]
+            answers={}
             for field in fields:
                 fid=field['fieldId']; plan=plans.get(fid)
                 row=bindings.answer(plan,None,field,profile,pid,version,defaults=False) if plan else None
+                candidate=flexible.checked(generated.get(fid),field,projected,pid,version,memory.by_field.get(fid,{}))
+                # Explicit Profile facts, including grounded flexible deductions,
+                # precede remembered answers and category defaults.
+                if row is None and candidate and generated[fid].get('basis')=='profile' and candidate['state']=='answer': row=candidate
                 if row is None: row=saved_answer(memory.by_field.get(fid,{}),field,pid,version)
                 saved=memory.by_field.get(fid,{})
                 if row is None and plan and not saved: row=bindings.answer(plan,None,field,profile,pid,version)
-                if row is None and plan and not saved and plan['predicate'].startswith('draft.'): drafts.append(field)
-                interruption = ('ai_rate_limited' if limited else 'draft_unavailable') if field in drafts else 'missing_fact' if plan else mapping_failure
+                if row is None and candidate: row=candidate
+                draft=bool(plan and plan['predicate'].startswith('draft.'))
+                interruption = mapping_failure if mapping_failure in {'ai_unavailable','ai_rate_limited'} else 'draft_unavailable' if draft else 'missing_fact' if plan and plan['predicate']!='unknown' else 'unrecognized_question'
                 reason = {'missing_fact':'缺少资料字段或题意未能对应，留空', 'ai_unavailable':'AI 服务暂时不可用，当前填写已保留', 'ai_rate_limited':'AI 每小时调用额度已用完，稍后重试', 'unrecognized_question':'题意未能对应，留空', 'draft_unavailable':'开放题草稿未生成，请手动作答或重试'}[interruption]
-                answers[fid]=row or bindings.result(field,pid,version,reason=reason,route=plan['predicate'] if plan else 'unknown',interruption=interruption)
-            if drafts and not limited:
-                projected=project_answer_profile(profile,partial=False)
-                projected.get('applicationData',{}).pop('aiNotes',None)
-                schema={'type':'object','properties':{'drafts':{'type':'array','items':{'type':'object','properties':{
-                    'fieldId':{'type':'string','enum':[f['fieldId'] for f in drafts]},'text':{'type':'string'}},
-                    'required':['fieldId','text'],'additionalProperties':False}}},'required':['drafts'],'additionalProperties':False}
-                try:
-                    body=await request(active,'Draft concise answers only to the supplied open motivation, preference or experience prompts. Match the question language. Use only the structured Profile for any named person, school, company, skill or project. Never invent credentials, numbers, experiences or commitments. Do not output placeholders. If the request actually asks a missing fact, return empty text. These drafts are reviewed before submission.',
-                        {'fields':drafts,'profile':projected,'jobTitle':context['jobTitle'],'jobDescription':context['jobDescription']},schema,len(drafts))
-                    for fid,row in unique_rows(body,'drafts').items():
-                        field=next((f for f in drafts if f['fieldId']==fid),None)
-                        value=bindings.field_value(row.get('text'),field) if field else None
-                        if value and not basic_issues(value,field['question']):
-                            answers[fid]=bindings.result(field,pid,version,value,draft=True,reason='开放题草稿，提交前过目',route=plans[fid]['predicate'])
-                except (httpx.HTTPError,ValueError,KeyError,TypeError):
-                    for f in drafts:
-                        answers[f['fieldId']] = bindings.result(f,pid,version,reason='AI 服务暂时不可用，当前填写已保留',route=plans[f['fieldId']]['predicate'],interruption='ai_unavailable')
+                row=row or bindings.result(field,pid,version,reason=reason,route=plan['predicate'] if plan else 'unknown',interruption=interruption)
+                origin='saved' if row['route']=='saved_response' else 'default' if {'profilePath':'applicationData.defaultAnswers'} in row['evidence'] else 'suggestion' if row['decision']=='draft' else 'profile'
+                if candidate and row['value'] is not None and row['value']==candidate['value'] and generated[fid].get('basis')==origin:
+                    row={**row,**{k:candidate[k] for k in ('questionZh','answerZh','reason') if k in candidate}}
+                answers[fid]=flexible.display(row,field,displays.get(fid))
             if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
             rows=[answers[f['fieldId']] for f in fields]
             self.profile_gaps.record(pid,profile,fields,rows)
@@ -138,7 +141,7 @@ class Answers:
         try:
             if client is not None: return await run(client)
             # A cache-only request needs no credential or network.
-            if not pending and not any(p['predicate'].startswith('draft.') for p in plans.values()): return await run(None)
+            if not pending: return await run(None)
             try: key=api_key()
             except ValueError: return await run(None)
             async with httpx.AsyncClient(headers={'Authorization':'Bearer '+key},timeout=60) as active:

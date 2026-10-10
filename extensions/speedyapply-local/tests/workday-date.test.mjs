@@ -433,7 +433,8 @@ for (const value of ["2030-05-19", "2030-02-30"]) {
       if (value === "2030-02-30") {
         assert.equal(h.clicks(), 0);
         assert(h.parts.every((part) => part.value === ""));
-        assert.equal(h.view().items[0].answer, "待补充");
+        assert.equal(h.view().items[0].answer, "填写失败");
+        assert.match(h.view().items[0].reason, /网页没有保留/);
       }
     } finally {
       h.close();

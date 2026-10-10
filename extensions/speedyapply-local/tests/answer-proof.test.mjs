@@ -32,6 +32,17 @@ const answer = {
     paths: [],
   },
 };
+test("server option normalization preserves content despite object key order", () => {
+  const clientField = { ...field, options: [{ label: "No", value: "n" }] };
+  const boundAnswer = bindAnswerEvidence(answer, clientField, bound);
+  assert(verifiedAnswer(boundAnswer, clientField));
+  assert(
+    !verifiedAnswer(boundAnswer, {
+      ...clientField,
+      options: [{ label: "No, never", value: "n" }],
+    }),
+  );
+});
 test("only exact field value and pinned Profile evidence can remove confirmation", () => {
   const valid = bindAnswerEvidence(answer, field, bound);
   assert(verifiedAnswer(valid, field));

@@ -2,11 +2,11 @@
 import hashlib
 import json
 import re
-from .answer_values import PREDICATES, PATHS, BOOLEAN, DISCLOSURE, evaluate, normalized
+from .answer_values import PREDICATES, PATHS, DEFAULTS, BOOLEAN, DISCLOSURE, evaluate, normalized
 from .answer_semantics import field_key
 from .field_answers import CHOICES, _exact_date
 
-BINDING_CACHE_VERSION = 5
+BINDING_CACHE_VERSION = 6
 INSTRUCTIONS = '''Map each public question to exactly one supported Profile path, computed predicate,
 default category, draft intent, or unknown. You never answer a personal fact.
 Do not infer an answer from the job, other questions, option IDs or typical applicants.
@@ -82,6 +82,8 @@ def checked(binding, meaning, field, context=None):
     if route == 'unknown':
         return {'predicate':'unknown','options':['unused']*len(field.get('options',[])),'argument':'','polarity':True}
     question = (field['question'] + ' ' + field.get('description','')).casefold()
+    if route == 'voluntary_current_disability' and re.search(r'\b(ever|had|past|history|previously)\b', question+' '+' '.join(o['label'].casefold() for o in field.get('options',[]))):
+        return None  # A current-only fact cannot answer a lifetime-history question.
     if route == 'previous_employer' and re.search(r'\b(affiliates?|subsidiar\w*|parent compan\w*)\b|关联公司|子公司|母公司|旗下', question):
         route = 'previous_employer_group'
     if route.startswith('jobData.latest.') and re.search(r'\bcurrent(?:ly)?\b|当前|目前|现任', question) and not re.search(r'\b(most recent|latest|last)\b|最近|上一', question):
@@ -98,8 +100,8 @@ def checked(binding, meaning, field, context=None):
     if len(set(labels))!=len(labels): return None
     domain=PREDICATES[route]
     if domain and any(v not in (*domain,'unused') for v in choices): return None
-    usable=[v for v in choices if v!='unused']
-    if len(set(usable))!=len(usable): return None
+    # Several qualified Yes options do not make a unique No ambiguous.
+    # field_value checks uniqueness for the person's actual answer.
     if domain in (BOOLEAN,DISCLOSURE) and choices and not all(v in choices for v in BOOLEAN): return None
     arg=binding.get('argument',''); polarity=binding.get('polarity',True)
     if not isinstance(arg,str) or len(arg)>300 or type(polarity) is not bool: return None
@@ -174,6 +176,9 @@ def answer(binding, meaning, field, profile, profile_id, version, *, defaults=Tr
     fact=evaluate(route,profile,binding['argument'],defaults=defaults)
     if fact is None: return None
     value,paths=fact
+    if route == 'applicationData.salaryPreference':
+        if value == 'custom': return None  # Requires currency, period and bounds.
+        value = {'posted_range':'Within the posted salary range', 'negotiable':'Negotiable'}.get(value,value)
     # Option concepts already encode polarity; only bare boolean controls invert.
     if not field.get('options') and not binding['polarity'] and value in BOOLEAN:
         value='false' if value=='true' else 'true'
@@ -202,13 +207,24 @@ class BindingCache:
                     self.corpus.link_binding(c,field,context,model,key)
         return found
 
-    def save_plans(self, fields, plans, context, model):
+    def displays(self, fields, context, model):
+        found={}
+        with self.store.connect() as c:
+            for field in fields:
+                row=c.execute('SELECT binding FROM answer_bindings WHERE key=?',(binding_key(field,context,model),)).fetchone()
+                if row:
+                    try: found[field['fieldId']]=json.loads(row[0]).get('display',{})
+                    except (ValueError,TypeError): pass
+        return found
+
+    def save_plans(self, fields, plans, context, model, displays=None):
         with self.store.connect(True) as c:
             for field in fields:
                 plan=checked(plans.get(field['fieldId']),None,field,context)
-                if not plan: continue
+                if not plan or plan['predicate']=='unknown': continue
                 key=binding_key(field,context,model)
-                c.execute('INSERT OR REPLACE INTO answer_bindings VALUES(?,?)',(key,json.dumps({'binding':plan,'meaning':{'topic':'unknown','country':context.get('jobContext',{}).get('country',''),'company':'','timeframe':''}})))
+                display={k:v for k,v in (displays or {}).get(field['fieldId'],{}).items() if k in ('questionZh','optionLabelsZh')}
+                c.execute('INSERT OR REPLACE INTO answer_bindings VALUES(?,?)',(key,json.dumps({'binding':plan,'display':display,'meaning':{'topic':'unknown','country':context.get('jobContext',{}).get('country',''),'company':'','timeframe':''}})))
                 self.corpus.link_binding(c,field,context,model,key)
             c.execute('DELETE FROM answer_bindings WHERE key NOT IN (SELECT cache_key FROM corpus_bindings) AND rowid NOT IN (SELECT rowid FROM answer_bindings ORDER BY rowid DESC LIMIT 4000)')
 

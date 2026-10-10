@@ -47,6 +47,7 @@ def test_person_answer_change_during_recognition_is_detected(tmp_path):
     def changed():m.write([dict(key=key,revision=1,value=[record(response='No')])])
     with pytest.raises(ValueError,match='已存回答已改变'):run(a,p,Client(changed=changed))
 
-def test_person_answer_does_not_enter_model_input(tmp_path):
-    a,p,_,_=prepare(tmp_path,[record(response='Private saved answer')]);client=Client();run(a,p,client)
-    assert all('Private saved answer' not in c['input'] for c in client.calls)
+def test_only_scoped_person_answers_enter_model_input(tmp_path):
+    a,p,_,_=prepare(tmp_path,[record(response='Exact saved answer'),record(key='other',question='Unrelated question',response='Unrelated private answer')]);client=Client();run(a,p,client)
+    assert 'Exact saved answer' in client.calls[0]['input']
+    assert all('Unrelated private answer' not in c['input'] for c in client.calls)

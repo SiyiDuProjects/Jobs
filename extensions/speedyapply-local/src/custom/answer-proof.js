@@ -4,7 +4,12 @@ export const ANSWER_PROTOCOL = 2;
 export function evidenceField(field) {
   return Object.fromEntries(
     ["fieldId", "question", "type", "required", "description", "options"].map(
-      (key) => [key, field[key] ?? (key === "description" ? "" : null)],
+      (key) => [
+        key,
+        key === "options" && Array.isArray(field.options)
+          ? field.options.map(({ value, label }) => ({ value, label }))
+          : (field[key] ?? (key === "description" ? "" : null)),
+      ],
     ),
   );
 }

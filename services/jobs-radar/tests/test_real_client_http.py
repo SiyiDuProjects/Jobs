@@ -135,8 +135,11 @@ def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, 
         async def post(self, url, json):
             data = __import__('json').loads(json['input'])
             calls.append(data)
-            result = {'drafts':[{'fieldId':f['fieldId'],'text':'I enjoy building reliable services.'} for f in data['fields']]} if 'profile' in data else {
-                'mappings':[{'fieldId':f['fieldId'],'binding':{'predicate':'draft.motivation','options':[],'argument':'','polarity':True}} for f in data['fields']]}
+            result = {
+                'mappings':[{'fieldId':f['fieldId'],'binding':{'predicate':'draft.motivation','options':[],'argument':'','polarity':True}} for f in data['fields']],
+                'answers':[{'fieldId':f['fieldId'],'state':'answer','value':'I enjoy building reliable services.',
+                            'basis':'suggestion','intent':'motivation','evidencePaths':[],'noteQuote':'','savedResponse':'','defaultCategory':'',
+                            'questionZh':'为什么对这个机会感兴趣？','answerZh':'我喜欢构建可靠的服务。','reason':'开放式动机草稿。','optionLabelsZh':[]} for f in data['fields']]}
             class Response:
                 status_code = 200
                 def json(self):
@@ -156,11 +159,11 @@ def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, 
                 break
             time.sleep(.01)
         assert status['state'] == 'completed', status
-    assert len(calls) == 4
-    assert 'profile' not in calls[0] and 'profile' not in calls[2]
+    assert len(calls) == 2
+    assert 'profile' in calls[0] and 'profile' in calls[1]
     assert calls[1]['profile']['profileName'] == 'Fixture'
-    assert calls[2]['fields'][0]['fieldId'] == 'motivation'
-    assert 'formContext' not in calls[2], 'recognition receives no personal form values'
+    assert calls[1]['fields'][0]['fieldId'] == 'motivation'
+    assert 'formContext' not in calls[1], 'existing form values are not personal evidence'
 
 
 

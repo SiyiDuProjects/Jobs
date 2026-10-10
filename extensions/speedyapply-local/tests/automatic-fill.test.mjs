@@ -724,7 +724,7 @@ test("review card shows human choice labels, locates fields, learns corrected an
     async (message) =>
       message.fields.map((f) => ({
         ...reply(f, f.type === "textarea" ? "AI draft" : "N"),
-        reason: "Internal reasoning must stay hidden.",
+        reason: "依据当前资料作答。",
         questionZh: f.type === "textarea" ? "求职动机" : "是否曾在该公司工作",
         answerZh: f.type === "textarea" ? "AI 草稿" : "否",
       })),
@@ -745,7 +745,7 @@ test("review card shows human choice labels, locates fields, learns corrected an
     );
     assert.equal(shadow.querySelectorAll(".answer")[1].textContent, "AI 草稿");
     assert.equal(shadow.querySelector(".reason"), null);
-    assert(!shadow.textContent.includes("Internal reasoning"));
+    assert(shadow.textContent.includes("依据当前资料作答。"));
     assert.match(shadow.querySelector("h2").textContent, /AI 补填 · 2/);
     shadow.querySelector(".item").click();
     assert.equal(h.w.document.activeElement.tagName, "SELECT");
@@ -893,8 +893,7 @@ test("cleared or rerendered education search fields cannot deadlock review or be
 });
 
 test("TRC replay: optional salary is skipped, missing employment fact is visibly explained and remains blank until the user supplies it", async () => {
-  const reason =
-    "The profile does not state whether you are currently or have previously been employed by TRC Companies.";
+  const reason = "资料中的任职记录不完整，请确认是否曾在这家公司工作。";
   const h = setup(
     '<label>Are you currently or have you previously been employed by TRC Companies?*<select role="combobox"><option value="">— Make a Selection —</option><option value="Yes">Yes</option><option value="No">No</option></select></label><label>What are your salary expectations?<input></label>',
     async (message) => {
@@ -923,7 +922,7 @@ test("TRC replay: optional salary is skipped, missing employment fact is visibly
     assert.equal(select.value, "");
     assert.equal(shadow.querySelectorAll(".item").length, 1);
     assert.match(shadow.querySelector("h2").textContent, /需要你补充/);
-    assert(!shadow.textContent.includes(reason));
+    assert(shadow.textContent.includes(reason));
     assert.equal(shadow.querySelector(".answer").textContent, "待补充");
     assert.equal(shadow.querySelector("#confirm").disabled, false);
     assert.match(shadow.querySelector("#status").textContent, /待补/);

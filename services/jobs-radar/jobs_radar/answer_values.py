@@ -35,6 +35,8 @@ PREDICATES = {
     'unknown': (), 'draft.motivation': (), 'draft.preference': (), 'draft.experience': (),
 }
 ALIASES = {'yes':'true','no':'false','man':'male','woman':'female','non-binary':'nonbinary',
+           'high school diploma/ged':'high school','high school diploma':'high school',
+           "bachelor's degree":'bachelors degree',"master's degree":'masters degree',
            'i choose not to disclose':'undisclosed','prefer not to disclose':'undisclosed','prefer not to answer':'undisclosed',
            'black or african american':'black','american indian or alaska native':'native_american',
            'native hawaiian or other pacific islander':'pacific_islander','two or more races':'multiracial',

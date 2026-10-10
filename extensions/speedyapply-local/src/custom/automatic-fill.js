@@ -26,6 +26,7 @@ import {
   automaticFillPolicy,
   shape,
   answerNeedsReview,
+  reviewFailure,
 } from "./automatic-field-policy.js";
 export var JobsAutomatic;
 let initialized = false;
@@ -247,9 +248,7 @@ export function initializeAutomaticFill() {
             options.setMessage(next);
           }
         };
-        // This observer only updates the displayed passive state. Merge DOM and
-        // input bursts into a task so full-form reads do not run in every
-        // mutation microtask or key event. Active fill/readiness stays immediate.
+        // Coalesce passive DOM/input updates; active readiness stays immediate.
         const scheduleRefresh = () => {
           if (refreshTimer != null) return;
           refreshTimer = setTimeout(() => {
@@ -575,7 +574,12 @@ export function initializeAutomaticFill() {
       }
       const leave = (row, reason, options = {}) => {
         note("auto_needs_input", row.node, reason);
-        toCard(row, { needsInput: true, source: "unknown", ...options });
+        toCard(row, {
+          needsInput: true,
+          source: "unknown",
+          ...reviewFailure(reason),
+          ...options,
+        });
       };
       function omit(row, answer) {
         note("auto_field_omitted", row.node, answer.reason);
@@ -1018,6 +1022,10 @@ export function initializeAutomaticFill() {
               "missing_fact",
               "new_commitment",
               "control_failure",
+              "ai_unavailable",
+              "ai_rate_limited",
+              "unrecognized_question",
+              "draft_unavailable",
             ].includes(answer.interruptionReason)
               ? answer.interruptionReason
               : answer.verification
@@ -1051,6 +1059,7 @@ export function initializeAutomaticFill() {
               leave(row, rationale, {
                 source: undefined,
                 questionZh: answer.questionZh,
+                reason: answer.reason,
               });
               continue;
             }
@@ -1127,6 +1136,8 @@ export function initializeAutomaticFill() {
               );
               leave(after, "AI answer not kept: " + outcome.reason, {
                 questionZh: answer.questionZh,
+                failure: true,
+                reason: "答案已生成，但网页没有保留填写结果，请重试。",
               });
               continue;
             }
@@ -1153,7 +1164,7 @@ export function initializeAutomaticFill() {
               continue;
             }
             toCard(after, {
-              reason: rationale,
+              reason: answer.reason,
               source: answer.source,
               evidence: answer.evidence,
               questionZh: answer.questionZh,

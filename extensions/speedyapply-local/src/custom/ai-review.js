@@ -221,6 +221,7 @@ export function initializeAiReview() {
             question: item.questionZh || item.question,
             originalQuestion: item.question,
             evidence: item.evidence,
+            reason: item.reason,
             answer: response
               ? (unchanged && item.answerZh) ||
                 { Yes: "是", No: "否" }[response] ||
@@ -228,7 +229,9 @@ export function initializeAiReview() {
               : node.isConnected
                 ? item.omitted
                   ? "无需填写"
-                  : "待补充"
+                  : item.failure
+                    ? "填写失败"
+                    : "待补充"
                 : "控件已变化，请检查",
             source:
               item.answerOrigin === "agent" || item.answerOrigin === "page-tool"
@@ -291,6 +294,8 @@ export function initializeAiReview() {
           questionZh = "",
           answerZh = "",
           evidence = [],
+          reason = "",
+          failure = false,
           needsConfirmation = true,
         } = {},
       ) => {
@@ -305,6 +310,8 @@ export function initializeAiReview() {
           questionZh,
           answerZh,
           evidence,
+          reason,
+          failure,
           originalResponse: reader.response(row)?.response,
           needsInput,
           omitted,
