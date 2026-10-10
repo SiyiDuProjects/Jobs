@@ -10,6 +10,7 @@ import {
   corpusQuestionKey,
   corpusReport,
   replaySearch,
+  replayCachedAnswer,
 } from "../scripts/corpus-runner.mjs";
 
 function syntheticCache(pages) {
@@ -379,4 +380,29 @@ test("Workday non-search dropdown replays its full recorded option list", async 
   } finally {
     dom.window.close();
   }
+});
+
+test("cached AI search phrases require an actual recorded option before counting as answered", () => {
+  const field = {
+    actual: { type: "search-choice", options: [] },
+    searches: [
+      {
+        query: "Example College",
+        options: ["Example College", "Example Institute"],
+      },
+    ],
+  };
+  assert.deepEqual(
+    replayCachedAnswer(field, { kind: "answer", value: "Example College" }),
+    { answer: "Example College", search: "recorded" },
+  );
+  assert.deepEqual(
+    replayCachedAnswer(field, { kind: "answer", value: "Unrecorded College" }),
+    { answer: null, search: "unrecorded" },
+  );
+  field.searches[0].options = ["Other College"];
+  assert.deepEqual(
+    replayCachedAnswer(field, { kind: "answer", value: "Example College" }),
+    { answer: null, search: "no-match" },
+  );
 });

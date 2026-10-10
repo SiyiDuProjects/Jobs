@@ -46,6 +46,23 @@ export function replaySearch(observations, query, choose) {
     answer: answer ?? null,
   };
 }
+export function replayCachedAnswer(field, answer) {
+  const value = answer?.kind === "unknown" ? null : (answer?.value ?? null);
+  const searching =
+    field.actual.type === "search-choice" ||
+    (field.actual.type === "combobox" && !field.actual.options.length);
+  if (!searching || value === null) return { answer: value };
+  if (typeof value !== "string")
+    return { answer: null, search: "invalid-query" };
+  const normalize = (value) => value.normalize("NFKC").trim().toLowerCase();
+  const replay = replaySearch(field.searches, value, (labels) => {
+    const matching = labels.filter(
+      (label) => normalize(label) === normalize(value),
+    );
+    return matching.length === 1 ? matching[0] : null;
+  });
+  return { answer: replay.answer, search: replay.status };
+}
 export function readerWindow(html = "", url = "https://fixture.invalid") {
   const dom = new JSDOM(html, {
     url,
@@ -267,10 +284,8 @@ export function corpusReport(corpus, previous = null) {
         }
         return {
           ...local,
-          answer:
-            stored.answer?.kind === "unknown"
-              ? null
-              : (stored.answer?.value ?? null),
+          ...replayCachedAnswer(field, stored.answer),
+          signingDate: stored.answer?.signingDate === true,
           route: "cached_ai",
         };
       });
@@ -301,6 +316,7 @@ export function corpusReport(corpus, previous = null) {
       if (
         answer.answer != null &&
         definition.type === "date" &&
+        !answer.signingDate &&
         !dates.includes(answer.answer)
       )
         violations.push({
