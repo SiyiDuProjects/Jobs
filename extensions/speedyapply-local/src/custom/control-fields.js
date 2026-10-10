@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { calendarDate } from "./calendar-date.js";
 import { fieldDescription } from "./field-description.js";
 import { JobsSelectState } from "./select-state.js";
@@ -1032,8 +1033,8 @@ export function initializeControlFields() {
             !component(row.node) &&
             (row.group.length !== fresh.group?.length ||
               row.group.some((node, index) => node !== fresh.group[index]))) ||
-          JSON.stringify(fresh.public.conditional) !==
-            JSON.stringify(row.public.conditional)
+          stableStringify(fresh.public.conditional) !==
+            stableStringify(row.public.conditional)
         )
           throw Error("Field changed before writing");
         return fresh;
@@ -1535,7 +1536,7 @@ export function initializeControlFields() {
               node.getAttribute("aria-disabled") !== "true",
           );
         const fingerprintOf = (current) =>
-          JSON.stringify(current.rows.map((row) => [row.public, row.raw]));
+          stableStringify(current.rows.map((row) => [row.public, row.raw]));
         while (JobsPageActions.live(canProceed) && root() && visible(root())) {
           const current = state({ review, next });
           if (current.failure) return null;

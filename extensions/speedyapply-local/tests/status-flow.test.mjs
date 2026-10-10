@@ -238,7 +238,7 @@ test("Upbound Degree selects the explicit Profile degree without an AI request o
   }
 });
 
-test("only an explicitly clear whole batch auto-confirms; uncertain profile deductions stay editable for confirmation", async () => {
+test("valid answers auto-confirm independently of retired confirmation flags", async () => {
   for (const flag of [false, true, undefined, "false"]) {
     const h = setup(
       '<label>Known answer<input required></label><label>Experience<select required><option value="">Choose</option><option value="yes">Yes</option><option value="no">No</option></select></label>',
@@ -258,22 +258,9 @@ test("only an explicitly clear whole batch auto-confirms; uncertain profile dedu
           ? { needsConfirmation: false }
           : { needsConfirmation: flag }),
       }));
-      assert.equal(await task, flag === false);
-      assert.equal(h.clicks(), flag === false ? 1 : 0);
-      assert.equal(
-        h.w.document.querySelector("select").value,
-        "no",
-        "reviewable drafts still fill",
-      );
-      if (flag !== false) {
-        assert.equal(h.phases.at(-1), "ai-review");
-        assert.match(
-          h.w.document.querySelector("#jobs-ai-review").shadowRoot.textContent,
-          /待你确认/,
-        );
-        assert.equal(await h.w.JobsAIReview.confirm(), true);
-        assert.equal(h.clicks(), 1);
-      }
+      assert.equal(await task, true);
+      assert.equal(h.clicks(), 1);
+      assert.equal(h.w.document.querySelector("select").value, "no");
       assert.equal(h.requests.length, 1);
       assert.equal(h.learned.length, 0);
     } finally {

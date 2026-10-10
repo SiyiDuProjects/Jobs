@@ -5,11 +5,55 @@ import { recordCorpusOptions } from "../src/custom/corpus-observations.js";
 import {
   readerWindow,
   seedCorpus,
-  seedBindings,
+  syntheticProfiles,
+  hash,
+  corpusQuestionKey,
   corpusReport,
   replaySearch,
 } from "../scripts/corpus-runner.mjs";
 
+function syntheticCache(pages) {
+  const aiRevision = { promptHash: "fixture-prompt", model: "fixture-model" };
+  const aiAnswers = [];
+  for (const { id, page } of pages)
+    for (const field of page.fields) {
+      const values = {
+        "Are you legally authorized to work in the United States?": [
+          "Yes",
+          "Yes",
+          "Yes",
+          null,
+        ],
+        "Will you require sponsorship in the future?": [
+          "No",
+          "Yes",
+          "No",
+          null,
+        ],
+        "Will you be able to work without future sponsorship?": [
+          "Yes",
+          "No",
+          "Yes",
+          null,
+        ],
+      }[field.question];
+      if (!values) continue;
+      syntheticProfiles.forEach((profile, i) =>
+        aiAnswers.push({
+          pageId: id,
+          questionId: corpusQuestionKey(field),
+          identity: profile.id,
+          profileHash: hash(profile),
+          ...aiRevision,
+          answer: {
+            kind: values[i] === null ? "unknown" : "answer",
+            value: values[i],
+          },
+        }),
+      );
+    }
+  return { aiRevision, aiAnswers };
+}
 test("corpus keeps prompts but removes values, selections, credentials and file names without page writes", () => {
   const dom = readerWindow(
     '<form><p>Welcome Sample Person</p><div class="field"><label for="email">Email</label><input id="email" type="email" value="private@example.test"></div><div class="field"><label for="s">Work authorization</label><select id="s"><option value="yes" selected>Yes</option><option value="no">No</option></select></div><input type="password" value="secret"><textarea>Private narrative</textarea><span data-automation-id="fileName">resume.pdf</span></form>',
@@ -80,7 +124,7 @@ test("bootstrap corpus runs the real scanner on three platforms and compares sta
   const corpus = {
     source: "synthetic-bootstrap",
     pages,
-    bindings: seedBindings(pages),
+    ...syntheticCache(pages),
   };
   const before = corpusReport(corpus),
     after = corpusReport(corpus, before);
@@ -114,7 +158,7 @@ test("bootstrap corpus runs the real scanner on three platforms and compares sta
     negative.answers.find((answer) => answer.identity === "unknown").answer,
     null,
   );
-  assert.equal(after.summary.mappingAccuracy, null);
+  assert.equal(after.summary.answerAccuracy, null);
 });
 
 test("search replay only selects from observed results and identifies missing recordings", () => {
@@ -139,52 +183,18 @@ test("search replay only selects from observed results and identifies missing re
   );
 });
 
-test("corpus replay never expands an ambiguous country mapping or invents a graduation day", () => {
+test("corpus refuses answers for another identity revision or page and never treats cache as gold", () => {
   const pages = seedCorpus(),
-    bindings = seedBindings(pages);
-  const first = bindings[0];
-  const conflicting = {
-    ...first,
-    country: "CA",
-    meaning: { ...first.meaning, country: "CA" },
-  };
-  const report = corpusReport({ pages, bindings: [...bindings, conflicting] });
-  assert.equal(report.summary.ambiguousMappings, 1);
-  const field = report.pages[0].fields.find(
-    (field) => field.key === first.questionId,
-  );
-  assert(field.answers.every((answer) => answer.answer === null));
-  const graduation = report.pages[0].fields.find(
-    (field) => field.captured.question === "Graduation Date",
-  );
-  assert.equal(
-    graduation.answers.find((answer) => answer.identity === "citizen").answer,
-    null,
-  );
-  assert.equal(
-    graduation.answers.find((answer) => answer.identity === "opt").answer,
-    "2027-05-21",
-  );
-});
-
-test("independent labels detect an inverted model mapping", () => {
-  const pages = seedCorpus(),
-    bindings = seedBindings(pages),
-    first = bindings[0];
-  const labels = {
-    [first.questionId]: { binding: first.binding, meaning: first.meaning },
-  };
-  const wrong = {
-    ...first,
-    binding: { ...first.binding, options: ["false", "true"] },
-  };
-  const report = corpusReport({
-    pages,
-    bindings: [wrong, ...bindings.slice(1)],
-    labels,
-  });
-  assert.equal(report.summary.mappingAccuracy, 0);
-  assert.equal(report.goldChecks.length, 1);
+    corpus = { pages, ...syntheticCache(pages) };
+  corpus.aiAnswers[0].profileHash = "outdated";
+  const report = corpusReport(corpus);
+  assert(report.summary.missingAI > 0);
+  assert.equal(report.summary.answerAccuracy, null);
+  const good = corpus.aiAnswers.find((row) => row.identity === "opt");
+  corpus.goldAnswers = [
+    { ...good, value: "Wrong fixture gold", confirmed: true, origin: "person" },
+  ];
+  assert.equal(corpusReport(corpus).summary.answerAccuracy, 0);
 });
 
 test("capture context survives same-Profile refreshes and stops after a Profile switch", async () => {

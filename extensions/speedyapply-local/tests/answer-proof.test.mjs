@@ -2,115 +2,88 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   bindAnswerEvidence,
-  verifiedAnswer,
+  matchesAnswerRequest,
 } from "../src/custom/answer-proof.js";
+import { sameValue } from "../src/custom/stable-value.js";
 import { answerNeedsReview } from "../src/custom/automatic-field-policy.js";
 const field = {
   fieldId: "f",
-  question: "Are you bound by a non-compete agreement?",
+  question: "Example question",
   type: "radio",
   required: true,
   description: "",
-  options: [{ value: "n", label: "No" }],
+  options: [
+    { value: "n", label: "No" },
+    { value: "y", label: "Yes" },
+  ],
 };
 const bound = { id: "p", lastSync: "v" };
-const answer = {
+const row = {
   fieldId: "f",
-  state: "answer",
-  source: "profile",
+  kind: "answer",
   value: "n",
-  decision: "write",
-  needsConfirmation: false,
-  proof: {
-    version: 2,
-    status: "verified",
-    profileId: "p",
-    profileVersion: "v",
-    field,
-    value: "n",
-    id: "a".repeat(24),
-    paths: [],
-  },
+  binding: { profileId: "p", profileVersion: "v", field },
 };
-test("server option normalization preserves content despite object key order", () => {
-  const clientField = { ...field, options: [{ label: "No", value: "n" }] };
-  const boundAnswer = bindAnswerEvidence(answer, clientField, bound);
-  assert(verifiedAnswer(boundAnswer, clientField));
+test("object ordering is ignored and array ordering is retained", () => {
+  assert(sameValue({ a: [{ b: 1, c: 2 }] }, { a: [{ c: 2, b: 1 }] }));
+  assert(!sameValue([1, 2], [2, 1]));
+  const reordered = {
+    ...field,
+    options: field.options.map(({ label, value }) => ({ label, value })),
+  };
   assert(
-    !verifiedAnswer(boundAnswer, {
-      ...clientField,
-      options: [{ label: "No, never", value: "n" }],
+    matchesAnswerRequest(bindAnswerEvidence(row, reordered, bound), field),
+  );
+});
+test("only stale request data blocks an answer; no semantic proof or source is required", () => {
+  const answer = bindAnswerEvidence(row, field, bound);
+  assert(matchesAnswerRequest(answer, field));
+  assert(!answerNeedsReview(answer, {}, { confirm: true }, field));
+  for (const patch of [
+    { profileId: "other" },
+    { profileVersion: "old" },
+    { field: { ...field, required: false } },
+  ])
+    assert(
+      !matchesAnswerRequest(
+        bindAnswerEvidence(
+          { ...row, binding: { ...row.binding, ...patch } },
+          field,
+          bound,
+        ),
+        field,
+      ),
+    );
+  assert(!matchesAnswerRequest({ ...answer, value: "y" }, field));
+  assert(
+    !matchesAnswerRequest(answer, {
+      ...field,
+      options: [...field.options].reverse(),
     }),
   );
-});
-test("only exact field value and pinned Profile evidence can remove confirmation", () => {
-  const valid = bindAnswerEvidence(answer, field, bound);
-  assert(verifiedAnswer(valid, field));
-  assert.equal(
-    answerNeedsReview(valid, { public: {} }, { confirm: false }, field),
-    false,
-  );
-  assert.equal(
-    answerNeedsReview(valid, { public: {} }, { confirm: true }, field),
-    true,
-  );
-  for (const patch of [
-    { version: 1 },
-    { profileId: "another" },
-    { profileVersion: "old" },
-    { value: "y" },
-    {
-      field: {
-        ...field,
-        options: [{ value: "n", label: "No current or previous agreement" }],
-      },
-    },
-    { status: "unverified" },
-  ]) {
-    const invalid = bindAnswerEvidence(
-      { ...answer, proof: { ...answer.proof, ...patch } },
-      field,
-      bound,
-    );
-    assert.equal(invalid.verification, null);
-    assert.equal(answerNeedsReview(invalid, { public: {} }, {}, field), true);
-  }
-  assert.equal(
-    bindAnswerEvidence(
-      { ...answer, proof: null, verification: valid.verification },
-      field,
-      bound,
-    ).verification,
-    null,
-  );
-  assert.equal(
-    answerNeedsReview({ ...answer, proof: null }, { public: {} }, {}, field),
-    true,
-  );
-  assert.equal(verifiedAnswer(valid, { ...field, required: false }), false);
-  assert.equal(
-    verifiedAnswer(
-      { ...valid, decision: "draft", source: "suggestion" },
+  assert(
+    !matchesAnswerRequest(
+      bindAnswerEvidence(
+        { ...row, binding: null, requestBinding: answer.requestBinding },
+        field,
+        bound,
+      ),
       field,
     ),
-    false,
   );
 });
-
-test("proposed proof is bound to the exact field but never authorizes autofill", () => {
-  const proposal = {
-    ...answer,
-    source: "suggestion",
-    decision: "draft",
-    reviewOnly: true,
-    needsConfirmation: true,
-    proof: { ...answer.proof, status: "proposed" },
-  };
-  const boundProposal = bindAnswerEvidence(proposal, field, bound);
-  assert.equal(boundProposal.verification, null);
-  assert.equal(verifiedAnswer(boundProposal, field), false);
-  assert.equal(
-    verifiedAnswer({ ...boundProposal, reviewOnly: false }, field),
-    false,
+test("draft and unknown stay distinct without a verifier category", () => {
+  const draft = bindAnswerEvidence({ ...row, kind: "draft" }, field, bound);
+  assert(matchesAnswerRequest(draft, field));
+  assert(answerNeedsReview(draft, {}, {}, field));
+  assert(
+    !matchesAnswerRequest(
+      bindAnswerEvidence(
+        { ...row, kind: "unknown", value: null },
+        field,
+        bound,
+      ),
+      field,
+    ),
   );
 });

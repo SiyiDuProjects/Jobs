@@ -1,52 +1,18 @@
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import fs from "node:fs";
 import { readerSource } from "./repro-runner.mjs";
 import { mountCorpus, captureCorpus } from "../src/custom/corpus-case.js";
 
-export const syntheticProfiles = [
-  {
-    id: "citizen",
-    educationData: [{ endDate: "2027-05" }],
-    employmentData: {
-      eligibilityUS: true,
-      sponsorship: false,
-      citizenships: ["United States"],
-    },
-    applicationData: {
-      visaStatus: "US citizen",
-      sponsorshipNow: false,
-      sponsorshipFuture: false,
-    },
-  },
-  {
-    id: "opt",
-    educationData: [{ endDate: "2027-05", graduationDate: "2027-05-21" }],
-    employmentData: {
-      eligibilityUS: true,
-      sponsorship: true,
-      citizenships: ["Canada"],
-    },
-    applicationData: {
-      visaStatus: "F-1 OPT",
-      sponsorshipNow: false,
-      sponsorshipFuture: true,
-    },
-  },
-  {
-    id: "resident",
-    educationData: [{ endDate: "2027-12" }],
-    employmentData: { eligibilityUS: true, sponsorship: false },
-    applicationData: {
-      visaStatus: "Green card",
-      sponsorshipNow: false,
-      sponsorshipFuture: false,
-    },
-  },
-  { id: "unknown", employmentData: {}, applicationData: {} },
-];
+export const syntheticProfiles = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../../services/jobs-radar/jobs_radar/corpus-identities.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
 const stable = (value) =>
   Array.isArray(value)
     ? value.map(stable)
@@ -143,103 +109,24 @@ export function seedCorpus() {
   });
 }
 
-export function seedBindings(pages) {
-  const mappings = new Map();
-  for (const { page } of pages)
-    for (const field of page.fields) {
-      const predicate = field.question.startsWith("Are you legally authorized")
-        ? "us_work_eligible"
-        : /sponsorship/.test(field.question)
-          ? "sponsorship_future"
-          : null;
-      if (!predicate) continue;
-      mappings.set(corpusQuestionKey(field), {
-        questionId: corpusQuestionKey(field),
-        country: "US",
-        model: "synthetic-fixture",
-        binding: {
-          predicate,
-          options: /without/.test(field.question)
-            ? ["false", "true"]
-            : ["true", "false"],
-        },
-        meaning: {
-          topic:
-            predicate === "us_work_eligible"
-              ? "work_eligibility"
-              : "sponsorship",
-          country: "US",
-          company: "",
-          timeframe: predicate === "sponsorship_future" ? "future" : "current",
-        },
-      });
-    }
-  return [...mappings.values()];
-}
-
-export function replayMappings(corpus) {
-  const latest = new Map();
-  for (const item of corpus.bindings || [])
-    latest.set(item.questionId + ":" + item.country, item);
-  const grouped = new Map();
-  for (const item of latest.values()) {
-    const items = grouped.get(item.questionId) || [];
-    items.push(item);
-    grouped.set(item.questionId, items);
+// Private replay data contains synthetic identities only. Revisions and page scope
+// must match; generated answers never act as independent gold labels.
+export function cachedCorpusAnswers(corpus) {
+  const revision = corpus.aiRevision;
+  const answers = new Map();
+  if (!revision?.promptHash || !revision?.model) return answers;
+  for (const row of corpus.aiAnswers || []) {
+    const profile = syntheticProfiles.find((p) => p.id === row.identity);
+    if (
+      !profile ||
+      row.profileHash !== hash(profile) ||
+      row.promptHash !== revision.promptHash ||
+      row.model !== revision.model
+    )
+      continue;
+    answers.set([row.pageId, row.questionId, row.identity].join(":"), row);
   }
-  // Capture has no job-country authority. Reuse only a mapping whose stored
-  // country contexts agree; expose conflicting contexts for explicit review.
-  return new Map(
-    [...grouped].map(([key, items]) => [
-      key,
-      new Set(items.map((item) => hash([item.binding, item.meaning]))).size ===
-      1
-        ? items.at(-1)
-        : null,
-    ]),
-  );
-}
-function evaluateBindings(corpus, mappings) {
-  const fields = new Map(
-    corpus.pages
-      .flatMap(({ page }) => page.fields)
-      .map((field) => [corpusQuestionKey(field), field]),
-  );
-  const cases = [...mappings.values()]
-    .filter((binding) => binding && fields.has(binding.questionId))
-    .map((binding) => ({
-      key: binding.questionId,
-      binding: binding.binding,
-      meaning: binding.meaning,
-      field: {
-        ...fields.get(binding.questionId),
-        fieldId: fields.get(binding.questionId).id,
-      },
-    }));
-  if (!cases.length) return new Map();
-  const service = fileURLToPath(
-    new URL("../../../services/jobs-radar/", import.meta.url),
-  );
-  const bundled =
-    service +
-    "/.venv/" +
-    (process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
-  const python =
-    process.env.JOBS_CORPUS_PYTHON ||
-    (fs.existsSync(bundled) ? bundled : "python3");
-  const result = spawnSync(python, ["-m", "jobs_radar.corpus_evaluate"], {
-    cwd: service,
-    input: JSON.stringify({ cases, profiles: syntheticProfiles }),
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (result.status !== 0)
-    throw Error(
-      "Production predicate replay failed; check the configured Python test environment",
-    );
-  return new Map(
-    JSON.parse(result.stdout).map((item) => [item.key, item.answers]),
-  );
+  return answers;
 }
 
 export function replayCorpusPage(page, profiles = syntheticProfiles) {
@@ -359,94 +246,80 @@ export function corpusReport(corpus, previous = null) {
     ...replayCorpusPage(page),
   }));
   const results = pages.flatMap((page) => page.fields);
-  const mappings = replayMappings(corpus),
-    bindings = evaluateBindings(corpus, mappings);
+  const cached = cachedCorpusAnswers(corpus);
   const captured = new Map(
     corpus.pages
       .flatMap(({ page }) => page.fields)
       .map((field) => [corpusQuestionKey(field), field]),
   );
-  for (const field of results) {
-    const mapped = bindings.get(field.key),
-      definition = captured.get(field.key);
-    if (!field.meaningMatches || !mapped) continue;
-    field.answers = field.answers.map((local) => {
-      if (local.answer != null) return local;
-      const answer = mapped.find((item) => item.identity === local.identity);
-      return answer
-        ? {
-            identity: local.identity,
-            answer:
-              definition.options.find((option) => option.value === answer.value)
-                ?.label ?? null,
-            route: answer.route,
-            concept: answer.concept,
-          }
-        : local;
-    });
-  }
+  let missingAI = 0;
+  for (const page of pages)
+    for (const field of page.fields) {
+      if (!field.meaningMatches) continue;
+      field.answers = field.answers.map((local) => {
+        if (local.answer != null) return local;
+        const stored = cached.get(
+          [page.id, field.key, local.identity].join(":"),
+        );
+        if (!stored) {
+          missingAI++;
+          return { ...local, route: "uncached_ai" };
+        }
+        return {
+          ...local,
+          answer:
+            stored.answer?.kind === "unknown"
+              ? null
+              : (stored.answer?.value ?? null),
+          route: "cached_ai",
+        };
+      });
+    }
   const violations = [];
   const identityChecks = [];
   for (const field of results) {
     const definition = captured.get(field.key);
-    for (const answer of field.answers)
-      if (
-        answer.answer != null &&
-        definition.options.length &&
-        !definition.options.some((option) => option.label === answer.answer)
-      )
-        violations.push({ key: field.key, rule: "option_not_offered" });
-    const unknown = field.answers.find(
-      (answer) => answer.identity === "unknown",
-    );
-    // Unknown is a fixture without facts or enabled defaults. Only this
-    // independently defined input can establish a missing-fact invariant.
-    if (unknown?.answer != null)
-      violations.push({ key: field.key, rule: "unknown_answered" });
+    const offered = definition.options.length
+      ? definition.options.map((o) => o.label)
+      : definition.observations.findLast((o) => !o.query)?.options || [];
     for (const answer of field.answers) {
-      const profile = syntheticProfiles.find(
-        (profile) => profile.id === answer.identity,
-      );
+      const values = Array.isArray(answer.answer)
+        ? answer.answer
+        : [answer.answer];
       if (
         answer.answer != null &&
-        /graduation/i.test(field.captured.question) &&
-        definition.type === "date" &&
-        !profile.educationData?.some((row) => row.graduationDate)
+        offered.length &&
+        values.some((value) => !offered.includes(value))
       )
         violations.push({
           key: field.key,
           identity: answer.identity,
-          rule: "invented_graduation_day",
+          rule: "option_not_offered",
         });
-      const expected = {
-        us_work_eligible: {
-          citizen: "true",
-          opt: "true",
-          resident: "true",
-          unknown: null,
-        },
-        sponsorship_future: {
-          citizen: "false",
-          opt: "true",
-          resident: "false",
-          unknown: null,
-        },
-      }[answer.route];
-      if (expected) {
-        const matched = answer.concept === expected[answer.identity];
-        identityChecks.push({
+      const profile = syntheticProfiles.find((p) => p.id === answer.identity);
+      const dates = JSON.stringify(profile).match(/\d{4}-\d{2}-\d{2}/g) || [];
+      if (
+        answer.answer != null &&
+        definition.type === "date" &&
+        !dates.includes(answer.answer)
+      )
+        violations.push({
           key: field.key,
           identity: answer.identity,
-          matched,
+          rule: "invented_date",
         });
-        if (!matched)
-          violations.push({
-            key: field.key,
-            identity: answer.identity,
-            rule: "identity_fact_mismatch",
-          });
-      }
     }
+    // Compare all identities without inventing a semantic oracle from the model.
+    // Reviewed per-identity gold below decides whether a difference is correct.
+    identityChecks.push({
+      key: field.key,
+      answers: field.answers.map(({ identity, answer }) => ({
+        identity,
+        answer,
+      })),
+      distinctAnswers: new Set(field.answers.map((row) => hash(row.answer)))
+        .size,
+    });
   }
   const old = new Map(
     (previous?.pages || [])
@@ -457,22 +330,28 @@ export function corpusReport(corpus, previous = null) {
     .filter(
       (field) =>
         old.has(field.key) &&
-        JSON.stringify([
-          old.get(field.key).actual,
-          old.get(field.key).answers,
-        ]) !== JSON.stringify([field.actual, field.answers]),
+        hash([old.get(field.key).actual, old.get(field.key).answers]) !==
+          hash([field.actual, field.answers]),
     )
     .map((field) => field.key);
-  const gold = Object.entries(corpus.labels || {}).filter(([key]) =>
-    captured.has(key),
-  );
-  const goldChecks = gold.map(([key, label]) => ({
-    key,
-    matched:
-      !!mappings.get(key) &&
-      hash([mappings.get(key).binding, mappings.get(key).meaning]) ===
-        hash([label.binding, label.meaning]),
-  }));
+  const goldChecks = (corpus.goldAnswers || []).flatMap((gold) => {
+    if (!gold.confirmed || gold.origin !== "person") return [];
+    const field = pages
+      .find((page) => page.id === gold.pageId)
+      ?.fields.find((field) => field.key === gold.questionId);
+    const profile = syntheticProfiles.find((p) => p.id === gold.identity);
+    if (!field || !profile || gold.profileHash !== hash(profile)) return [];
+    const answer = field.answers.find(
+      (answer) => answer.identity === gold.identity,
+    );
+    return [
+      {
+        key: gold.questionId,
+        identity: gold.identity,
+        matched: hash(answer?.answer) === hash(gold.value),
+      },
+    ];
+  });
   return {
     version: 1,
     fixtureSource: corpus.source || "private-corpus",
@@ -489,7 +368,7 @@ export function corpusReport(corpus, previous = null) {
       captureMismatches: results.filter(
         (field) => field.actual && !field.meaningMatches,
       ).length,
-      ambiguousMappings: [...mappings.values()].filter((item) => !item).length,
+      missingAI,
       unrecordedSearches: results
         .flatMap((field) => field.answers)
         .filter((answer) => answer.search === "unrecorded").length,
@@ -497,7 +376,7 @@ export function corpusReport(corpus, previous = null) {
       changedQuestions: new Set(changes).size,
       identityChecks: identityChecks.length,
       labelledQuestions: goldChecks.length,
-      mappingAccuracy: goldChecks.length
+      answerAccuracy: goldChecks.length
         ? goldChecks.filter((check) => check.matched).length / goldChecks.length
         : null,
     },
@@ -507,7 +386,7 @@ export function corpusReport(corpus, previous = null) {
     identityChecks,
     pages,
     limitations: [
-      "Recorded model mappings are inputs, not independent gold labels.",
+      "Cached model answers are replay inputs, never gold labels.",
       "DOM replay does not verify site writes, network behavior or submission.",
     ],
   };

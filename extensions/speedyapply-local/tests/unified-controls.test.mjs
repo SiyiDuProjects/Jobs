@@ -466,11 +466,6 @@ for (const needsConfirmation of [false, true])
       release();
       await request;
       assert.equal(requests, 1, "no parallel AI request");
-      if (needsConfirmation) {
-        assert.equal(h.navigations(), 0);
-        assert(h.w.JobsAIReview.pending());
-        await h.w.JobsAIReview.confirm();
-      }
       assert.equal(h.navigations(), 1);
       assert.equal(
         h.doc.querySelector("textarea").value,

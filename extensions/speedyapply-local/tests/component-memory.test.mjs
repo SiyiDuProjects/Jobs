@@ -79,6 +79,7 @@ test("automatic component multiselect does not learn intermediate or final answe
       {
         question: row.public.question,
         response: "Daytime; Nighttime",
+        options: ["Daytime", "Nighttime"],
         jobKey: h.w.JobsJobMatch.key(h.w.location.href),
       },
     ]);

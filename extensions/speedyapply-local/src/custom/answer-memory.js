@@ -123,6 +123,13 @@ export function initializeAnswerMemory() {
         }
         record = {
           ...record,
+          ...(lastRows.find((row) => row.node === node)?.public.options?.length
+            ? {
+                options: lastRows
+                  .find((row) => row.node === node)
+                  .public.options.map(({ label }) => label),
+              }
+            : {}),
           origin: "person",
           operatorEpoch: operator.epoch,
           ruleVersion: 3,

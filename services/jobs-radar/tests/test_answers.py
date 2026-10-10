@@ -7,7 +7,7 @@ import httpx
 import pytest
 from jobs_radar.store import Store
 from jobs_radar.profiles import Profiles
-from jobs_radar.answers import Answers
+from jobs_radar.legacy_answers import Answers
 from jobs_radar.field_answers import fields_input
 
 
@@ -64,7 +64,7 @@ def test_cache_recomputes_facts_and_requires_no_key_or_quota(tmp_path,monkeypatc
     a,p=setup(tmp_path); p=save(a,p,employmentData={'eligibilityUS':True});run(a,p,Client())
     newer=save(a,p,employmentData={'eligibilityUS':False})
     def forbidden(): raise AssertionError('cache needs no key')
-    monkeypatch.setattr('jobs_radar.answers.api_key',forbidden)
+    monkeypatch.setattr('jobs_radar.legacy_answers.api_key',forbidden)
     assert run(a,newer)['answers'][0]['value']=='n'
     assert run(a,p)['answers'][0]['value']=='y'
     assert run(a,newer)['answerUsage']['modelCalls']==0
@@ -139,7 +139,7 @@ def test_cached_drafts_still_consume_model_batch_budget(tmp_path):
 def test_missing_key_preserves_cached_fact(tmp_path,monkeypatch):
     a,p=setup(tmp_path);p=save(a,p,employmentData={'eligibilityUS':True});run(a,p,Client())
     def missing(): raise ValueError('Missing key')
-    monkeypatch.setattr('jobs_radar.answers.api_key',missing)
+    monkeypatch.setattr('jobs_radar.legacy_answers.api_key',missing)
     rows=run(a,p,None,[field(),field('new',question='An unknown question')])['answers']
     assert rows[0]['value']=='y' and rows[1]['value'] is None
 

@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { calendarDate } from "./calendar-date.js";
 // Shared by the side panel and the in-page AI surface. The editor keeps the existing
 // versioned write/confirm contract and uses the bundled HeroUI CSS components.
@@ -17,7 +18,7 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
       item.append(box);
     }
     const editor = row.editor,
-      key = JSON.stringify([editor?.kind, editor?.inputType, editor?.options]);
+      key = stableStringify([editor?.kind, editor?.inputType, editor?.options]);
     item.reviewRow = row;
     // One write path and one button: an edit is written to the page when it
     // is committed (a choice, Enter, leaving the field) and at the latest by
@@ -88,7 +89,7 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
         Number.isInteger(control.draftSchemaVersion) &&
         control.draftSchemaVersion === current?.schemaVersion &&
         current.valid === true &&
-        JSON.stringify(draft(control)) === JSON.stringify(value)
+        stableStringify(draft(control)) === stableStringify(value)
       )
         return submit(value, current.version, true);
       return control && control.draftVersion != null

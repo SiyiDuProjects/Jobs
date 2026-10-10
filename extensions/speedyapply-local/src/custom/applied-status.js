@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsPlatformConfig } from "./platform-config.js";
 import { JobsDiagnostics } from "./diagnostics.js";
@@ -34,7 +35,7 @@ export function initializeAppliedStatus() {
     if (stopped || pending) return;
     const found = detectAppliedStatus();
     if (!found) return;
-    const identity = JSON.stringify(found);
+    const identity = stableStringify(found);
     if (completed === identity) return;
     if (seen !== identity) {
       seen = identity;
@@ -48,7 +49,8 @@ export function initializeAppliedStatus() {
         type: "jobs:applied-status-observed",
         ...found,
       });
-      if (stopped || JSON.stringify(detectAppliedStatus()) !== identity) return;
+      if (stopped || stableStringify(detectAppliedStatus()) !== identity)
+        return;
       const data = reply?.data;
       if (reply?.error || !data?.ok) throw Error("not_acknowledged");
       if (data.state === "disabled") {
@@ -67,7 +69,8 @@ export function initializeAppliedStatus() {
         if (data.state === "confirmed") completed = identity;
       }
     } catch {
-      if (stopped || JSON.stringify(detectAppliedStatus()) !== identity) return;
+      if (stopped || stableStringify(detectAppliedStatus()) !== identity)
+        return;
       present("网站显示已申请；回填尚未确认，联网或返回页面时重试");
       JobsDiagnostics?.note(
         "already_applied_sync_failed",
@@ -91,7 +94,7 @@ export function initializeAppliedStatus() {
     if (
       !force &&
       lastRequest &&
-      JSON.stringify(detectAppliedStatus()) === lastRequest
+      stableStringify(detectAppliedStatus()) === lastRequest
     )
       return;
     scheduled = true;

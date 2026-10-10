@@ -23,7 +23,7 @@ export async function requestAnswerBatch(
     // Required requests retain the explicit retry path on the page.
     return message.fields.map((field) => ({
       fieldId: field.fieldId,
-      state: "needs_input",
+      kind: "unknown",
       value: null,
       source: "unknown",
       interruptionReason: "control_failure",

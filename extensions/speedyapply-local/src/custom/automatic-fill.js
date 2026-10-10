@@ -4,7 +4,7 @@ import { searchAnswerSpec } from "./search-answer.js";
 import { prepareAnswerBatch } from "./prepare-answers.js";
 import { createDraftReview } from "./draft-review.js";
 import { JobsOperator } from "./operator-state.js";
-import { verifiedAnswer } from "./answer-proof.js";
+import { matchesAnswerRequest } from "./answer-proof.js";
 import { createRunState } from "./run-state.js";
 import { createFlow } from "./automatic-flow.js";
 import { diagnosticGuard } from "./diagnostic-evidence.js";
@@ -1018,21 +1018,9 @@ export function initializeAutomaticFill() {
           flow.move("writing");
           setMessage("ai-filling");
           for (const answer of answers) {
-            const rationale = [
-              "missing_fact",
-              "new_commitment",
-              "control_failure",
-              "ai_unavailable",
-              "ai_rate_limited",
-              "unrecognized_question",
-              "draft_unavailable",
-            ].includes(answer.interruptionReason)
-              ? answer.interruptionReason
-              : answer.verification
-                ? "verified_profile"
-                : answer.source === "suggestion"
-                  ? "draft"
-                  : "evidence_unverified";
+            const rationale =
+              answer.interruptionReason ||
+              (answer.kind === "draft" ? "draft" : "ai_answer");
             const previous = initial.get(answer.fieldId);
             // Site updates can finish the original fill while AI is pending; keep
             // that result. Trusted user edits still stop via assertCurrent.
@@ -1043,9 +1031,8 @@ export function initializeAutomaticFill() {
             }
             if (
               !row.public.required &&
-              (answer.state !== "answer" ||
-                answer.decision !== "write" ||
-                !verifiedAnswer(answer, previous.field))
+              (!["answer", "draft"].includes(answer.kind) ||
+                !matchesAnswerRequest(answer, previous.field))
             ) {
               book.entry(row).state = "omitted";
               note(
@@ -1055,15 +1042,15 @@ export function initializeAutomaticFill() {
               );
               continue;
             }
-            if (answer.state === "needs_input") {
+            if (answer.kind === "unknown") {
               leave(row, rationale, {
                 source: undefined,
                 questionZh: answer.questionZh,
-                reason: answer.reason,
+                reason: answer.reasonZh,
               });
               continue;
             }
-            if (answer.state !== "answer") {
+            if (!["answer", "draft"].includes(answer.kind)) {
               leave(row, "Invalid AI answer state");
               continue;
             }
@@ -1072,7 +1059,7 @@ export function initializeAutomaticFill() {
               !row.public.required &&
               !isChoice(row) &&
               !isCheckbox(row) &&
-              answer.reason?.trim()
+              answer.reasonZh?.trim()
             ) {
               omit(row, answer);
               continue;
@@ -1095,11 +1082,19 @@ export function initializeAutomaticFill() {
                 continue;
               }
             }
-            if (!verifiedAnswer(answer, previous.field)) {
+            if (
+              (answer.kind === "draft" &&
+                !["text", "textarea"].includes(previous.field.type)) ||
+              !matchesAnswerRequest(answer, previous.field)
+            ) {
               leave(row, "control_failure", { questionZh: answer.questionZh });
               continue;
             }
-            const searchSpec = searchAnswerSpec(answer, previous.field);
+            const searchSpec = searchAnswerSpec(
+              answer,
+              previous.field,
+              profile,
+            );
             if (previous.field.type === "search-choice" && !searchSpec) {
               leave(row, "control_failure");
               continue;
@@ -1141,19 +1136,15 @@ export function initializeAutomaticFill() {
               });
               continue;
             }
-            note(
-              "auto_field_applied",
-              row.node,
-              `${answer.decision || "legacy"}:${answer.verification?.id || "unverified"}`,
-            );
+            note("auto_field_applied", row.node, answer.kind);
             const deferredDraft =
               !!drafts &&
-              answer.decision === "draft" &&
-              verifiedAnswer(answer, previous.field) &&
+              answer.kind === "draft" &&
+              matchesAnswerRequest(answer, previous.field) &&
               JobsOperator?.read().mode === "person";
             if (deferredDraft) {
               try {
-                await drafts?.add(previous.field, after);
+                await drafts?.add(previous.field, after, answer);
                 assertCurrent();
               } catch {
                 leave(after, "control_failure", {
@@ -1164,9 +1155,9 @@ export function initializeAutomaticFill() {
               continue;
             }
             toCard(after, {
-              reason: answer.reason,
+              reason: answer.reasonZh,
               source: answer.source,
-              evidence: answer.evidence,
+
               questionZh: answer.questionZh,
               answerZh: answer.answerZh,
               needsConfirmation,

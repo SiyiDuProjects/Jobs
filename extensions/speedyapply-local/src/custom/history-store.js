@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 // Only redacted diagnostic runs enter this store. The index contains retention
 // metadata; each immutable payload has its own key. Publish the index last so
 // an interrupted write leaves either the old or new complete run readable.
@@ -71,7 +72,7 @@ export function createDiagnosticHistoryStore() {
       if (!full(record))
         throw Error("诊断记录不完整，已停止覆盖，请保留本地数据");
       state.applications[key] = record;
-      originals[key] = JSON.stringify(record);
+      originals[key] = stableStringify(record);
       // An interrupted acknowledgement was never confirmed for its connection.
       // Load these runs even during a partial read so the next write persists
       // their restored acknowledgements before dropping the recovery marker.
@@ -108,7 +109,7 @@ export function createDiagnosticHistoryStore() {
     const updates = {};
     for (const [key, row] of Object.entries(state.applications)) {
       const previous = old?.applications[key];
-      if (previous && (!full(row) || JSON.stringify(row) === originals[key])) {
+      if (previous && (!full(row) || stableStringify(row) === originals[key])) {
         index.applications[key] = previous;
         continue;
       }

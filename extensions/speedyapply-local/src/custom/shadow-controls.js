@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsDOMWait } from "./dom-wait.js";
@@ -441,7 +442,7 @@ export function initializeShadowControls() {
           }
           if (
             !current() ||
-            JSON.stringify(value(node)) !== JSON.stringify(previous)
+            stableStringify(value(node)) !== stableStringify(previous)
           )
             return null;
           const option = result.el;

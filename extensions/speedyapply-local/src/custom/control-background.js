@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsPrivateSession } from "./private-session.js";
 import { checkRecoveryPause } from "./recovery-pause.js";
 import { JobsTabProfiles } from "./tab-profiles.js";
@@ -368,7 +369,7 @@ export function initializeControlBackground() {
       const epoch = JobsPrivateSession.epoch;
       if (JobsControlConfig?.enabled !== true)
         throw Error("Remote execution is disabled");
-      const key = JSON.stringify(command);
+      const key = stableStringify(command);
       const prepared = await serial(async () => {
         const state = await read(),
           previous = state.journal[command.id];

@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsMatchRules } from "./job-match-rules.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsAvailabilityRules } from "./availability-rules.js";
@@ -123,8 +124,8 @@ export function initializeJobAvailability() {
         stable = null;
         return;
       }
-      const key = JSON.stringify(found);
-      if (seen && JSON.stringify(seen) === key) return;
+      const key = stableStringify(found);
+      if (seen && stableStringify(seen) === key) return;
       if (stable?.key !== key) {
         stable = { key, at: Date.now() };
         timer = setTimeout(scan, 1500);

@@ -83,7 +83,7 @@ test("authorization country and reversed age wording are decided from the full q
     assert.equal(await answer(t, question, current), expected, question);
 });
 
-test("Tesla uses employment history only for the exact prior-employer question", async (t) => {
+test("Tesla leaves employer history to the supplemental answerer", async (t) => {
   const questions = [
     [
       "legalConsiderOtherPositions",
@@ -116,12 +116,7 @@ test("Tesla uses employment history only for the exact prior-employer question",
   assert.equal(blank.doc.querySelector("select").value, "");
   assert.equal(
     blank.doc.querySelectorAll('input[type="radio"]:checked').length,
-    1,
-  );
-  assert.equal(
-    blank.doc.querySelector('[name="legal.legalFormerTeslaEmployee"]:checked')
-      .value,
-    "no",
+    0,
   );
   assert.equal(
     blank.doc.querySelector('[name="legal.legalAcknowledgment"]').checked,

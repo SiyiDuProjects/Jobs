@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { diagnosticEvidence } from "./diagnostic-evidence.js";
 import { createDiagnosticJournal } from "./diagnostic-journal.js";
 import { publicJobUrl } from "./public-job-url.js";
@@ -176,7 +177,7 @@ export function initializeDiagnostics() {
         before = observed.get(node);
       if (!before && observed.size >= MAX_FIELDS) return;
       observed.set(node, after);
-      if (before && JSON.stringify(before) !== JSON.stringify(after)) {
+      if (before && stableStringify(before) !== stableStringify(after)) {
         const type = !after.connected
           ? "field_detached"
           : before.hasValue && !after.hasValue
@@ -559,7 +560,7 @@ export function initializeDiagnostics() {
           truncatedEvents++;
         }
         const report = snapshot();
-        const signature = JSON.stringify([
+        const signature = stableStringify([
           report.fields,
           report.unansweredContainers,
           report.alerts,
@@ -577,7 +578,7 @@ export function initializeDiagnostics() {
         lastSignature = signature;
         // Hover/focus restyling reaches the form observer without changing the
         // report. The worker rewrites its whole archive per push; skip repeats.
-        const pushed = JSON.stringify({ ...report, observedAt: 0 });
+        const pushed = stableStringify({ ...report, observedAt: 0 });
         if (pushed !== lastPush || Date.now() - lastPushAt > 30000) {
           lastPush = pushed;
           lastPushAt = Date.now();
@@ -886,7 +887,7 @@ export function initializeDiagnostics() {
     }
     async function saveCase(report, force = false) {
       if (!JobsReproCase) return null;
-      const signature = JSON.stringify([
+      const signature = stableStringify([
         report.step,
         report.fields.map((f) => [f.id, f.completion, f.attempts]),
         report.unansweredContainers.map((u) => u.question),

@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import {
   diagnosticEvidence,
   evictDiagnosticEvent,
@@ -225,7 +226,7 @@ export function initializeHistoryBackground() {
               }
             : {}),
         };
-        const signature = JSON.stringify({ ...snapshot, at: 0 });
+        const signature = stableStringify({ ...snapshot, at: 0 });
         let changed = !report.journalOnly && entry.signature !== signature;
         if (changed) {
           data.snapshots.push(snapshot);
@@ -641,7 +642,9 @@ export function initializeHistoryBackground() {
         const state = await read();
         state.retentions ??= {};
         const previous = state.retentions[key];
-        if (JSON.stringify(previous?.unresolvedCaseIds) === JSON.stringify(ids))
+        if (
+          stableStringify(previous?.unresolvedCaseIds) === stableStringify(ids)
+        )
           return;
         const retention = {
           revision: (previous?.revision || 0) + 1,

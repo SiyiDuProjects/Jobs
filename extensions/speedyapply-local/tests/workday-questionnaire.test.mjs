@@ -67,7 +67,12 @@ function setup() {
           return {
             data: {
               answers: msg.fields.map((field) => ({
-                ...confirmedDraft(field, "No"),
+                ...confirmedAnswer(field, {
+                  fieldId: field.fieldId,
+                  kind: "answer",
+                  value: "No",
+                  source: "ai",
+                }),
                 reason: "Synthetic test",
                 questionZh: "测试问题",
                 answerZh: "否",

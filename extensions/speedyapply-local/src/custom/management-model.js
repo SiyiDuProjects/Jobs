@@ -1,3 +1,4 @@
+import { sameValue as same, stableStringify } from "./stable-value.js";
 export var JobsManagementModel;
 let initialized = false;
 export function initializeManagementModel() {
@@ -7,18 +8,6 @@ export function initializeManagementModel() {
     const keys = new Set(["settings", "jobsKindProfiles"]);
     const allowed = (k) =>
       keys.has(k) || /^jobsResponses:[a-f0-9-]{36}$/i.test(k);
-    const stable = (v) =>
-      Array.isArray(v)
-        ? v.map(stable)
-        : v && typeof v === "object"
-          ? Object.fromEntries(
-              Object.keys(v)
-                .sort()
-                .map((k) => [k, stable(v[k])]),
-            )
-          : v;
-    const same = (a, b) =>
-      JSON.stringify(stable(a)) === JSON.stringify(stable(b));
     /** @param {Array<{id:string,profileName:string}>} profiles
      * @param {Partial<Record<'intern'|'newgrad',string>>} explicit */
     function mappings(profiles, explicit = {}) {
@@ -41,7 +30,7 @@ export function initializeManagementModel() {
       const seen = new Map();
       return new Map(
         (list || []).map((row) => {
-          const identity = row?.key ?? "invalid:" + JSON.stringify(stable(row));
+          const identity = row?.key ?? "invalid:" + stableStringify(row);
           const n = seen.get(identity) || 0;
           seen.set(identity, n + 1);
           return [identity + "#" + n, row];

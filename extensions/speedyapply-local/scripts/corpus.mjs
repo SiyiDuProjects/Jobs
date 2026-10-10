@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { corpusReport, seedCorpus, seedBindings } from "./corpus-runner.mjs";
+import { corpusReport, seedCorpus } from "./corpus-runner.mjs";
 const [
   command = "test",
   input = ".qa/corpus/pages.json",
@@ -25,7 +25,7 @@ if (command === "seed") {
       {
         source: "synthetic-bootstrap",
         pages,
-        bindings: seedBindings(pages),
+        aiAnswers: [],
         labels: {},
       },
       null,

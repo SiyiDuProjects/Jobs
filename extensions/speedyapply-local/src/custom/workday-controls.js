@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsPlatformConfig } from "./platform-config.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsPageActions } from "./page-actions.js";
@@ -858,7 +859,7 @@ export function initializeWorkdayControls() {
       if (
         attempt &&
         (attempt.url !== node.ownerDocument.location.href ||
-          JSON.stringify(raw) === JSON.stringify(attempt.expected))
+          stableStringify(raw) === stableStringify(attempt.expected))
       )
         extraAttempts.delete(node);
       const isDisabled = (item) =>

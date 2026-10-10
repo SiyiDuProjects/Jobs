@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { extraProfileAnswer } from "./profile-extra.js";
 import { AnswerVocabulary } from "./answer-vocabulary.js";
 import { signatureAnswer } from "./signature-answer.js";
@@ -2772,16 +2773,7 @@ export function initializeProfileAnswers() {
       return sameYearRanges.length === 1 ? sameYearRanges[0] : null;
     }
     // Profile objects pass through schema parsers which may reorder their keys.
-    const signature = (value) =>
-      JSON.stringify(value, (_key, item) =>
-        item && typeof item === "object" && !Array.isArray(item)
-          ? Object.fromEntries(
-              Object.keys(item)
-                .sort()
-                .map((key) => [key, item[key]]),
-            )
-          : item,
-      );
+    const signature = stableStringify;
     // Follow-up eligibility comes only from explicit labels on the parent
     // question. It never infers personal facts from a selected category.
     function followup(question, { options = [], selected = [] } = {}) {

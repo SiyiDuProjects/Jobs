@@ -12,12 +12,9 @@ test("identity requires the explicit compound preset, independent of gender", ()
     "Heterosexual",
   );
 });
-test("named employment absence applies only to an unqualified company question", () => {
+test("company history questions stay with AI instead of exact name rules", () => {
   const p = { jobData: [] };
-  assert.equal(
-    extraProfileAnswer("Have you ever worked at Example?", p).answer,
-    "No",
-  );
+  assert.equal(extraProfileAnswer("Have you ever worked at Example?", p), null);
   for (const q of [
     "Have you ever worked at Example or a subsidiary?",
     "Have you ever worked at Example since 2020?",

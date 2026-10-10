@@ -45,16 +45,16 @@ def export(store, output):
 
 
 def identities():
-    for identity, employment, application in [
-        ('citizen', dict(eligibilityUS=True, sponsorship=False, citizenships=['United States']), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='US citizen')),
-        ('opt', dict(eligibilityUS=True, sponsorship=True, citizenships=['Canada']), dict(sponsorshipNow=False, sponsorshipFuture=True, visaStatus='F-1 OPT')),
-        ('resident', dict(eligibilityUS=True, sponsorship=False, citizenships=['Canada']), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='Green card')),
-        ('unknown', {}, {}),
-    ]:
-        yield identity, dict(profileName='Synthetic ' + identity, nameData={}, addressData={}, contactData={}, jobData=[],
-                             educationData=[], languageData=[], resumeData={}, websiteData={}, skillsData=[],
-                             employmentData=employment, applicationData=application)
+    source=Path(__file__).resolve().parents[1]/'jobs_radar'/'corpus-identities.json'
+    for raw in json.loads(source.read_text()):
+        profile=dict(profileName='Synthetic '+raw['id'],nameData={},addressData={},contactData={},jobData=[],educationData=[],languageData=[],resumeData={},websiteData={},skillsData=[],employmentData={},applicationData={})
+        profile.update({k:v for k,v in raw.items() if k!='id'})
+        yield raw['id'],profile
 
+
+def replay_hash(value):
+    import hashlib
+    return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
 
 def invariants(key, identity, field, row, profile=None):
     failures = []
@@ -81,67 +81,48 @@ def invariants(key, identity, field, row, profile=None):
 async def baseline(input_path, output, limit, live, client=None):
     from jobs_radar.answers import Answers
     from jobs_radar.profiles import Profiles
-    from jobs_radar.answer_bindings import answer
+    from jobs_radar.ai_answers import INSTRUCTIONS
+    from jobs_radar.luna_screening import MODEL
     from jobs_radar.field_answers import fields_input
-    corpus = json.loads(input_path.read_text())
-    fields = {question_key(field): field for page in corpus['pages'] for field in page['page']['fields']}
-    latest = {(row['questionId'], row['country']): row for row in corpus.get('bindings', [])}
-    cases = []
-    for key, original in list(fields.items())[:limit]:
-        scoped = [row for (qid, _), row in latest.items() if qid == key] or [None]
-        for mapping in scoped:
-            field = {k: original[k] for k in ('question', 'description', 'type', 'required', 'options')}
-            field['fieldId'] = key
-            try:
-                fields_input(dict(fields=[field]))
-                supported = True
-            except ValueError:
-                supported = False
-            cases.append((key, field, mapping, supported))
-    results, violations, calls = [], [], 0
-    with tempfile.TemporaryDirectory(prefix='jobs-corpus-synthetic-') as directory:
-        store = Store(Path(directory) / 'synthetic.sqlite')
-        service = Answers(store)
-        for identity, profile in identities():
-            record = Profiles(store).save(profile)
-            pending = {}
-
-            def record_result(key, field, mapping, row, route):
-                row = row or {}
-                results.append(dict(questionId=key, identity=identity, country=mapping['country'] if mapping else '',
-                                    route=route, decision=row.get('decision', 'ask'), value=row.get('value'),
-                                    reviewOnly=row.get('reviewOnly', False)))
-                violations.extend(invariants(key, identity, field, row, profile))
-
-            for key, field, mapping, supported in cases:
-                row = answer(mapping['binding'], mapping['meaning'], field, profile, record['id'], record['last_sync']) if mapping else None
-                if row is not None or not live or not supported:
-                    record_result(key, field, mapping, row, 'cached_binding' if row else 'unmapped' if supported else 'unsupported_control')
-                else:
-                    pending.setdefault(mapping['country'] if mapping else '', []).append((key, field, mapping))
-            for country, items in pending.items():
-                for start in range(0, len(items), 10):
-                    batch = items[start:start + 10]
-                    try:
-                        response = await service.generate(dict(profileId=record['id'], profileVersion=record['last_sync'],
-                                                               fields=[field for _, field, _ in batch], jobCountry=country), client)
-                        calls += response['answerUsage']['modelCalls']
-                        by_id = {row['fieldId']: row for row in response['answers']}
-                        for key, field, mapping in batch:
-                            record_result(key, field, mapping, by_id[key], 'provider')
-                    except ValueError as error:
-                        calls += getattr(error, 'answer_usage', {}).get('modelCalls', 0)
-                        for key, field, mapping in batch:
-                            record_result(key, field, mapping, None, 'provider_unavailable')
-        generated = QuestionCorpus(store).export()['bindings']
-    summary = dict(questions=min(len(fields), limit), scopedCases=len(cases), identities=4, providerCalls=calls,
-                   unanswered=sum(row['value'] is None for row in results), automatic=sum(row['decision'] == 'write' for row in results),
-                   drafts=sum(row['decision'] == 'draft' for row in results), violations=len(violations),
-                   providerUnavailable=sum(row['route'] == 'provider_unavailable' for row in results))
-    save(output, dict(version=1, source=corpus.get('source'), syntheticFactsOnly=True, live=live, summary=summary,
-                      results=results, violations=violations, limitations=['Proper-name checks flag suspicious tokens, not semantic truth. Prose and grounding still need human sampling.']))
-    if live:
-        save(output.with_suffix('.corpus.json'), {**corpus, 'bindings': [*corpus.get('bindings', []), *generated]})
+    try:
+        from .verify_reported_questions import as_field
+    except ImportError:
+        from verify_reported_questions import as_field
+    corpus=json.loads(input_path.read_text());results=[];calls=0;skipped=[]
+    revision={'promptHash':replay_hash(INSTRUCTIONS),'model':MODEL}
+    raw_profiles=json.loads((Path(__file__).resolve().parents[1]/'jobs_radar'/'corpus-identities.json').read_text())
+    cases=[];known=set()
+    for page in corpus['pages']:
+        for original in page['page']['fields']:
+            key=question_key(original)
+            if key not in known and len(known)>=limit: continue
+            known.add(key);field=as_field(original)
+            try: fields_input({'fields':[field]})
+            except ValueError: skipped.append({'pageId':page['id'],'questionId':key});continue
+            cases.append((page['id'],key,field))
+    with tempfile.TemporaryDirectory(prefix='jobs-corpus-synthetic-') as temp:
+        store=Store(Path(temp)/'synthetic.sqlite');service=Answers(store,flow='simple')
+        for identity,profile in identities():
+            record=Profiles(store).save(profile)
+            profile_hash=replay_hash(next(p for p in raw_profiles if p['id']==identity))
+            for page in corpus['pages']:
+                selected=[(key,field) for pid,key,field in cases if pid==page['id']]
+                for start in range(0,len(selected),20):
+                    batch=selected[start:start+20];rows={}
+                    if live:
+                        # The test DB has its own budget; real service counters are untouched.
+                        with store.connect(True) as c:
+                            if c.execute("SELECT 1 FROM sqlite_master WHERE name='answer_requests'").fetchone(): c.execute('DELETE FROM answer_requests')
+                        response=await service.generate(dict(profileId=record['id'],profileVersion=record['last_sync'],answerProtocol=3,fields=[f for _,f in batch],additionalContext='Synthetic replay; captured platform: '+page['page']['platform']),client)
+                        rows={r['fieldId']:r for r in response['answers']};calls+=response['answerUsage']['modelCalls']
+                    for key,field in batch:
+                        row=rows.get(field['fieldId'],{'kind':'unknown','value':None})
+                        options={o['value']:o['label'] for o in field['options']};value=row.get('value')
+                        value=[options.get(v,v) for v in value] if isinstance(value,list) else options.get(value,value)
+                        results.append(dict(pageId=page['id'],questionId=key,identity=identity,profileHash=profile_hash,**revision,answer={**row,'value':value}))
+    summary=dict(questions=len(known),identities=4,providerCalls=calls,unanswered=sum(r['answer']['kind']=='unknown' for r in results),captureGaps=len(skipped))
+    save(output,dict(version=2,syntheticFactsOnly=True,live=live,summary=summary,results=results,captureGaps=skipped))
+    if live: save(output.with_suffix('.corpus.json'),{**corpus,'aiRevision':revision,'aiAnswers':results})
     return summary
 
 

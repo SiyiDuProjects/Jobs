@@ -38,7 +38,7 @@ for (const mode of [
     );
     if (mode === "success") assert.deepEqual(await pending, answers);
     else if (mode === "optional")
-      assert.equal((await pending)[0].state, "needs_input");
+      assert.equal((await pending)[0].kind, "unknown");
     else await assert.rejects(pending);
     assert.deepEqual(records, [
       mode === "transport-failure" ? { unavailable: true } : usage,

@@ -49,9 +49,12 @@ for (const edited of [false, true])
       if (message.type === "jobs:auto-answers")
         return {
           data: {
-            answers: message.fields.map((field) =>
-              confirmedDraft(field, "A grounded preference draft."),
-            ),
+            answers: message.fields.map((field) => ({
+              ...confirmedDraft(field, "A grounded preference draft."),
+              questionZh: "为什么申请这份工作",
+              answerZh: "基于真实经历的求职动机草稿。",
+              reasonZh: "使用资料中的真实项目经历。",
+            })),
           },
         };
       return transport(message);
@@ -65,6 +68,9 @@ for (const edited of [false, true])
     });
     assert.equal(submitted, 0);
     assert.equal(h.w.JobsAIReview.pending(), true);
+    assert.equal(presentation.items[0].question, "为什么申请这份工作");
+    assert.equal(presentation.items[0].answer, "基于真实经历的求职动机草稿。");
+    assert.equal(presentation.items[0].reason, "使用资料中的真实项目经历。");
     if (edited) {
       h.doc.querySelector("textarea").value = "A deliberate user correction.";
       h.doc
@@ -73,6 +79,10 @@ for (const edited of [false, true])
       assert.equal(await h.w.JobsAIReview.confirm(), false);
       await new Promise((resolve) => setTimeout(resolve, 0));
       assert.equal(presentation.status, "草稿已改变，请核对更新后的清单");
+      assert.equal(
+        presentation.items[0].answer,
+        "A deliberate user correction.",
+      );
       assert.equal(submitted, 0);
     }
     assert.equal(await h.w.JobsAIReview.confirm(), true);

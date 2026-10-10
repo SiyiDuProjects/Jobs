@@ -108,7 +108,15 @@ function setup(html, answer) {
     close: () => w.close(),
   };
 }
-const reply = confirmedDraft;
+const reply = (field, value) =>
+  ["text", "textarea"].includes(field.type)
+    ? confirmedDraft(field, value)
+    : confirmedAnswer(field, {
+        fieldId: field.fieldId,
+        kind: "answer",
+        value,
+        source: "ai",
+      });
 
 for (const scenario of ["complete", "changed", "oversized"])
   test(`terms context reaches verification and remains current: ${scenario}`, async () => {
@@ -172,12 +180,13 @@ for (const question of [
   "Are you a U.S. person under ITAR?",
   "Are you bound by a non-compete agreement?",
 ])
-  test(`model provenance cannot skip review: ${question}`, async () => {
+  test(`a reply missing its request binding cannot write: ${question}`, async () => {
     const h = setup(
       `<label>${question}<select required><option value="">Select</option><option value="no">No</option></select></label>`,
       async (message) =>
         message.fields.map((field) => ({
           ...reply(field, "no"),
+          requestBinding: null,
           source: "profile",
           needsConfirmation: false,
         })),
@@ -199,8 +208,13 @@ for (const question of [
 for (const scenario of [
   { prior: "binding", continues: true },
   { prior: "rule", continues: true },
-  { prior: "binding", source: "suggestion", confirmation: true },
-  { prior: "binding", source: "suggestion" },
+  {
+    prior: "binding",
+    source: "suggestion",
+    confirmation: true,
+    continues: true,
+  },
+  { prior: "binding", source: "suggestion", continues: true },
   { prior: "binding", outcome: "lost" },
   { prior: "binding", outcome: "invalid" },
   { prior: "missing-fact", continues: true },
@@ -477,7 +491,9 @@ test("more than 30 unresolved fields use bounded AI batches without abandoning l
       sizes.push(message.fields.length);
       return message.fields.map((field) =>
         confirmedAnswer(field, {
-          ...reply(field, "Supported answer"),
+          fieldId: field.fieldId,
+          kind: "answer",
+          value: "Supported answer",
           source: "profile",
           needsConfirmation: false,
         }),
@@ -724,7 +740,7 @@ test("review card shows human choice labels, locates fields, learns corrected an
     async (message) =>
       message.fields.map((f) => ({
         ...reply(f, f.type === "textarea" ? "AI draft" : "N"),
-        reason: "依据当前资料作答。",
+        reasonZh: "依据当前资料作答。",
         questionZh: f.type === "textarea" ? "求职动机" : "是否曾在该公司工作",
         answerZh: f.type === "textarea" ? "AI 草稿" : "否",
       })),
@@ -738,16 +754,16 @@ test("review card shows human choice labels, locates fields, learns corrected an
     await h.run();
     const shadow = h.w.document.querySelector("#jobs-ai-review").shadowRoot;
     assert.equal(shadow.querySelectorAll(".item").length, 2);
-    assert.equal(shadow.querySelector(".answer").textContent, "否");
+    assert.equal(shadow.querySelectorAll(".answer")[1].textContent, "否");
     assert.equal(
-      shadow.querySelector(".question").textContent,
+      shadow.querySelectorAll(".question")[1].textContent,
       "是否曾在该公司工作",
     );
-    assert.equal(shadow.querySelectorAll(".answer")[1].textContent, "AI 草稿");
+    assert.equal(shadow.querySelector(".answer").textContent, "AI 草稿");
     assert.equal(shadow.querySelector(".reason"), null);
     assert(shadow.textContent.includes("依据当前资料作答。"));
     assert.match(shadow.querySelector("h2").textContent, /AI 补填 · 2/);
-    shadow.querySelector(".item").click();
+    shadow.querySelectorAll(".item")[1].click();
     assert.equal(h.w.document.activeElement.tagName, "SELECT");
     const text = h.w.document.querySelector("textarea");
     text.value = "My corrected answer";
@@ -756,17 +772,13 @@ test("review card shows human choice labels, locates fields, learns corrected an
     await Promise.resolve();
     assert.equal(learned.length, 0);
     assert.equal(
-      shadow.querySelectorAll(".answer")[1].textContent,
+      shadow.querySelector(".answer").textContent,
       "My corrected answer",
     );
-    assert.equal(
-      shadow.querySelectorAll(".source")[1].textContent,
-      "已手动修改",
-    );
+    assert.equal(shadow.querySelector(".source").textContent, "已手动修改");
     assert.equal(await h.w.JobsAIReview.confirm(), true);
-    assert.equal(learned.length, 2);
-    assert.equal(learned[0].response, "No");
-    assert.equal(learned[1].response, "My corrected answer");
+    assert.equal(learned.length, 1);
+    assert.equal(learned[0].response, "My corrected answer");
     assert.equal(h.clicks(), 1);
     await h.w.JobsAIReview.confirm();
     await h.run();
@@ -1420,9 +1432,7 @@ test("verified subjective drafts cross a Next step and appear once before manual
             ...reply(field, "I would like to work on reliable systems."),
             decision: "draft",
             needsConfirmation: true,
-            proof: {
-              version: 2,
-              status: "verified",
+            binding: {
               profileId: "fixture",
               profileVersion: "v1",
               field,
@@ -1484,9 +1494,7 @@ test("AI-owned verified drafts stay on the shared self-review card", async () =>
             ...reply(field, "A subjective draft."),
             decision: "draft",
             needsConfirmation: true,
-            proof: {
-              version: 2,
-              status: "verified",
+            binding: {
               profileId: "p",
               profileVersion: "v",
               field,

@@ -642,8 +642,8 @@ test("typed answers: employment is ordered by dates with positive-only incomplet
     null,
   );
   assert.equal(
-    typedAnswer(api, "Have you ever worked at Example?", p).answer,
-    "No",
+    typedAnswer(api, "Have you ever worked at Example?", p)?.answer ?? null,
+    null,
   );
 });
 

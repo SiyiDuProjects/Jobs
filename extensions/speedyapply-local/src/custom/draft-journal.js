@@ -1,3 +1,4 @@
+import { sameValue } from "./stable-value.js";
 // A per-application, session-only checklist. Approval belongs to one revision.
 export function updateDraftJournal(current, changes) {
   const state = current || { revision: 0, approved: -1, items: [] };
@@ -13,10 +14,18 @@ export function updateDraftJournal(current, changes) {
       row.answer.length > 4000
     )
       throw Error("Invalid draft checklist");
+    const translations = {};
+    for (const name of ["questionZh", "answerZh", "reasonZh"]) {
+      if (row[name] === undefined) continue;
+      if (typeof row[name] !== "string" || row[name].length > 1000)
+        throw Error("Invalid draft translation");
+      translations[name] = row[name];
+    }
     items.set(row.key, {
       key: row.key,
       question: row.question,
       answer: row.answer,
+      ...translations,
     });
   }
   if (items.size > 90) throw Error("草稿清单过长，请检查当前申请");
@@ -27,11 +36,7 @@ export function updateDraftJournal(current, changes) {
     next.length === state.items.length &&
     next.every((item, index) => {
       const before = state.items[index];
-      return (
-        item.key === before.key &&
-        item.question === before.question &&
-        item.answer === before.answer
-      );
+      return sameValue(item, before);
     })
   )
     return state;

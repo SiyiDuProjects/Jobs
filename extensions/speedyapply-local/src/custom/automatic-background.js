@@ -1,4 +1,5 @@
-import { bindAnswerEvidence } from "./answer-proof.js";
+import { stableStringify } from "./stable-value.js";
+import { ANSWER_PROTOCOL, bindAnswerEvidence } from "./answer-proof.js";
 import { JobsTabProfiles } from "./tab-profiles.js";
 import { JobsJobMatch } from "./job-match.js";
 import { JobsProfileAnswers } from "./profile-answers.js";
@@ -13,7 +14,7 @@ export function initializeAutomaticBackground() {
     async function context(sender) {
       const bound = await JobsTabProfiles.verify(sender);
       if (!bound) throw Error("本页 Profile 不可用");
-      const snapshot = JSON.stringify(bound),
+      const snapshot = stableStringify(bound),
         frameId = sender.frameId || 0,
         tab = await chrome.tabs.get(sender.tab.id);
       if (!/^https?:\/\//.test(sender.url || tab.url || ""))
@@ -82,7 +83,7 @@ export function initializeAutomaticBackground() {
         url,
         async verify() {
           const after = await JobsTabProfiles.verify(sender);
-          if (JSON.stringify(after) !== snapshot)
+          if (stableStringify(after) !== snapshot)
             throw Error("等待 Luna 时本页 Profile 已改变");
           await current();
         },
@@ -111,6 +112,7 @@ export function initializeAutomaticBackground() {
           )
             throw Error("本页 Profile 已改变");
           const result = await JobsSync.generateAnswer({
+            answerProtocol: ANSWER_PROTOCOL,
             profileId: bound.id,
             profileVersion: bound.lastSync,
             jobUrl: job?.appUrl || operation.url,
@@ -140,7 +142,7 @@ export function initializeAutomaticBackground() {
             );
             return field
               ? bindAnswerEvidence(answer, field, bound)
-              : { ...answer, verification: null };
+              : { ...answer, requestBinding: null };
           });
           return {
             ...result,

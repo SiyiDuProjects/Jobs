@@ -102,20 +102,6 @@ export function extraProfileAnswer(question, profile, context = {}) {
         aliases = [value, "Straight", "Heterosexual or straight"];
     }
   }
-  const employer = label.match(
-    /^have you (?:ever|previously) (?:worked (?:at|for)|been employed by) (.+)$/,
-  );
-  if (employer && Array.isArray(profile?.jobData)) {
-    const name = employer[1].trim();
-    if (
-      !["us", "this company", "our company"].includes(name) &&
-      !/\b(and|or|within|since|during|affiliates?|subsidiaries)\b/.test(name)
-    )
-      value = boolean(
-        "jobData",
-        profile.jobData.some((j) => j.company?.trim().toLowerCase() === name),
-      );
-  }
   if (!field) return null;
   if (value === undefined || value === null || value === "") return null;
   if (field === "applicationData.availableUntil") {

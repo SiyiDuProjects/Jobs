@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { publicPageUrl } from "./public-job-url.js";
 import { JobsControlConfig } from "./control-config.js";
 import { JobsAutomatic } from "./automatic-fill.js";
@@ -102,7 +103,7 @@ export function initializeControlContent() {
         JobsSubmissionGuard?.validationError?.();
       }
       if (transition) {
-        const identity = JSON.stringify(
+        const identity = stableStringify(
           rows.map((row) => [row.public.id, row.public.question]),
         );
         if (
@@ -130,7 +131,7 @@ export function initializeControlContent() {
             ? phase
             : "unsupported_form";
       const review = JobsAIReview?.remoteState?.(root());
-      const fingerprint = JSON.stringify([
+      const fingerprint = stableStringify([
         location.href,
         reportedPhase,
         profileId,
@@ -247,7 +248,7 @@ export function initializeControlContent() {
         !command.id
       )
         throw Error("Invalid command ID");
-      const key = JSON.stringify(command),
+      const key = stableStringify(command),
         existing = results.get(command.id);
       if (existing) {
         if (existing.key !== key) throw Error("Command ID reused");
@@ -376,7 +377,7 @@ export function initializeControlContent() {
               .scan()
               .map((row) => [
                 row.public.id,
-                JSON.stringify([
+                stableStringify([
                   row.public.question,
                   row.public.type,
                   row.public.options,
@@ -394,7 +395,7 @@ export function initializeControlContent() {
                 !row ||
                 !canProceed() ||
                 initial.get(answer.fieldId) !==
-                  JSON.stringify([
+                  stableStringify([
                     row.public.question,
                     row.public.type,
                     row.public.options,

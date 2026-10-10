@@ -112,7 +112,7 @@ def test_offline_baseline_never_calls_provider_or_reads_real_profiles(tmp_path, 
     from deploy.question_corpus import baseline, private_path
     def forbidden():
         raise AssertionError('Offline baseline must not access a provider credential')
-    monkeypatch.setattr('jobs_radar.answers.api_key', forbidden)
+    monkeypatch.setattr('jobs_radar.simple_answers.api_key', forbidden)
     source = private_path(tmp_path / '.qa' / 'input.json'); output = source.with_name('report.json')
     source.write_text(json.dumps(dict(source='synthetic-bootstrap', pages=[dict(id='fixture', page=page())], bindings=[])))
     summary = asyncio.run(baseline(source, output, 30, False))

@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsControlFields } from "./control-fields.js";
@@ -448,7 +449,7 @@ export function initializeFormPipeline() {
         // A dropdown can already hold the selected value while its popup is
         // closing. Keep that value separate from whether it is readable yet;
         // a synthetic `true` would compare unequal to the eventual answer.
-        return row?.public.filled ? JSON.stringify(row.raw) : null;
+        return row?.public.filled ? stableStringify(row.raw) : null;
       };
       // Kept: the field holds a value at the end, the one the write produced or
       // one that appeared late. An empty field was not kept. The field is read

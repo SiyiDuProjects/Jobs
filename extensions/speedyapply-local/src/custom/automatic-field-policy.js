@@ -1,6 +1,7 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsPlatformConfig } from "./platform-config.js";
 import { allowsAutomaticFill } from "./autofill-preferences.js";
-import { verifiedAnswer } from "./answer-proof.js";
+import { matchesAnswerRequest } from "./answer-proof.js";
 
 export function reviewFailure(code) {
   const messages = {
@@ -18,17 +19,12 @@ export function reviewFailure(code) {
 
 export function answerNeedsReview(answer, row, record, field) {
   return (
-    answer.needsConfirmation !== false ||
-    answer.source === "suggestion" ||
-    answer.source === "unknown" ||
-    record.confirm ||
-    !field ||
-    !verifiedAnswer(answer, field)
+    !field || answer.kind !== "answer" || !matchesAnswerRequest(answer, field)
   );
 }
 
 export function shape(row) {
-  return JSON.stringify([
+  return stableStringify([
     row.public.question,
     row.public.type,
     row.public.options,

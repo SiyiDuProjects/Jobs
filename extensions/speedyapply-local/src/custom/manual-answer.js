@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsAnswerMemory } from "./answer-memory.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsControlFields } from "./control-fields.js";
@@ -64,12 +65,12 @@ export function initializeManualAnswer() {
         onState("idle");
         return null;
       }
-      const dependencyKey = JSON.stringify(dependency);
+      const dependencyKey = stableStringify(dependency);
       const answerPrompt = dependency
         ? dependency.parentQuestion + " — " + dependency.question
         : prompt;
       const answerContext = dependency
-        ? JSON.stringify({
+        ? stableStringify({
             formDependency: dependency,
             contextKind: "untrusted_form_state",
             additionalContext: additionalContext || "",
@@ -131,7 +132,7 @@ export function initializeManualAnswer() {
           onState("idle");
           return true;
         }
-        if (JSON.stringify(context(node, prompt)) === dependencyKey)
+        if (stableStringify(context(node, prompt)) === dependencyKey)
           return false;
         invalidating = true;
         const book = JobsFormPipeline.ledgerFor(scope);

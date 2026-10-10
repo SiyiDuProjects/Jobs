@@ -1,3 +1,4 @@
+import { stableStringify } from "./stable-value.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsReviewPresenter } from "./review-presenter.js";
 import { JobsControlFields } from "./control-fields.js";
@@ -17,7 +18,7 @@ export function initializeAiReview() {
       own.presentation = data;
       // Page mutations re-run refresh; an unchanged card needs no new storage
       // write and side-panel round trip. Expansion requests always reach it.
-      const key = data && !data.expand ? JSON.stringify(data) : "";
+      const key = data && !data.expand ? stableStringify(data) : "";
       if (key && key === own.presented) return;
       own.presented = key;
       if (window === window.top)
@@ -64,14 +65,14 @@ export function initializeAiReview() {
         presented: "",
       };
       own.signature = (row) =>
-        JSON.stringify([
+        stableStringify([
           row.public.question,
           row.public.type,
           row.public.options,
           row.raw,
         ]);
       const fieldShape = (row) =>
-        JSON.stringify([
+        stableStringify([
           row.public.question,
           row.public.type,
           row.public.options,
@@ -144,7 +145,7 @@ export function initializeAiReview() {
           const signature = row && own.signature(row);
           const schema =
             row &&
-            JSON.stringify([
+            stableStringify([
               row.public.question,
               row.public.type,
               row.public.options,
@@ -258,9 +259,10 @@ export function initializeAiReview() {
         for (const [index, item] of own.summary.entries())
           items.push({
             id: "summary-" + index,
-            question: item.question,
+            question: item.questionZh || item.question,
             originalQuestion: item.question,
-            answer: item.answer,
+            answer: item.answerZh || item.answer,
+            reason: item.reasonZh || "",
             source: "提交前核对的草稿",
             reviewState: "pending",
             error: "",
@@ -319,8 +321,7 @@ export function initializeAiReview() {
           needsInput,
           omitted,
           source,
-          needsConfirmation:
-            source === "suggestion" || needsConfirmation !== false,
+          needsConfirmation: needsConfirmation !== false,
         });
         row.node.setAttribute(
           "data-jobs-ai-review",

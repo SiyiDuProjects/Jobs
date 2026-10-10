@@ -1,0 +1,65 @@
+[
+  {
+    "id": "citizen",
+    "educationData": [
+      {
+        "endDate": "2027-05"
+      }
+    ],
+    "employmentData": {
+      "eligibilityUS": true,
+      "sponsorship": false,
+      "citizenships": [
+        "United States"
+      ]
+    },
+    "applicationData": {
+      "visaStatus": "US citizen",
+      "sponsorshipNow": false,
+      "sponsorshipFuture": false
+    }
+  },
+  {
+    "id": "opt",
+    "educationData": [
+      {
+        "endDate": "2027-05",
+        "graduationDate": "2027-05-21"
+      }
+    ],
+    "employmentData": {
+      "eligibilityUS": true,
+      "sponsorship": true,
+      "citizenships": [
+        "Canada"
+      ]
+    },
+    "applicationData": {
+      "visaStatus": "F-1 OPT",
+      "sponsorshipNow": false,
+      "sponsorshipFuture": true
+    }
+  },
+  {
+    "id": "resident",
+    "educationData": [
+      {
+        "endDate": "2027-12"
+      }
+    ],
+    "employmentData": {
+      "eligibilityUS": true,
+      "sponsorship": false
+    },
+    "applicationData": {
+      "visaStatus": "Green card",
+      "sponsorshipNow": false,
+      "sponsorshipFuture": false
+    }
+  },
+  {
+    "id": "unknown",
+    "employmentData": {},
+    "applicationData": {}
+  }
+]
