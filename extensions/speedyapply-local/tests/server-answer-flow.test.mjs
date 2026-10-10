@@ -8,10 +8,11 @@ const service = fileURLToPath(
   new URL("../../../services/jobs-radar/", import.meta.url),
 );
 const python =
+  process.env.JOBS_TEST_PYTHON ||
   service +
-  (process.platform === "win32"
-    ? ".venv/Scripts/python.exe"
-    : ".venv/bin/python");
+    (process.platform === "win32"
+      ? ".venv/Scripts/python.exe"
+      : ".venv/bin/python");
 // Only the provider HTTP boundary is synthetic. Actual server engines, Profile
 // projection, result conversion, worker binding, scanner and page writer run.
 const program = `
