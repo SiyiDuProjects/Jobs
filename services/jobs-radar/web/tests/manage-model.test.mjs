@@ -20,5 +20,7 @@ test('keyword generation is retired and credential exclusion remains intact',()=
 test('application rows show actual status, not the statistical no-answer bucket',()=>{
  assert.equal(model.progressLabel({...row,progress:{stage:'applied',label:'No Answer'}}),'等待回复');
  assert.equal(model.progressLabel({...row,progress:{stage:'rejected',label:'No Answer'}}),'已拒绝');
- assert.equal(model.progressLabel({...row,progress:{stage:'assessment',label:'No Answer · OA 自动发放',stage_label:'OA · 自动发放'}}),'测评 · 自动发放');
+ assert.equal(model.progressLabel({...row,progress:{stage:'assessment',label:'No Answer · OA 自动发放',stage_label:'OA · 自动发放'}}),'在线测评 · 自动发放');
 });
+
+test('HR interviews and online assessments have unambiguous labels',()=>{assert.equal(model.progressLabel({...row,status:'phone_screen'}),'HR 面试');assert.equal(model.chineseProgress('Screening'),'HR 面试');assert.equal(model.statuses.assessment,'在线测评');});

@@ -257,7 +257,7 @@ def attach_web(server, store, origin):
             from .application_records import counts
             today=float(request.query_params.get('today',''))
             week=float(request.query_params.get('week',''))
-            return await to_thread.run_sync(lambda: response(counts(store,today,week)),limiter=read_pool)
+            return await to_thread.run_sync(lambda: response(counts(store,today,week,request.query_params.get('kind'))),limiter=read_pool)
         except (ValueError,TypeError) as e: return response({'error':str(e)},400)
 
     @server.custom_route('/api/application-overview',methods=['GET'])

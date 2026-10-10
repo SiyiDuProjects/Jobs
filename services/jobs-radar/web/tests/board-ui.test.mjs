@@ -114,7 +114,7 @@ test('legacy preferences preserve explicit exclusions and strict regions during 
 
 
 test('job submission badges and application progress stay on their respective pages',async()=>{
- const app={id:'app-1',job_id:'fixture-1',version:1,jobTitle:'Engineer',companyName:'Fixture Employer',jobLink:'https://example.test/job',companyLink:'',date:new Date().toISOString(),profileName:'Newgrad',status:'interview',progress:{label:'Interview · Round 2',display_stage:'interview',stage:'interview',version:1}};
+ const app={kind:'newgrad',id:'app-1',job_id:'fixture-1',version:1,jobTitle:'Engineer',companyName:'Fixture Employer',jobLink:'https://example.test/job',companyLink:'',date:new Date().toISOString(),profileName:'Newgrad',status:'interview',progress:{label:'Interview · Round 2',display_stage:'interview',stage:'interview',version:1}};
  const h=await page(0,{status:'submitted'}, {}, [app]);
  try {
   await tick();

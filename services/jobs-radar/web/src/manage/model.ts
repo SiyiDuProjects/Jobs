@@ -5,6 +5,7 @@ import { JobsProfileContract } from "./profile-contract.js";
 import type { Profile } from "./profile-types";
 export type { Profile, ApplicationDetails } from "./profile-types";
 export type Application = {
+  kind?: 'newgrad' | 'internship' | 'unknown';
   job_id?: string;
   job?: {
     id: string;
@@ -75,12 +76,12 @@ export type ProfileSummary = { id: string; profileName: string };
 export type Documents = Record<string, { revision: number; value: any }>;
 export function chineseProgress(text: string): string {
   return text.replace(/No Answer/g, "暂无推进").replace(/Interview/g, "面试")
-    .replace(/Screening/g, "初筛").replace(/Offer Declined/g, "已拒绝录用")
+    .replace(/Screening/g, "HR 面试").replace(/Offer Declined/g, "已拒绝录用")
     .replace(/Offer/g, "录用").replace(/Round (\d+)/g, "第 $1 轮")
-    .replace(/Final/g, "终面").replace(/\bOA\b/g, "测评");
+    .replace(/Final/g, "终面").replace(/\bOA\b/g, "在线测评");
 }
 const stageLabels = (values: Record<string, string>) => Object.fromEntries(Object.entries(values).map(([k,v]) => [k,chineseProgress(v)]));
-export const statuses: Record<string, string> = stageLabels(stageContract.statuses);
+export const statuses: Record<string, string> = { ...stageLabels(stageContract.statuses), phone_screen: 'HR 面试' };
 export const displayStatuses: Record<string, string> = stageLabels(stageContract.displayStatuses);
 export function displayStage(row: Application): string {
   return row.progress?.display_stage || "no_answer";
@@ -89,6 +90,8 @@ export function progressLabel(row: Application): string {
   const stage = row.progress?.stage || row.status;
   if (["applied", "received", "submitted"].includes(stage))
     return "等待回复";
+  if (stage === "phone_screen") return "HR 面试";
+  if (stage === "screen") return "进展待确认";
   if (stage === "rejected") return "已拒绝";
   return chineseProgress(
     row.progress?.stage_label ||
@@ -316,6 +319,7 @@ export function exportCSV(rows: Application[]) {
     "status",
     "date",
     "profileName",
+    "kind",
   ] as const;
   const q = (v: string) => '"' + v.replaceAll('"', '""') + '"';
   return [

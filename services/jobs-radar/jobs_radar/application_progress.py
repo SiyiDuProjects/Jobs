@@ -128,7 +128,8 @@ def chart_path(current, events, advanced):
 
 
 def stage_label(stage, round=None, final=False, assessment_type='unknown'):
-    if stage in {'interview','phone_screen'}:return ('终面' if final else 'Interview')+(f' · 第 {round} 轮' if round else '')
+    if stage=='phone_screen':return 'HR 面试'
+    if stage=='interview':return ('终面' if final else 'Interview')+(f' · 第 {round} 轮' if round else '')
     if stage=='screen':return '待核对'
     if stage=='assessment':return {'automatic':'OA · 自动发放','screened':'OA · 筛选后发放'}.get(assessment_type,'OA')
     return LABELS.get(stage,stage)
@@ -305,7 +306,7 @@ class ApplicationProgress:
                 if query.lower() not in (row['companyName']+' '+row['jobTitle']).lower(): continue
                 current=state(c,row['id'])
                 if not current or stage and current['stage']!=stage: continue
-                item={k:row[k] for k in ('id','jobTitle','jobLink','companyName','date','profileName')}
+                item={k:row[k] for k in ('id','jobTitle','jobLink','companyName','date','profileName','kind')}
                 item['progress']=row['progress']
                 item['job_ids']=sorted(index.get(posting_key(row['jobLink'], c),set()))
                 if application_id:

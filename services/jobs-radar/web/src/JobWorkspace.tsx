@@ -1,9 +1,6 @@
 import { type ComponentType } from "react";
 import { Segment } from "@heroui-pro/react";
-import {
-  AppliedView,
-  PendingMail,
-} from "./manage/AppliedView";
+import { AppliedView } from "./manage/AppliedView";
 import { useManagement } from "./manage/store";
 import { ApplicationTotals } from "./ApplicationTotals";
 export type JobKind = "newgrad" | "internship";
@@ -46,16 +43,15 @@ export function JobWorkspace({
           <Segment.Item id="applied">已投递</Segment.Item>
           <Segment.Item id="trash">已删除</Segment.Item>
         </Segment>
-        <ApplicationTotals />
+        <ApplicationTotals key={kind} kind={kind} />
       </div>
-      {view === "applied" && <PendingMail />}
       {error && (
         <p className="text-danger" role="alert">
           {error}
         </p>
       )}
       {view === "applied" ? (
-        <AppliedView />
+        <AppliedView key={kind} kind={kind} />
       ) : (
         <Board key={view} kind={kind} trash={view === "trash"} />
       )}

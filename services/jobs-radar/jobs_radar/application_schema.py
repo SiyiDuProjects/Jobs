@@ -47,5 +47,7 @@ def initialize(store):
         if not ready and (old_data(c) or c.execute('SELECT 1 FROM applications LIMIT 1').fetchone()):
             raise ValueError('Unsupported legacy application database; restore a verified current-format backup or use the archived migration release')
         create(c)
+        from .application_kind import backfill
+        backfill(c)
         if not ready:
             c.execute('INSERT INTO schema_migrations VALUES(?,?,?)', (VERSION, time.time(), json.dumps({'initialized': True})))

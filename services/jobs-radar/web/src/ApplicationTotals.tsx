@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./job-board-model";
 
-export function ApplicationTotals() {
+export function ApplicationTotals({ kind }: { kind: 'newgrad' | 'internship' }) {
   const [counts, setCounts] = useState<{ today: number; week: number }>();
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -14,7 +14,7 @@ export function ApplicationTotals() {
       today.setHours(0, 0, 0, 0);
       const week = new Date(today);
       week.setDate(week.getDate() - ((week.getDay() + 6) % 7));
-      void api(`/api/application-counts?today=${+today / 1000}&week=${+week / 1000}`, { signal: request.signal })
+      void api(`/api/application-counts?kind=${kind}&today=${+today / 1000}&week=${+week / 1000}`, { signal: request.signal })
         .then(value => { if (!request.signal.aborted) { setCounts(value); setFailed(false); } })
         .catch(() => { if (!request.signal.aborted) setFailed(true); });
     };
@@ -28,7 +28,7 @@ export function ApplicationTotals() {
       document.removeEventListener("visibilitychange", refresh);
       window.removeEventListener("jobs:applications-changed", refresh);
     };
-  }, []);
+  }, [kind]);
   return <span className="text-sm text-muted" aria-live="polite">
     {failed ? "投递数暂时不可用" : counts ? `今日已投 ${counts.today} · 本周已投 ${counts.week}` : "正在读取投递数…"}
   </span>;

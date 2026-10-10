@@ -13,7 +13,7 @@ async function fixture(route='/',authenticated=true,legacy=false,applications,se
  const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://jobs.test/'+(legacy?'manage/':'')+'#'+(route==='/'?'/applications':route),runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc});
  const w=dom.window;w.structuredClone=structuredClone;w.TextEncoder=TextEncoder;w.AbortSignal=AbortSignal;w.CSS={supports:()=>false,escape:v=>String(v).replace(/[^a-zA-Z0-9_-]/g,c=>'\\'+c)};w.matchMedia=()=>({matches:false,addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}});w.ResizeObserver=class{observe(){}unobserve(){}disconnect(){}};w.IntersectionObserver=class{observe(){}unobserve(){}disconnect(){}};w.HTMLElement.prototype.scrollIntoView=()=>{};w.HTMLElement.prototype.scrollTo=()=>{};w.Element.prototype.getAnimations=()=>[];
  w.eval(modelBundle+';globalThis.model=model;');const records={};for(const [id,name]of [[ng,'Newgrad'],[intern,'Intern']]){const profile=structuredClone(w.model.defaultProfile);profile.profileName=name;profile.nameData.firstName=name;profile.nameData.lastName='Demo';records[id]={id,profile,last_sync:'v1'};}
- let docs={appliedList:{revision:1,value:[{id:'application-1',version:1,jobTitle:'Software Intern',jobLink:'https://jobs.example/1',companyName:'Example',companyLink:'',date:new Date().toISOString(),status:'applied',profileName:'Intern'}]},['jobsResponses:'+ng]:{revision:1,value:[{key:'source',keywords:['source'],response:'NEWGRAD_RESPONSE',appearances:1,fromAutofill:true}]},['jobsResponses:'+intern]:{revision:1,value:[{key:'source',keywords:['source'],response:'INTERN_RESPONSE',appearances:1,fromAutofill:true}]}};
+ let docs={appliedList:{revision:1,value:[{id:'application-1',version:1,kind:'newgrad',jobTitle:'Software Intern',jobLink:'https://jobs.example/1',companyName:'Example',companyLink:'',date:new Date().toISOString(),status:'applied',profileName:'Intern'}]},['jobsResponses:'+ng]:{revision:1,value:[{key:'source',keywords:['source'],response:'NEWGRAD_RESPONSE',appearances:1,fromAutofill:true}]},['jobsResponses:'+intern]:{revision:1,value:[{key:'source',keywords:['source'],response:'INTERN_RESPONSE',appearances:1,fromAutofill:true}]}};
  if(applications)docs.appliedList.value=applications;
  if(settings)docs.settings={revision:1,value:structuredClone(settings)};
  let failProfile=false;
@@ -42,7 +42,40 @@ async function until(predicate){for(let i=0;i<60;i++){if(predicate())return;awai
 
 
 test('legacy profile route opens the same document without exposing old responses',async()=>{const h=await fixture('/profile',true,true);try{await until(()=>h.w.document.getElementById('personal'));assert.equal(h.w.location.pathname,'/');assert.equal(h.w.location.hash,'#/profile');assert.equal(h.w.document.querySelectorAll('header').length,1);assert(!h.w.document.body.textContent.includes('NEWGRAD_RESPONSE'));assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
-test('single navigation includes all three job views and retains external applications across kinds',async()=>{const h=await fixture();try{const root=h.w.document.getElementById('root');await until(()=>h.w.document.body.textContent.includes('Software Intern'));assert.match(h.w.document.body.textContent,/外部投递/);assert.match(h.w.document.body.textContent,/今日已投 1/);await click(h,'实习');assert.match(h.w.document.body.textContent,/Software Intern/);await click(h,'岗位');await until(()=>h.w.document.body.textContent.includes('当前筛选下没有岗位'));await click(h,'已删除');await until(()=>h.requests.some(r=>r.url.includes('view=trash')));await click(h,'资料');await until(()=>h.w.document.getElementById('personal'));assert.equal(h.w.document.getElementById('root'),root);assert.equal(h.requests.filter(r=>r.url==='/api/session').length,1);assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
+test('one employment switch scopes rows, flow, export, counts and trash independently of Profiles',async()=>{
+ const base={version:1,jobLink:'https://jobs.example/role',companyName:'Example',companyLink:'',date:new Date().toISOString(),status:'applied',profileName:'Shared Profile'};
+ const rows=[{...base,id:'fulltime',kind:'newgrad',jobTitle:'Fulltime engineer'}, {...base,id:'internship',kind:'internship',jobTitle:'Intern engineer'}, {...base,id:'fulltime-other-profile',kind:'newgrad',jobTitle:'Another fulltime',profileName:'Other Profile'}];
+ const h=await fixture('/',true,false,rows);
+ try {
+  await until(()=>h.w.document.body.textContent.includes('Fulltime engineer'));
+  assert(h.w.document.body.textContent.includes('Another fulltime'));
+  assert(!h.w.document.body.textContent.includes('Intern engineer'));
+  assert(h.w.document.body.textContent.includes('共 2 条'));
+  assert(!h.w.document.body.textContent.includes('待核对邮件'));
+  await click(h,'实习');
+  await until(()=>h.w.document.body.textContent.includes('Intern engineer'));
+  assert(!h.w.document.body.textContent.includes('Fulltime engineer'));
+  assert(!h.w.document.body.textContent.includes('Another fulltime'));
+  assert(h.w.document.body.textContent.includes('共 1 条'));
+  assert(h.requests.some(r=>r.url.startsWith('/api/application-counts?kind=internship&')));
+  let exported;
+  h.w.URL.createObjectURL=blob=>{exported=blob;return 'blob:test';};h.w.URL.revokeObjectURL=()=>{};
+  h.w.HTMLAnchorElement.prototype.click=function(){};
+  await click(h,'导出 CSV');
+  const csv=await new Promise(resolve=>{const reader=new h.w.FileReader();reader.onload=()=>resolve(reader.result);reader.readAsText(exported);});
+  assert.match(csv,/Intern engineer/);assert.doesNotMatch(csv,/Fulltime engineer|Another fulltime/);
+  await click(h,'手动补录');fill(h,'岗位名称','New internship');await tick();await click(h,'添加');
+  await until(()=>h.docs.appliedList.value.some(r=>r.jobTitle==='New internship'));
+  assert.equal(h.docs.appliedList.value.find(r=>r.jobTitle==='New internship').kind,'internship');
+  await click(h,'岗位');await until(()=>h.requests.some(r=>r.url.startsWith('/api/jobs?')&&r.url.includes('kind=internship')));
+  await click(h,'已删除');await until(()=>h.requests.some(r=>r.url.includes('view=trash')&&r.url.includes('kind=internship')));
+  await click(h,'全职');await until(()=>h.requests.some(r=>r.url.includes('view=trash')&&r.url.includes('kind=newgrad')));
+  await click(h,'已投递');await until(()=>h.w.document.body.textContent.includes('Fulltime engineer'));
+  assert(!h.w.document.body.textContent.includes('Intern engineer'));
+  assert.equal(h.requests.filter(r=>r.url==='/api/session').length,1);
+  assert.deepEqual(h.errors,[]);
+ } finally {h.dom.window.close();}
+});
 test('create profile preserves the existing profile',async()=>{const h=await fixture('/profile/new');try{const before=structuredClone(h.records[ng]);fill(h,'名','New');fill(h,'姓','Person');fill(h,'资料名称','Another');await tick();await click(h,'创建资料');await until(()=>Object.keys(h.records).length===3);assert.deepEqual(h.records[ng],before);assert(Object.values(h.records).some(r=>r.profile.profileName==='Another'));assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
 test('settings keep only three behavior switches and preserve old private configuration',async()=>{const settings={autofillSettings:{autoSubmit:false},premiumSettings:{responseContext:'Unmigrated synthetic context'}};const h=await fixture('/settings',true,false,undefined,settings);try{await until(()=>h.w.document.querySelectorAll('[role="switch"]').length===3);h.w.document.querySelector('[role="switch"]').click();await until(()=>h.docs.settings.value.autofillSettings.autoClickNextPage===true);assert.equal(h.docs.settings.value.autofillSettings.autoSubmit,false);assert.equal(h.docs.settings.value.autofillSettings.saveApplications,true);assert.equal(h.docs.settings.value.autofillSettings.saveResponses,true);assert.equal(h.docs.settings.value.premiumSettings.responseContext,settings.premiumSettings.responseContext);assert.doesNotMatch(h.w.document.body.textContent,/Daily|Configuration|AI 回答/);assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
 test('unauthenticated page never reads private documents',async()=>{const h=await fixture('/',false);try{assert.equal(h.requests.length,1);assert.match(h.w.document.body.textContent,/有服务器访问权限的助手/);}finally{h.dom.window.close();}});

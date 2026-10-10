@@ -15,19 +15,20 @@ import { Choice, Dialog, Field } from "./components";
 
 export function ApplicationEditor({
   row,
-  all,
+  kind,
   profiles,
   profileId,
   onClose,
 }: {
   row?: AppRow;
-  all: Application[];
+  kind: 'newgrad' | 'internship';
   profiles: { id: string; profileName: string }[];
   profileId?: string;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(
       row || {
+        kind,
         jobTitle: "",
         jobLink: "",
         companyName: "",
@@ -267,7 +268,7 @@ export function ProgressEditor({
       {stage === "assessment" && (
         <div className="space-y-2">
           <Choice
-            label="OA 发放方式"
+            label="测评邀请"
             value={assessmentType}
             onChange={setAssessmentType}
             options={{
@@ -277,7 +278,7 @@ export function ProgressEditor({
             }}
           />
           <p className="text-sm text-muted">
-            只有确认经过筛选的 OA 才计入有效推进。完成情况写在备注即可。
+            在线笔试、游戏和录播题统一记为在线测评；自动发放不计入有效推进。HR 沟通记为 HR 面试，其他面试按轮次记录。
           </p>
         </div>
       )}
@@ -303,7 +304,7 @@ export function ProgressEditor({
         {[...history].reverse().map((event, i) => (
           <div key={i} className="border-b border-separator py-2 text-sm">
             <p>
-              {event.from_label || event.from} → {event.to_label || event.to}
+              {chineseProgress(event.from_label || event.from)} → {chineseProgress(event.to_label || event.to)}
               {!event.applied ? "（仅保留记录，未改变当前状态）" : ""}
             </p>
             <p className="text-muted">

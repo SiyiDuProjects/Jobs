@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from .job_match import job_key, posting_key, job_index
 from .verified_postings import canonical_key, equivalent_keys
 from .profiles import ProfileConflict
+from .application_kind import resolve as application_kind, KINDS
 
 STATUSES = {'applied','assessment','phone_screen','screen','interview','offer','accepted','rejected','withdrawn','offer_declined','archived'}
 FIELDS = ('jobTitle','jobLink','companyName','companyLink','date','status','profileName')
@@ -65,6 +66,7 @@ def read(c):
     rows=[]
     for app in c.execute('SELECT * FROM applications WHERE record IS NOT NULL AND deleted=0 ORDER BY updated DESC,job_id'):
         item = record(app)
+        item['kind'] = application_kind(c, app['job_id'], item)
         observation = c.execute('SELECT payload FROM observations WHERE job_id=? ORDER BY present DESC,last_seen DESC LIMIT 1',(app['job_id'],)).fetchone()
         item['job'] = None
         if observation:
@@ -74,13 +76,21 @@ def read(c):
     return rows
 
 
-def counts(store, today, week):
+def counts(store, today, week, kind=None):
     """Browser-local day/week boundaries; return counts without record payloads."""
     import math
     now = time.time()
     if not all(math.isfinite(v) for v in (today,week)) or not 0 <= week <= today <= now or today-week > 7*86400:
         raise ValueError('Invalid application count window')
+    if kind is not None and kind not in KINDS:
+        raise ValueError('Invalid application kind')
     with store.connect() as c:
+        if kind is not None:
+            rows = c.execute('''SELECT job_id,record,unixepoch(json_extract(record,'$.date')) AS applied_at
+                FROM applications WHERE record IS NOT NULL AND deleted=0
+                AND unixepoch(json_extract(record,'$.date')) BETWEEN ? AND ?''', (week, now)).fetchall()
+            selected = [r for r in rows if application_kind(c, r['job_id'], json.loads(r['record'])) == kind]
+            return {'today': sum(r['applied_at'] >= today for r in selected), 'week': len(selected)}
         row=c.execute('''SELECT coalesce(sum(unixepoch(json_extract(record,'$.date'))>=?),0),count(*)
             FROM applications WHERE record IS NOT NULL AND deleted=0
             AND unixepoch(json_extract(record,'$.date'))>=?
@@ -114,7 +124,9 @@ def validate(row):
             valid = False
         if not valid:
             raise ValueError('Invalid company URL')
-    return {k:row[k] for k in FIELDS}
+    if 'kind' in row and row['kind'] not in KINDS:
+        raise ValueError('Invalid application kind')
+    return {**{k:row[k] for k in FIELDS}, **({'kind': row['kind']} if 'kind' in row else {})}
 
 
 def seed_progress(aid, stage='applied', source='owner'):
@@ -188,6 +200,11 @@ def upsert(c,row,*,migration=False,submission_status=None,receipt_proof=None):
         old=json.loads(current['record'])
         for field in FIELDS:
             if not value[field]:value[field]=old.get(field,'')
+    old_kind = json.loads(current['record']).get('kind') if current and current['record'] else None
+    if old_kind in KINDS:
+        value['kind'] = old_kind
+    else:
+        value['kind'] = application_kind(c, jid, value, legacy=migration)
     progress=(current['progress'] if current else None) or json.dumps(seed_progress(aid,value['status'],'migration' if migration else 'owner'))
     status=submission_status or (current['status'] if current and current['status']!='not_started' else 'submitted_unconfirmed')
     if current:
@@ -274,6 +291,7 @@ class ApplicationRecords:
                         value=validate(change.get('value'))
                         if posting_key(value['jobLink'], c)!=canonical_key(app['job_key'], c):raise ValueError('Posting identity cannot be changed by a metadata edit')
                         old_value=json.loads(app['record']);value['status']=old_value['status']
+                        value['kind'] = value.get('kind', application_kind(c, app['job_id'], old_value))
                         c.execute('UPDATE applications SET record=?,record_version=record_version+1,version=version+1 WHERE application_id=?',(json.dumps(value,ensure_ascii=False),aid))
                     else:
                         # Hiding a record never makes an uncertain submission retryable.

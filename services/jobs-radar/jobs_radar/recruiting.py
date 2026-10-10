@@ -49,10 +49,9 @@ class Recruiting:
             for app in c.execute("SELECT * FROM applications WHERE status IN ('submitted','submitted_unconfirmed') AND job_id NOT IN (SELECT alias_id FROM job_aliases)"):
                 progress=json.loads(app['progress']) if app['progress'] else None
                 view=job_progress(c,app['job_id'])
-                kinds={r[0] for r in c.execute("SELECT DISTINCT json_extract(payload,'$.kind') FROM observations WHERE job_id=?",(app['job_id'],))}
-                if not kinds and app['record']:
-                    kinds={{'Newgrad':'newgrad','Intern':'internship'}.get(json.loads(app['record']).get('profileName'),'unknown')}
-                rows.append(dict(job_id=app['job_id'],status=app['status'],stage=view['stage'] if view else None,kinds=next(iter(kinds)) if len(kinds)==1 else 'unknown'))
+                from .application_kind import resolve
+                kind=resolve(c, app['job_id'], json.loads(app['record']) if app['record'] else {})
+                rows.append(dict(job_id=app['job_id'],status=app['status'],stage=view['stage'] if view else None,kinds=kind))
                 if app['application_id'] in advanced_ids:advanced.add(app['job_id'])
                 if progress:assessment_types[app['job_id']]=progress.get('assessment_type','unknown')
             sync = c.execute('SELECT last_success FROM recruiting_sync WHERE mailbox=?',(authorized_mailbox(c,required=False),)).fetchone()

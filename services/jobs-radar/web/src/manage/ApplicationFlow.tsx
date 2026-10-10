@@ -50,7 +50,7 @@ export function ApplicationFlow({
           n.stage === "applications"
             ? "已投递"
             : n.stage === "no_answer"
-              ? "未进入测评或面试"
+              ? "暂无有效推进"
               : chineseProgress(n.label)
                   .replace(/面试 (\d+)/, "面试 · 第 $1 轮")
                   .replace("Rejected", "已拒绝")
@@ -120,7 +120,7 @@ export function ApplicationFlow({
       </Card.Content>
       <Card.Footer>
         <p className="text-xs text-muted">
-          未进入测评或面试包括等待回复和筛选前拒信；自动发放或尚未核实的测评也归入这一组。每条申请的当前状态见下表。
+          在线测评包含笔试、游戏和录播题；HR 面试单列，其他面试按轮次记录。自动发放或发放方式未确认的测评不计入有效推进，具体状态见下表。
         </p>
       </Card.Footer>
     </Card>
