@@ -48,6 +48,11 @@ def gold_for(records, field, context, version):
     return max(hits,key=lambda v:v[0])[1] if hits else None
 
 
+def answer_code_hash():
+    root=Path(__file__).resolve().parents[1]/'jobs_radar'
+    return hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in sorted(root.iterdir()) if p.is_file() and p.suffix in {'.py','.json'})).hexdigest()
+
+
 async def run(args):
     source=sqlite3.connect(Path(args.database).resolve().as_uri()+'?mode=ro',uri=True)
     captures={ident:name for name,ident in CAPTURES.items()}
@@ -62,8 +67,12 @@ async def run(args):
         return json.dumps([pid,version,page,field],sort_keys=True,ensure_ascii=False)
     reused={identity(r['profileId'],r['profileVersion'],r['corpusId'],r['field']):r['legacy'] for r in baseline['results']} if baseline else {}
     if baseline and not baseline.get('summary'): raise ValueError('Baseline comparison is not complete')
+    resume=json.loads(Path(args.resume).read_text()) if getattr(args,'resume',None) else None
+    if resume and (resume.get('answerCodeHash')!=answer_code_hash() or resume.get('promptHash')!=hashlib.sha256(INSTRUCTIONS.encode()).hexdigest()):
+        raise ValueError('Completed answers must match this exact engine revision')
+    completed={identity(r['profileId'],r['profileVersion'],r['corpusId'],r['field']):r for r in resume['results']} if resume else {}
     results=[];skipped=[];failures=[]; calls={'legacy':0,'simple':0}
-    report={'realProvider':True,'realATSWrite':False,'profilesModified':False,'promptVersion':PROMPT_VERSION,'promptHash':hashlib.sha256(INSTRUCTIONS.encode()).hexdigest(),'pages':len(pages),'reusedLegacy':bool(baseline),'results':results,'captureGaps':skipped,'failures':failures}
+    report={'answerCodeHash':answer_code_hash(),'resumed':bool(resume),'realProvider':True,'realATSWrite':False,'profilesModified':False,'promptVersion':PROMPT_VERSION,'promptHash':hashlib.sha256(INSTRUCTIONS.encode()).hexdigest(),'pages':len(pages),'reusedLegacy':bool(baseline),'results':results,'captureGaps':skipped,'failures':failures}
     with tempfile.TemporaryDirectory(prefix='jobs-answer-comparison-') as temp:
         engines={}
         for flow in calls:
@@ -97,15 +106,19 @@ async def run(args):
                     batch=fields[start:start+20];responses={}
                     payload=dict(profileId=pid,profileVersion=version,answerProtocol=3,fields=batch,jobUrl=url,jobCountry=context['country'],additionalContext='Captured platform: '+page['platform']+'; company context: '+page['company'],jobTitle=page.get('step',''))
                     for flow,(store,engine) in engines.items():
-                        if flow=='legacy' and baseline:
-                            responses[flow]={f['fieldId']:reused[identity(pid,version,ident,f)] for f in batch}
-                            continue
+                        responses[flow]={}
+                        for f in batch:
+                            key=identity(pid,version,ident,f)
+                            if key in completed: responses[flow][f['fieldId']]=completed[key][flow]
+                            elif flow=='legacy' and key in reused: responses[flow][f['fieldId']]=reused[key]
+                        pending=[f for f in batch if f['fieldId'] not in responses[flow]]
+                        if not pending: continue
                         # Isolated evaluation budget, never the live service rate counter.
                         with store.connect(True) as c:
                             if c.execute("SELECT 1 FROM sqlite_master WHERE name='answer_requests'").fetchone(): c.execute('DELETE FROM answer_requests')
                         try:
-                            response=await engine.generate(payload)
-                            responses[flow]={r['fieldId']:r for r in response['answers']}
+                            response=await engine.generate({**payload,'fields':pending})
+                            responses[flow].update({r['fieldId']:r for r in response['answers']})
                             calls[flow]+=response['answerUsage']['modelCalls']
                         except Exception as error:
                             failures.append({'page':ident,'flow':flow,'errorType':type(error).__name__})
@@ -137,5 +150,5 @@ async def run(args):
     print(json.dumps(report['summary']),flush=True)
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--database',required=True);p.add_argument('--output',required=True);p.add_argument('--live',action='store_true',required=True);p.add_argument('--reported-only',action='store_true');p.add_argument('--reuse-legacy',help='Reuse a completed baseline against exactly the same snapshot')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--database',required=True);p.add_argument('--output',required=True);p.add_argument('--live',action='store_true',required=True);p.add_argument('--reported-only',action='store_true');p.add_argument('--reuse-legacy',help='Reuse a completed baseline against exactly the same snapshot');p.add_argument('--resume',help='Reuse completed fields from the exact engine revision')
     asyncio.run(run(p.parse_args()))

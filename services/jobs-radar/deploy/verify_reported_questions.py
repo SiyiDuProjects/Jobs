@@ -62,6 +62,7 @@ def as_field(raw):
     if not f['options']:
         observation=next((v for v in reversed(raw.get('observations',[])) if not v.get('query')),None)
         if observation: f['options']=[{'value':'recorded-'+str(i),'label':v} for i,v in enumerate(observation['options'])]
+    if f['type']=='search-choice': f['options']=[]
     if f['type']=='combobox' and not f['options'] and any(v.get('query') for v in raw.get('observations',[])): f['type']='search-choice'
     return f
 

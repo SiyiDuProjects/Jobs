@@ -130,3 +130,13 @@ def test_unknown_identity_does_not_flag_explicit_empty_employment_history():
     assert invariants('fixture','unknown',field,row,{'jobData':[]})==[]
     row['route']='us_work_eligible'
     assert invariants('fixture','unknown',field,row)[0]['rule']=='unknown_fact_answered'
+
+
+def test_recorded_search_options_do_not_become_choice_ids_in_model_request():
+    from deploy.verify_reported_questions import as_field
+    from jobs_radar.field_answers import fields_input
+    raw=page()['fields'][0] | {'type':'search-choice','question':'School'}
+    assert as_field(raw)['options']==[]
+    assert fields_input({'fields':[as_field(raw)]})['fields'][0]['type']=='search-choice'
+    raw['type']='combobox';raw['options']=[]
+    with pytest.raises(ValueError): fields_input({'fields':[as_field(raw)]})
