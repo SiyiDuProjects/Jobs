@@ -47,8 +47,8 @@ def export(store, output):
 def identities():
     for identity, employment, application in [
         ('citizen', dict(eligibilityUS=True, sponsorship=False, citizenships=['United States']), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='US citizen')),
-        ('opt', dict(eligibilityUS=True, sponsorship=True, citizenships=['Example country']), dict(sponsorshipNow=False, sponsorshipFuture=True, visaStatus='F-1 OPT')),
-        ('resident', dict(eligibilityUS=True, sponsorship=False, citizenships=['Example country']), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='Green card')),
+        ('opt', dict(eligibilityUS=True, sponsorship=True, citizenships=['Canada']), dict(sponsorshipNow=False, sponsorshipFuture=True, visaStatus='F-1 OPT')),
+        ('resident', dict(eligibilityUS=True, sponsorship=False, citizenships=['Canada']), dict(sponsorshipNow=False, sponsorshipFuture=False, visaStatus='Green card')),
         ('unknown', {}, {}),
     ]:
         yield identity, dict(profileName='Synthetic ' + identity, nameData={}, addressData={}, contactData={}, jobData=[],
@@ -64,7 +64,8 @@ def invariants(key, identity, field, row, profile=None):
         values = value if isinstance(value, list) else [value]
         if any(not isinstance(v, str) or v not in allowed for v in values):
             failures.append('option_not_offered')
-    if identity == 'unknown' and value is not None and decision == 'write':
+    # Empty employment history is an explicit negative under the owner's rule.
+    if identity == 'unknown' and value is not None and decision == 'write' and row.get('route') != 'previous_employer':
         failures.append('unknown_fact_answered')
     # All baseline identities have no exact dates.
     if value is not None and field['type'] == 'date':

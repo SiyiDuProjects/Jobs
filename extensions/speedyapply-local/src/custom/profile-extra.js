@@ -1,3 +1,4 @@
+import { JobsProfileContract } from "./profile-contract.js";
 // Canonical new Profile facts shared by all ATS adapters. Defaults remain after
 // same-question person answers in the server evaluator, never ahead of them.
 export function extraProfileAnswer(question, profile, context = {}) {
@@ -45,15 +46,33 @@ export function extraProfileAnswer(question, profile, context = {}) {
   if (
     /^are you (?:a (?:u\.?s\.?|united states)|an american) citizen$/.test(label)
   ) {
-    const countries = (emp.citizenships || []).map((v) => v.toLowerCase());
+    const country = (value) => {
+      const key = value.trim().toLowerCase();
+      return (
+        {
+          美国: "united states",
+          美國: "united states",
+          us: "united states",
+          usa: "united states",
+          "u.s.": "united states",
+          "united states of america": "united states",
+          中国: "china",
+          中國: "china",
+          cn: "china",
+          ca: "canada",
+        }[key] || key
+      );
+    };
+    const countries = (emp.citizenships || []).map(country);
+    const known = new Set(JobsProfileContract.options.countries.map(country));
     value = boolean(
       "employmentData.citizenships",
       countries.length
-        ? countries.some((v) =>
-            ["united states", "united states of america", "us", "usa"].includes(
-              v,
-            ),
-          )
+        ? countries.includes("united states")
+          ? true
+          : countries.every((v) => known.has(v))
+            ? false
+            : undefined
         : app.visaStatus === "US citizen"
           ? true
           : undefined,

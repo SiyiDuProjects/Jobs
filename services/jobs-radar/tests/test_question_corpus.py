@@ -121,3 +121,12 @@ def test_offline_baseline_never_calls_provider_or_reads_real_profiles(tmp_path, 
     assert report['syntheticFactsOnly'] and not report['live']
     assert output.stat().st_mode & 0o777 == 0o600
     with pytest.raises(ValueError): private_path(tmp_path / 'public.json')
+
+
+def test_unknown_identity_does_not_flag_explicit_empty_employment_history():
+    from deploy.question_corpus import invariants
+    field={'question':'Have you ever worked at Example?','type':'radio','options':[{'value':'no','label':'No'}]}
+    row={'value':'no','decision':'write','route':'previous_employer'}
+    assert invariants('fixture','unknown',field,row,{'jobData':[]})==[]
+    row['route']='us_work_eligible'
+    assert invariants('fixture','unknown',field,row)[0]['rule']=='unknown_fact_answered'

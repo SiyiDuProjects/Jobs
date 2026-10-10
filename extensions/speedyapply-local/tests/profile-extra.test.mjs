@@ -29,3 +29,19 @@ test("Freshteam exact-day formatting never creates day one from a month", () => 
     assert.equal(jobsFormatProfileDate(date), undefined);
   assert.equal(jobsFormatProfileDate("2027-05-26"), "05/26/2027");
 });
+
+test("citizenship aliases are recognized and unknown countries never prove No", () => {
+  for (const [citizenships, expected] of [
+    [["美国"], "Yes"],
+    [["United States of America"], "Yes"],
+    [["China"], "No"],
+    [["Unrecognized country"], null],
+  ]) {
+    assert.equal(
+      extraProfileAnswer("Are you a US citizen?", {
+        employmentData: { citizenships },
+      })?.answer ?? null,
+      expected,
+    );
+  }
+});

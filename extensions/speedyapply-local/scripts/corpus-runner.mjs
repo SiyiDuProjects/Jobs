@@ -27,7 +27,7 @@ export const syntheticProfiles = [
     employmentData: {
       eligibilityUS: true,
       sponsorship: true,
-      citizenships: ["Example country"],
+      citizenships: ["Canada"],
     },
     applicationData: {
       visaStatus: "F-1 OPT",

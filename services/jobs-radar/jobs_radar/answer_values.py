@@ -31,16 +31,18 @@ PREDICATES = {
     'unknown': (), 'draft.motivation': (), 'draft.preference': (), 'draft.experience': (),
 }
 ALIASES = {'yes':'true','no':'false','man':'male','woman':'female','non-binary':'nonbinary',
-           'prefer not to disclose':'undisclosed','prefer not to answer':'undisclosed',
+           'i choose not to disclose':'undisclosed','prefer not to disclose':'undisclosed','prefer not to answer':'undisclosed',
            'black or african american':'black','american indian or alaska native':'native_american',
            'native hawaiian or other pacific islander':'pacific_islander','two or more races':'multiracial',
            'united states of america':'united states','usa':'united states','us':'united states',
-           'u.s.':'united states','united states citizen':'us citizen','permanent resident':'green card'}
+           '美国':'united states','美國':'united states','中国':'china','中國':'china','cn':'china','can':'canada','ca':'canada','u.s.':'united states','united states citizen':'us citizen','permanent resident':'green card'}
 
 def normalized(value):
     raw = ' '.join(str(value).casefold().split())
     return ALIASES.get(raw, raw)
 
+
+COUNTRIES={normalized(v) for v in SCHEMA['x-uiOptions']['countries']} | {'united states','china','canada'}
 
 def get(profile, path):
     value = profile
@@ -97,12 +99,14 @@ def evaluate(predicate, profile, argument='', *, defaults=True):
             return 'false', [f'educationData.{i}.currentlyAttending' for i in range(len(records))]
     if predicate in {'us_citizen','citizen_of'}:
         country = 'united states' if predicate == 'us_citizen' else normalized(argument)
-        if country and citizenships: return ('true' if country in citizenships else 'false'), ['employmentData.citizenships']
+        if country in COUNTRIES and citizenships:
+            if country in citizenships: return 'true', ['employmentData.citizenships']
+            if all(v in COUNTRIES for v in citizenships): return 'false', ['employmentData.citizenships']
         if predicate == 'us_citizen' and visa == 'us citizen': return 'true', ['applicationData.visaStatus']
     if predicate in {'us_person','us_permanent_work_right'}:
         if 'united states' in citizenships or visa in {'us citizen','green card'}:
             return 'true', ['employmentData.citizenships'] if 'united states' in citizenships else ['applicationData.visaStatus']
-        if visa in {'f-1','f-1 opt','f-1 stem opt','f-1 cpt','h-1b','j-1'} and citizenships:
+        if visa in {'f-1','f-1 opt','f-1 stem opt','f-1 cpt','h-1b','j-1'} and citizenships and all(v in COUNTRIES for v in citizenships):
             return 'false', ['applicationData.visaStatus','employmentData.citizenships']
     if predicate == 'previous_employer' and argument.strip() and isinstance(profile.get('jobData'),list):
         match = any(normalized(j.get('company','')) == normalized(argument) for j in profile['jobData'])

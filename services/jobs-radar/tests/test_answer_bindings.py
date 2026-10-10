@@ -98,3 +98,9 @@ def test_latest_history_does_not_ignore_an_undated_entry():
     assert evaluate('jobData.latest.company',p) is None
     p['jobData'][0]['currentlyWorkHere']=True
     assert evaluate('jobData.latest.company',p)[0]=='Undated'
+
+
+def test_unknown_country_cannot_prove_non_citizenship():
+    assert evaluate('us_citizen',{'employmentData':{'citizenships':['Unrecognized country']}}) is None
+    assert evaluate('us_citizen',{'employmentData':{'citizenships':['美国']}})[0]=='true'
+    assert evaluate('voluntary_gender',{'employmentData':{'gender':'I choose not to disclose'}})[0]=='undisclosed'
