@@ -31,8 +31,8 @@ const labels: Record<string, string> = stageContract.flowLabels;
 const order = [
   "no_answer",
   "assessment",
-  "interview",
   "phone_screen",
+  "interview",
   "offer",
   "accepted",
   "rejected",

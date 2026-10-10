@@ -30,6 +30,7 @@ import {
   type Filters,
 } from "./job-board-model";
 export function JobsBoard({ kind, trash }: BoardProps) {
+  const scopedFilterKey = `${filterKey}:${kind}`;
   const kindRef = useRef(kind);
   kindRef.current = kind;
   const auth = true;
@@ -49,6 +50,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
       };
     try {
       const raw =
+        localStorage.getItem(scopedFilterKey) ||
         localStorage.getItem(filterKey) ||
         localStorage.getItem("radar-filters-shared-v7") ||
         localStorage.getItem("radar-filters-shared-v5") ||
@@ -136,7 +138,7 @@ export function JobsBoard({ kind, trash }: BoardProps) {
     if (auth) void load();
   }, [auth, load]);
   useEffect(() => {
-    if (!trash) localStorage.setItem(filterKey, JSON.stringify(filters));
+    if (!trash) localStorage.setItem(scopedFilterKey, JSON.stringify(filters));
   }, [filters]);
   useEffect(() => {
     const timer = setTimeout(

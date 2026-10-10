@@ -142,10 +142,10 @@ def display_fields(current, advanced):
     elif stage=='rejected' and (current.get('ended_from') or {}).get('stage')=='phone_screen':label='Screening → Rejected'
     elif current.get('ended_from'):
         before=current['ended_from'];label+=' · '+stage_label(before['stage'],before.get('round'),before.get('final'))+'后'
-    options={'applied':['assessment','interview'],'assessment':['interview'],'screen':['assessment','interview'],
+    options={'applied':['assessment','phone_screen','interview'],'assessment':['phone_screen','interview'],'screen':['assessment','phone_screen','interview'],
              'phone_screen':['interview','offer'],'interview':['next_interview','offer'],'offer':['accepted','offer_declined']}
     next_values=options.get(stage,[])+(['rejected','withdrawn'] if stage in options else [])
-    return dict(label=label,stage_label=stage_label(stage,current.get('round'),current.get('final'),current.get('assessment_type')),next_stages={key:'下一轮面试' if key=='next_interview' else LABELS[key] for key in next_values})
+    return dict(label=label,stage_label=stage_label(stage,current.get('round'),current.get('final'),current.get('assessment_type')),next_stages={key:'下一轮面试' if key=='next_interview' else LABELS.get(key,stage_label(key)) for key in next_values})
 
 
 def project_display(c, rows):

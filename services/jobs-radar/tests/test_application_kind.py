@@ -55,3 +55,15 @@ def test_new_untyped_external_application_never_uses_profile_name(tmp_path):
     row=value(0,'newgrad','Intern');row.pop('kind')
     records.mutate([dict(action='create',value=row)],'create-kind')
     assert records.list()['applications'][0]['kind']=='unknown'
+
+
+def test_conflicting_sources_keep_explicit_summer_program_in_internships(tmp_path):
+    from jobs_radar.application_kind import resolve
+    store=Store(tmp_path/'a.db')
+    one=observation(url='https://jobs.ashbyhq.com/example/summer');one['kind']='internship'
+    store.ingest('simplify:internship',[one],'one')
+    two={**one,'source':'speedyapply','source_id':'summer-two','kind':'newgrad'}
+    store.ingest('speedyapply:newgrad',[two],'two')
+    with store.connect() as c:
+        jid=c.execute('SELECT id FROM jobs LIMIT 1').fetchone()[0]
+        assert resolve(c,jid,{'jobTitle':'Quantitative Trading Summer Analyst','profileName':'Newgrad'},legacy=True)=='internship'

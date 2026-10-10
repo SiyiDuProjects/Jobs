@@ -53,7 +53,7 @@ export function JobWorkspace({
       {view === "applied" ? (
         <AppliedView key={kind} kind={kind} />
       ) : (
-        <Board key={view} kind={kind} trash={view === "trash"} />
+        <Board key={`${view}:${kind}`} kind={kind} trash={view === "trash"} />
       )}
     </div>
   );

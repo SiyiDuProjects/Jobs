@@ -6,19 +6,19 @@ KINDS = {'newgrad', 'internship', 'unknown'}
 
 
 def resolve(c, job_id, value, *, legacy=False):
-    if value.get('kind') in KINDS:
+    if value.get('kind') in {'newgrad', 'internship'}:
         return value['kind']
     kinds = {r[0] for r in c.execute("SELECT DISTINCT json_extract(payload,'$.kind') FROM observations WHERE job_id=?", (job_id,))}
     kinds = {'internship' if k == 'intern' else k for k in kinds} & {'newgrad', 'internship'}
     if len(kinds) == 1:
         return next(iter(kinds))
-    if len(kinds) > 1:
-        return 'unknown'
     title = value.get('jobTitle', '')
-    if re.search(r'\b(?:intern(?:ship)?|co[ -]?op)\b|实习', title, re.I):
+    if re.search(r'\b(?:intern(?:ship)?|co[ -]?op|summer (?:analyst|associate))\b|实习', title, re.I):
         return 'internship'
     if re.search(r'\b(?:new[ -]?(?:grad(?:uate)?|college)|recent[ -]?grad|graduate|full[ -]?time)\b|全职', title, re.I):
         return 'newgrad'
+    if len(kinds) > 1:
+        return 'unknown'
     # One-time import of the historical record snapshot, never a live Profile lookup.
     if legacy:
         return {'Newgrad': 'newgrad', 'Intern': 'internship'}.get(value.get('profileName'), 'unknown')

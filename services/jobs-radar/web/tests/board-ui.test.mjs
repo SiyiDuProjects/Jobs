@@ -96,6 +96,11 @@ test('region and employer switches have independent defaults and remember both k
   assert.equal(lastJobs(h).get('company_internship'),'1');
   await until(()=>toggle(h).length===2);
   toggle(h)[1].click();await until(()=>lastJobs(h).get('company_internship')==='');
+  assert.equal(lastJobs(h).get('company_newgrad'),'');
+  assert.equal(lastJobs(h).get('region'),'focus_remote');
+  [...h.w.document.querySelectorAll('button')].find(n=>n.textContent==='全职').click();
+  await until(()=>lastJobs(h).get('kind')==='newgrad');
+  assert.equal(lastJobs(h).get('region'),'');
   assert.equal(lastJobs(h).get('company_newgrad'),'1');
   assert(!h.w.document.body.textContent.includes('精简筛选'));
   assert.deepEqual(h.errors,[]);
