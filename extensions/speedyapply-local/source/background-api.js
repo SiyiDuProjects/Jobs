@@ -1,3 +1,4 @@
+import { ANSWER_PROTOCOL } from "../src/custom/answer-proof.js";
 import { saveResponses } from "./saved-responses.js";
 // Packaged worker protocol. Content senders may only act on their own tab.
 import { JobsTabProfiles } from "../src/custom/tab-profiles.js";
@@ -197,6 +198,8 @@ chrome.runtime.onConnect.addListener((port) => {
       const operation = await JobsAnswerContext.create(sender),
         { bound, job } = operation;
       const result = await JobsSync.generateAnswer({
+        answerProtocol: ANSWER_PROTOCOL,
+        jobUrl: job?.appUrl || operation.url || "",
         profileId: bound.id,
         profileVersion: bound.lastSync,
         prompt: String(message.prompt || "").slice(0, 4000),

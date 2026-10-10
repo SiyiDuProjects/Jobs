@@ -297,6 +297,7 @@ test("Luna worker sends the initiating tab Profile reference and version without
         assert.equal(sender.tab.id, 17);
         return {
           bound,
+          url: "https://jobs.ashbyhq.com/example/role/application",
           job: { title: "Intern", description: "Test" },
           verify: async () => {},
         };
@@ -321,6 +322,11 @@ test("Luna worker sends the initiating tab Profile reference and version without
       prompt: "Question",
       additionalContext: "Context",
     });
+    assert.equal(payloads[0].answerProtocol, 3);
+    assert.equal(
+      payloads[0].jobUrl,
+      "https://jobs.ashbyhq.com/example/role/application",
+    );
     assert.equal(payloads[0].profileId, "intern-id");
     assert.equal(payloads[0].profileVersion, bound.lastSync);
     assert.equal(payloads[0].profile, undefined);
