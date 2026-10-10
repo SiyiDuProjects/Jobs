@@ -61,6 +61,7 @@ async def run(args):
     if missing: raise ValueError('Reported captures are missing')
     profiles=list(source.execute("SELECT id,last_sync,profile FROM owner_profiles WHERE deleted=0 AND json_extract(profile,'$.profileName') IN ('Intern','Newgrad')"))
     if len(profiles)!=2: raise ValueError('Exactly the two authorized Profiles are required')
+    if getattr(args,'profile_name',None): profiles=[r for r in profiles if json.loads(r[2])['profileName']==args.profile_name]
     if args.reported_only: pages=[(ident,page) for ident,page in pages if ident in captures]
     baseline=json.loads(Path(args.reuse_legacy).read_text()) if getattr(args,'reuse_legacy',None) else None
     def identity(pid,version,page,field):
@@ -150,5 +151,5 @@ async def run(args):
     print(json.dumps(report['summary']),flush=True)
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--database',required=True);p.add_argument('--output',required=True);p.add_argument('--live',action='store_true',required=True);p.add_argument('--reported-only',action='store_true');p.add_argument('--reuse-legacy',help='Reuse a completed baseline against exactly the same snapshot');p.add_argument('--resume',help='Reuse completed fields from the exact engine revision')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--database',required=True);p.add_argument('--output',required=True);p.add_argument('--live',action='store_true',required=True);p.add_argument('--reported-only',action='store_true');p.add_argument('--profile-name',choices=['Intern','Newgrad'],help='Run one authorized Profile for independent parallel comparison');p.add_argument('--reuse-legacy',help='Reuse a completed baseline against exactly the same snapshot');p.add_argument('--resume',help='Reuse completed fields from the exact engine revision')
     asyncio.run(run(p.parse_args()))
