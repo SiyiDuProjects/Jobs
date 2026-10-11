@@ -50,7 +50,7 @@ export function ApplicationFlow({
           n.stage === "applications"
             ? "已投递"
             : n.stage === "no_answer"
-              ? "暂无有效推进"
+              ? "无回复"
               : chineseProgress(n.label)
                   .replace(/面试 (\d+)/, "面试 · 第 $1 轮")
                   .replace("Rejected", "已拒绝")
@@ -72,7 +72,7 @@ export function ApplicationFlow({
       <Card.Header>
         <Card.Title>投递进展</Card.Title>
         <Card.Description>
-          共 {rows.length} 条 · 每条申请按达到的最高阶段统计，包含外部投递。
+          共 {rows.length} 条
         </Card.Description>
       </Card.Header>
       <Card.Content>
@@ -105,7 +105,7 @@ export function ApplicationFlow({
         </div>
         <div className="flex flex-wrap gap-2" aria-label="按进展查看投递">
           {data.nodes
-            .filter((n) => n.depth <= 1)
+            .filter((n) => n.depth <= 1 || n.stage === "interview")
             .map((n) => (
               <Button
                 key={n.id}
@@ -118,11 +118,6 @@ export function ApplicationFlow({
             ))}
         </div>
       </Card.Content>
-      <Card.Footer>
-        <p className="text-xs text-muted">
-          推进统一分为在线测评、面试和 Offer；面试轮次与类型保留在详情中。被拒后仍计入曾达到的阶段。自动发放或尚未核对的测评不计入推进。
-        </p>
-      </Card.Footer>
     </Card>
   );
 }

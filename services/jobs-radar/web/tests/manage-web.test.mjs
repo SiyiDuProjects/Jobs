@@ -52,6 +52,8 @@ test('one employment switch scopes rows, flow, export, counts and trash independ
   assert(!h.w.document.body.textContent.includes('Intern engineer'));
   assert(h.w.document.body.textContent.includes('共 2 条'));
   assert(!h.w.document.body.textContent.includes('待核对邮件'));
+  assert(findButton(h,'无回复 · 2'));
+  assert(!h.w.document.body.textContent.includes('暂无有效推进'));
   await click(h,'实习');
   await until(()=>h.w.document.body.textContent.includes('Intern engineer'));
   assert(!h.w.document.body.textContent.includes('Fulltime engineer'));
@@ -83,19 +85,25 @@ test('highest-stage chart counts external and rejected applications once within 
   const stage=i<3?'interview':'assessment',rejected=i===2||i===3;
   return {...base,id:'synthetic-'+i,kind:i<6?'newgrad':'internship',jobTitle:'Role '+i,status:rejected?'rejected':stage,
    progress:{stage:rejected?'rejected':stage,highest_stage:stage,assessment_type:'owner_confirmed',ever_advanced:true,
-    chart_path:[...(i<3?[{stage:'assessment'},{stage:'interview',round:1},{stage:'interview',round:2}]:[{stage:'assessment'}]),...(rejected?[{stage:'rejected'}]:[])]}};
+    chart_path:[...(i<2?[{stage:'assessment'},{stage:'interview',round:1},{stage:'interview',round:2}]:i===2?[{stage:'interview'}]:[{stage:'assessment'}]),...(rejected?[{stage:'rejected'}]:[])]}};
  });
  const h=await fixture('/',true,false,rows);
  try {
   await until(()=>findButton(h,'在线测评 · 3'));
-  assert(findButton(h,'面试 · 3'));
+  assert(findButton(h,'面试 · 第 1 轮 · 2'));
+  assert(findButton(h,'面试 · 第 2 轮 · 2'));
+  assert(findButton(h,'面试 · 1'));
   assert(h.w.document.body.textContent.includes('共 6 条'));
+  await click(h,'面试 · 第 2 轮 · 2');
+  assert(h.w.document.body.textContent.includes('Role 0'));
+  assert(h.w.document.body.textContent.includes('Role 1'));
+  assert(!h.w.document.body.textContent.includes('Role 2'));
   await click(h,'在线测评 · 3');
   assert(h.w.document.body.textContent.includes('Role 3'));
   assert(!h.w.document.body.textContent.includes('Role 0'));
   await click(h,'实习');
   await until(()=>findButton(h,'在线测评 · 5'));
-  assert(!findButton(h,'面试 · 3'));
+  assert(!findButton(h,'面试 · 第 2 轮 · 2'));
   assert(h.w.document.body.textContent.includes('共 5 条'));
   assert.deepEqual(h.errors,[]);
  } finally {h.dom.window.close();}

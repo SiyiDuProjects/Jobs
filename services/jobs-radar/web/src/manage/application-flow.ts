@@ -83,7 +83,11 @@ export function applicationFlow(rows: Application[]) {
         ["phone_screen", "interview"].some((stage) => stages.has(stage)) ? "interview" :
           stages.has("assessment") ? "assessment" : "no_answer");
     const outcome = p?.stage || row.status;
-    const steps: { stage: string; round?: number | null; final?: boolean }[] = [{ stage: highest }];
+    const interviews = path.filter((step) => step.stage === "interview");
+    const steps: { stage: string; round?: number | null; final?: boolean }[] =
+      highest === "interview" && interviews.length
+        ? [...interviews]
+        : [{ stage: highest }];
     if (highest !== "no_answer" && ["rejected", "withdrawn", "archived", "accepted", "offer_declined"].includes(outcome))
       steps.push({ stage: outcome });
     steps.forEach((step, index) => {

@@ -14,18 +14,30 @@ test('flow conserves counts and keeps rejection under highest interview stage',(
  assert.equal(graph.links.filter(l=>l.source===root).reduce((sum,l)=>sum+l.target.count,0),373);
  const reject=graph.nodes.find(n=>n.stage==='rejected');
  assert.equal(graph.nodes.find(n=>n.id===reject.parent).label,'Interview');
- assert.equal(graph.nodes.find(n=>n.stage==='interview').count,2);
+ assert.equal(graph.nodes.filter(n=>n.stage==='interview'&&n.depth===1).reduce((sum,n)=>sum+n.count,0),2);
  assert.deepEqual(reject.ids,['aven']);
  assert.equal(graph.nodes.find(n=>n.stage==='interview').parent,'applications');
  for(const node of graph.nodes)assert(node.y>=0&&node.height>0&&Number.isFinite(node.x));
  for(const link of graph.links)assert(!/NaN|Infinity/.test(link.path));
 });
-test('each application counts only at its highest stage, independent of rounds',()=>{
- const graph=applicationFlow([row('a',[{stage:'assessment'},{stage:'interview',round:1},{stage:'interview',round:2}]),row('b',[{stage:'assessment'}])]);
+test('both second-round applications retain their interview paths without also counting as OA',()=>{
+ const graph=applicationFlow([row('a',[{stage:'assessment'},{stage:'interview',round:1},{stage:'interview',round:2}]),row('b',[{stage:'interview',round:1},{stage:'interview',round:2}]),row('c',[{stage:'assessment'}])]);
  assert.equal(graph.nodes.find(n=>n.stage==='assessment').count,1);
- assert.equal(graph.nodes.find(n=>n.stage==='interview').count,1);
- assert.equal(graph.nodes.filter(n=>n.stage==='interview').length,1);
+ const first=graph.nodes.find(n=>n.label==='Interview 1'),second=graph.nodes.find(n=>n.label==='Interview 2');
+ assert.equal(first.count,2);
+ assert.equal(second.count,2);
+ assert.deepEqual(second.ids,['a','b']);
+ assert.equal(second.parent,first.id);
+ assert.equal(graph.links.filter(l=>l.source.parent===null).reduce((sum,l)=>sum+l.target.count,0),3);
  assert.deepEqual(applicationFlow([]).nodes,[]);
+});
+test('unknown rounds stay unspecified and direct second-round evidence does not invent a first round',()=>{
+ const graph=applicationFlow([row('unknown',[{stage:'phone_screen'},{stage:'interview'},{stage:'rejected'}]),row('second',[{stage:'interview',round:2}])]);
+ assert.deepEqual(graph.nodes.find(n=>n.label==='Interview').ids,['unknown']);
+ assert.deepEqual(graph.nodes.find(n=>n.label==='Interview 2').ids,['second']);
+ assert.equal(graph.nodes.some(n=>n.label==='Interview 1'),false);
+ const rejection=graph.nodes.find(n=>n.stage==='rejected');
+ assert.equal(graph.nodes.find(n=>n.id===rejection.parent).label,'Interview');
 });
 test('offer and rejected OA retain their highest stage without invented intermediate stages',()=>{
  const graph=applicationFlow([row('offer',[{stage:'assessment'},{stage:'interview',round:2},{stage:'offer'},{stage:'offer_declined'}]),row('rejected-oa',[{stage:'assessment'},{stage:'rejected'}])]);
