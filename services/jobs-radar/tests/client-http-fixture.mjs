@@ -29,9 +29,10 @@ const fetch=async(url,options={})=>{
 const storage={jobsSyncV1:{deviceId:input.device_id,token:input.receipt_token,profileToken:input.profile_token,outbox:[]}};
 const session={};
 const area=data=>({get:async()=>structuredClone(data),set:async values=>Object.assign(data,structuredClone(values))});
+const listeners=[];
 const context=vm.createContext({URL,TextEncoder,Uint8Array,AbortSignal,crypto:webcrypto,Date,fetch,console,setTimeout,clearTimeout,
- chrome:{runtime:{id:'ccohapahbamkcbgkpegidkpknoeikiko',onMessage:{addListener(){}},onInstalled:{addListener(){}},onStartup:{addListener(){}}},
- storage:{local:area(storage),session:area(session)},tabs:{query:async()=>[],sendMessage:async()=>({})},alarms:{create(){},onAlarm:{addListener(){}}}}});
+ chrome:{runtime:{id:'ccohapahbamkcbgkpegidkpknoeikiko',onMessage:{addListener(fn){listeners.push(fn)}},onInstalled:{addListener(){}},onStartup:{addListener(){}}},
+ storage:{local:area(storage),session:area(session)},tabs:{query:async()=>[],get:async()=>({id:1,url:input.job_url}),sendMessage:async()=>({active:true,url:input.job_url})},alarms:{create(){},onAlarm:{addListener(){}}}}});
 for(const name of ['brand','job-match-rules','job-match','public-job-url','sync'])vm.runInContext(await readModule(new URL(name+'.js',custom),'utf8'),context);
 if(input.title_only){
  scenario='job-title';
@@ -47,10 +48,21 @@ for(const proof of ['submit_attempt','submit_validation_error','ats_confirmation
 }
 scenario='answer-text';
 await context.JobsSync.generateAnswer({profileId:input.profile_id,profileVersion:input.profile_version,prompt:'Why this team?',additionalContext:'Synthetic test only',jobTitle:'Fixture Engineer',jobDescription:'Fixture role'});
-scenario='answer-fields';
+scenario='answer-fields-legacy';
 await context.JobsSync.generateAnswer({profileId:input.profile_id,profileVersion:input.profile_version,
  fields:[{fieldId:'motivation',question:'Why this team?',type:'textarea',required:true,options:[]}],
  formContext:[{question:'First name',answer:'Fixture'}],jobTitle:'Fixture Engineer',jobDescription:'Fixture role'});
+// Capture the runtime caller too: transport-only fixtures cannot detect a new
+// envelope field added by automatic-background but omitted by the HTTP schema.
+context.JobsTabProfiles={verify:async()=>({id:input.profile_id,lastSync:input.profile_version,profile:{profileName:'Fixture'}})};
+context.JobsProfileAnswers={signature:()=> 'fixture-profile',today:()=> '2030-01-01'};
+vm.runInContext(await readModule(new URL('automatic-background.js',custom),'utf8'),context);
+scenario='answer-fields';
+const reply=await new Promise(resolve=>listeners.at(-1)(
+ {type:'jobs:auto-answers',profileStamp:'fixture-profile',fields:[{fieldId:'motivation',question:'Why this team?',type:'textarea',required:true,options:[]}],
+  formContext:[{question:'First name',answer:'Fixture'}],jobTitle:'Fixture Engineer'},
+ {id:context.chrome.runtime.id,tab:{id:1,url:input.job_url},url:input.job_url,frameId:0,documentId:'fixture-document'},resolve));
+if(reply.error)throw Error(reply.error);
 
 const bundle=(await build({entryPoints:[fileURLToPath(new URL('../web/src/manage/store.ts',import.meta.url))],bundle:true,write:false,format:'iife',globalName:'WebsiteStore',platform:'browser',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
 const web=vm.createContext({fetch,AbortSignal,crypto:webcrypto,structuredClone,setTimeout,clearTimeout,setInterval,clearInterval,console});

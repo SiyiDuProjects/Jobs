@@ -69,6 +69,7 @@ class AnswerJobRequest(RequestModel):
     requestId: str
     profileId: str
     profileVersion: str
+    answerProtocol: Literal[3] | None = None
     prompt: str | None = None
     fields: list[dict[str, Any]] | None = None
     formContext: list[dict[str, str]] | None = None

@@ -128,8 +128,10 @@ def test_later_receipt_cannot_restore_undo_permission_after_an_owner_edit(client
     assert dump(store) == before
 
 
-def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, monkeypatch):
+@pytest.mark.parametrize('flow', ['legacy', 'simple'])
+def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, monkeypatch, flow):
     store, client, _, rows = clients
+    monkeypatch.setenv('JOBS_ANSWER_FLOW', flow)
     calls = []
     class Provider:
         async def post(self, url, json):
@@ -139,7 +141,8 @@ def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, 
                 'mappings':[{'fieldId':f['fieldId'],'binding':{'predicate':'draft.motivation','options':[],'argument':'','polarity':True}} for f in data['fields']],
                 'answers':[{'fieldId':f['fieldId'],'state':'answer','value':'I enjoy building reliable services.',
                             'basis':'suggestion','intent':'motivation','evidencePaths':[],'noteQuote':'','savedResponse':'','defaultCategory':'',
-                            'questionZh':'为什么对这个机会感兴趣？','answerZh':'我喜欢构建可靠的服务。','reason':'开放式动机草稿。','optionLabelsZh':[]} for f in data['fields']]}
+                            'questionZh':'为什么对这个机会感兴趣？','answerZh':'我喜欢构建可靠的服务。','reason':'开放式动机草稿。','optionLabelsZh':[],
+                            'kind':'draft','reasonZh':'开放式动机草稿。','jobSpecific':True,'signingDate':False} for f in data['fields']]}
             class Response:
                 status_code = 200
                 def json(self):
@@ -149,7 +152,9 @@ def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, 
     async def local_provider(self, payload):
         return await generate(self, payload, client=Provider())
     monkeypatch.setattr(Answers, 'generate', local_provider)
-    for name in ['answer-text', 'answer-fields']:
+    assert rows['answer-fields']['body']['answerProtocol'] == 3
+    assert 'answerProtocol' not in rows['answer-fields-legacy']['body']
+    for name in ['answer-text', 'answer-fields-legacy', 'answer-fields']:
         response = request(client, rows[name])
         assert response.status_code == 202, response.text
         request_id = rows[name]['body']['requestId']
@@ -159,11 +164,31 @@ def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, 
                 break
             time.sleep(.01)
         assert status['state'] == 'completed', status
-    assert len(calls) == 2
+        if name == 'answer-fields':
+            result = status['result']
+            assert result['flow'] == flow
+            row = result['answers'][0]
+            assert row['kind'] == 'draft', row
+            assert row['value'] == 'I enjoy building reliable services.'
+            assert row['reasonZh'] and row['questionZh']
+            assert row['binding']['profileId'] == rows[name]['body']['profileId']
+        elif name == 'answer-fields-legacy':
+            assert 'kind' not in status['result']['answers'][0]
+    assert len(calls) == 3
     assert 'profile' in calls[0] and 'profile' in calls[1]
     assert calls[1]['profile']['profileName'] == 'Fixture'
     assert calls[1]['fields'][0]['fieldId'] == 'motivation'
     assert 'formContext' not in calls[1], 'existing form values are not personal evidence'
+
+
+@pytest.mark.parametrize('protocol', [2, 4, '3', True])
+def test_unsupported_answer_protocol_never_starts_work(clients, protocol):
+    store, client, _, rows = clients
+    row = copy.deepcopy(rows['answer-fields'])
+    row['body']['answerProtocol'] = protocol
+    before = dump(store)
+    assert request(client, row).status_code == 400
+    assert dump(store) == before
 
 
 
