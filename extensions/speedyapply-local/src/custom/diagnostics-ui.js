@@ -1,5 +1,7 @@
+import { mountDiagnosticsView } from "./diagnostics-view.jsx";
 import { historyEventMetrics } from "./history-event-metrics.js";
 
+mountDiagnosticsView();
 const $ = (id) => document.getElementById(id);
 const select = (id) => /** @type {HTMLSelectElement} */ ($(id));
 let current;
@@ -27,10 +29,11 @@ function render(row) {
   const report = row?.report;
   if (!report) return;
   $("overview").textContent =
-    `${report.pageUrl}\nProfile：${report.profileName || "尚未读取"} · ${report.ats} · ${report.version}\n观察时间：${new Date(report.observedAt).toLocaleString()} · 阶段：${report.phase}\n控件 ${report.counts.controls} · 空白 ${report.counts.empty} · 校验错误 ${report.counts.invalid}\n复用已有控件读取器：${report.coverage.scope}，不是完整检测。其他 frame ${report.coverage.iframeCount}，可能仍有未识别控件；敏感字段不记录。${report.coverage.scanLimited ? "扫描已达上限。" : ""}${report.droppedEvents ? "较早事件已裁剪。" : ""}`;
+    `${report.pageUrl}\n资料：${report.profileName || "尚未读取"} · ${report.ats} · ${report.version}\n观察时间：${new Date(report.observedAt).toLocaleString()} · 阶段：${report.phase}\n控件 ${report.counts.controls} · 空白 ${report.counts.empty} · 校验错误 ${report.counts.invalid}\n复用已有控件读取器：${report.coverage.scope}，不是完整检测。其他 frame ${report.coverage.iframeCount}，可能仍有未识别控件；敏感字段不记录。${report.coverage.scanLimited ? "扫描已达上限。" : ""}${report.droppedEvents ? "较早事件已裁剪。" : ""}`;
   $("fields").replaceChildren(
     ...report.fields.map((field) => {
       const tr = document.createElement("tr");
+      tr.className = "table__row";
       for (const value of [
         field.id,
         field.question + (field.required ? " *" : ""),
@@ -40,6 +43,7 @@ function render(row) {
         `${field.attempts} / ${field.observedEvents.join(", ")}`,
       ]) {
         const td = document.createElement("td");
+        td.className = "table__cell";
         td.textContent = value;
         tr.append(td);
       }
@@ -86,7 +90,7 @@ async function load() {
       .map((row) => {
         const option = document.createElement("option");
         option.value = row.id;
-        option.textContent = `标签 ${row.tabId} / frame ${row.frameId} · ${row.profileName || "Profile 未知"} · ${row.pageUrl}`;
+        option.textContent = `标签 ${row.tabId} / frame ${row.frameId} · ${row.profileName || "资料未知"} · ${row.pageUrl}`;
         return option;
       }),
   );
@@ -116,7 +120,7 @@ async function load() {
     );
   else {
     $("message").textContent =
-      "还没有记录。重新加载 local.14 扩展后，新打开或刷新申请页，让原插件开始识别页面。";
+      "还没有记录。重新加载 local.14 扩展后，新打开或刷新投递页，让原插件开始识别页面。";
   }
 }
 function action(fn) {
@@ -165,7 +169,7 @@ function download(value, name) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 $("capture-case").onclick = action(async () => {
-  if (!select("pages").value) throw Error("请先选择仍打开的申请页面");
+  if (!select("pages").value) throw Error("请先选择仍打开的投递页面");
   const result = await request("jobs:diagnostics-capture-case", {
     id: select("pages").value,
   });
@@ -191,7 +195,7 @@ $("inspect").onclick = action(async () => {
   render(
     await request("jobs:diagnostics-refresh", { id: select("pages").value }),
   );
-  $("message").textContent = "已读取，未填写或点击申请页面。";
+  $("message").textContent = "已读取，未填写或点击投递页面。";
 });
 $("export").onclick = action(async () => {
   if (!current) return;

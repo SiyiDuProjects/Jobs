@@ -41,5 +41,5 @@ test("shared branding reaches the native popup, manifest and worker without rewr
     "utf8",
   );
   assert(popupBundle.includes("jobs-profile-switch"));
-  assert(popupBundle.includes("segment__item"));
+  assert(popupBundle.includes("dropdown__menu"));
 });

@@ -224,3 +224,59 @@ select[multiple].answer-input {
   align-items: center;
   justify-content: space-between;
 }
+
+.popup {
+  max-width: 720px;
+  margin-inline: auto;
+  gap: 14px;
+  padding: 16px;
+}
+.popup-header-actions {
+  margin: 0;
+}
+.popup-brand {
+  font-size: 20px;
+  font-weight: 600;
+}
+.popup-section-heading h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.popup-section-heading .button {
+  flex-shrink: 0;
+}
+.popup-section .card {
+  box-shadow: none;
+}
+.review-card {
+  border-radius: var(--radius-2xl);
+}
+.review-card .item {
+  padding: 10px;
+  background: var(--surface-secondary);
+  border-radius: var(--radius-field);
+  height: auto;
+  white-space: normal;
+}
+.review-card .button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.review-heading .button {
+  min-height: 32px;
+}
+.editor .choice[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+@media (width < 480px) {
+  .popup {
+    padding: 12px;
+  }
+  .popup-section-heading {
+    align-items: flex-start;
+  }
+  .review-card {
+    padding: 12px;
+  }
+}

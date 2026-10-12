@@ -29,10 +29,10 @@ export function PanelProgress() {
     }
   }
   return (
-    <section className="popup-section" aria-label="投递进度">
-      <Card variant="secondary">
+    <section className="popup-section" aria-label="本页进度">
+      <Card>
         <Card.Header className="panel-progress-heading">
-          <Card.Title>投递进度</Card.Title>
+          <Card.Title>本页进度</Card.Title>
           {state.review && (
             <Chip size="sm" color="accent">
               待确认
@@ -87,7 +87,7 @@ export function PanelProgress() {
               )}
               <Button
                 size="sm"
-                variant="ghost"
+                variant="secondary"
                 onPress={() => void act("dismiss")}
               >
                 关闭提示

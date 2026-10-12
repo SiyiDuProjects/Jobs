@@ -79,6 +79,7 @@ export async function buildPackage({
         write: false,
         format,
         target: "chrome120",
+        define: { "process.env.NODE_ENV": '"production"' },
         legalComments: "none",
         metafile: true,
         plugins: [virtual],
@@ -112,6 +113,7 @@ export async function buildPackage({
         outfile: path.join(stage, "custom", name + ".js"),
         format: name === "diagnostics-ui" ? "esm" : "iife",
         target: "chrome120",
+        define: { "process.env.NODE_ENV": '"production"' },
         plugins: [virtual],
       });
     await buildPopup(root, stage, [virtual]);

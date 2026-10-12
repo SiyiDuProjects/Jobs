@@ -3,7 +3,12 @@ import { createReviewView } from "./review-view.js";
 // Browser operators use the same editor and versioned actions as the side panel.
 // The host page can interact with this surface, so it can only claim AI ownership.
 export function createPageReview({ operator, claim }) {
-  if (!globalThis.chrome?.runtime?.getURL)
+  // Embedded documents relay review/status through the background to the top
+  // presenter. They still own their form actions, but never another visible UI.
+  if (
+    !globalThis.chrome?.runtime?.getURL ||
+    document.defaultView !== document.defaultView?.top
+  )
     return { show() {}, status() {}, expand() {}, dispose() {} };
   let host,
     container,

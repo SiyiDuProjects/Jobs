@@ -71,6 +71,7 @@ test("popup saves credentials locally, hides the existing password, and reports 
     node.dispatchEvent(new h.w.Event("input", { bubbles: true }));
   }
   try {
+    await h.openTool("本页账号");
     await until(() => find("jobs-account-toggle"));
     find("jobs-account-toggle").click();
     await until(() => find("jobs-account-email"));
@@ -182,6 +183,7 @@ test("collapsing and reopening account settings preserves the unsaved draft", as
   const h = popupPage(async () => ({ error: "No job selected" }), fixture());
   const find = (id) => h.w.document.getElementById(id);
   try {
+    await h.openTool("本页账号");
     await until(() => find("jobs-account-toggle"));
     find("jobs-account-toggle").click();
     await until(() => find("jobs-account-email"));
@@ -256,6 +258,7 @@ function accountPopup(storage) {
     ...h,
     find,
     async open() {
+      if (!find("toggle")) await h.openTool("本页账号");
       await until(() => find("toggle"));
       find("toggle").click();
       await until(() => find("email"));
@@ -362,6 +365,7 @@ test("a failed initial read retries on reopen without exposing its error", async
   };
   const h = accountPopup(storage);
   try {
+    await h.openTool("本页账号");
     await until(() => h.find("toggle"));
     h.find("toggle").click();
     await until(() => h.find("status")?.textContent.includes("无法读取"));

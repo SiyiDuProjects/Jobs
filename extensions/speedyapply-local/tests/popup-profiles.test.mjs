@@ -18,18 +18,15 @@ test("unbound pages display the default without claiming an active binding", asy
       : { error: "当前页面无法识别岗位" },
   );
   try {
-    await until(
-      () =>
-        h.w.document.getElementById("jobs-profile-source")?.textContent ===
-        "默认选择",
+    await until(() =>
+      h.w.document.body.textContent.includes("本页：实习（Intern）"),
     );
-    assert(h.w.document.body.textContent.includes("默认档案"));
+    assert(!h.w.document.body.textContent.includes("默认档案"));
     assert(
       h.w.document
         .getElementById("jobs-profile-hint")
-        .textContent.includes("此页面尚未绑定档案"),
+        .textContent.includes("此页面尚未绑定资料"),
     );
-    assert(!h.w.document.body.textContent.includes("当前选择"));
   } finally {
     h.close();
   }
@@ -58,17 +55,18 @@ test("HeroUI popup reflects tab Profile changes and manual selection", async () 
       };
     return { data: structuredClone(current) };
   });
-  const button = (kind) => h.w.document.querySelector(`[data-kind="${kind}"]`);
+  const kindVisible = (kind) =>
+    h.w.document.body.textContent.includes(
+      kind === "intern" ? "本页：实习（Intern）" : "本页：全职（Newgrad）",
+    );
+  const correction = () =>
+    [...h.w.document.querySelectorAll("button")].find((button) =>
+      button.textContent.startsWith("改为"),
+    );
   try {
-    await until(
-      () => button("newgrad")?.getAttribute("aria-checked") === "true",
-    );
-    assert.equal(
-      h.w.document.getElementById("jobs-profile-source").textContent,
-      "自动切换",
-    );
-    button("intern").click();
-    await until(() => button("intern").getAttribute("aria-checked") === "true");
+    await until(() => kindVisible("newgrad"));
+    correction().click();
+    await until(() => kindVisible("intern"));
     h.activate({
       id: 2,
       url: "https://jobs.example/",
@@ -76,7 +74,7 @@ test("HeroUI popup reflects tab Profile changes and manual selection", async () 
     });
     await until(
       () =>
-        button("intern").getAttribute("aria-checked") === "true" &&
+        kindVisible("intern") &&
         actions.some((a) => a.action === "read" && a.tabId === 2),
     );
     current = {
@@ -86,9 +84,7 @@ test("HeroUI popup reflects tab Profile changes and manual selection", async () 
       source: "automatic",
     };
     h.changed.emit({ jobsKindProfiles: {} }, "local");
-    await until(
-      () => button("newgrad").getAttribute("aria-checked") === "true",
-    );
+    await until(() => kindVisible("newgrad"));
     assert.equal(actions.filter((a) => a.action === "select").length, 1);
     assert.equal(h.w.document.querySelector("textarea"), null);
     assert(!h.w.document.body.textContent.includes("投递队列"));

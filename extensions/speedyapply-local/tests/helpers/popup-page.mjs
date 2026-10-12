@@ -75,6 +75,21 @@ export function popupPage(sendMessage, local = {}) {
     w,
     errors,
     changed,
+    async openTool(label) {
+      await until(() => w.document.querySelector('[aria-label="更多操作"]'));
+      w.document.querySelector('[aria-label="更多操作"]').click();
+      await until(() =>
+        [...w.document.querySelectorAll('[role="menuitem"]')].some(
+          (n) =>
+            n.textContent === label &&
+            n.getAttribute("aria-disabled") !== "true",
+        ),
+      );
+      [...w.document.querySelectorAll('[role="menuitem"]')]
+        .find((n) => n.textContent === label)
+        .click();
+      await until(() => w.document.querySelector('[role="dialog"]'));
+    },
     activate(next) {
       tab = next;
       activated.emit({ tabId: next.id });

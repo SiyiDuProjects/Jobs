@@ -3,12 +3,13 @@ import { createRoot } from "react-dom/client";
 import {
   Button,
   Label,
-  Link,
-  Separator,
+  Dropdown,
+  Modal,
+  Card,
+  buttonVariants,
   TextArea,
   TextField,
 } from "@heroui/react";
-import { EmptyState, Segment } from "@heroui-pro/react";
 import { JobsBrand } from "./brand.js";
 import { JobsBuildInfo } from "./build-info.js";
 import { createPopupProfiles } from "./popup-profiles.js";
@@ -30,13 +31,14 @@ function useController(create, initial) {
 
 export function Popup() {
   const [versionNotice, setVersionNotice] = useState("");
+  const [dialog, setDialog] = useState(null);
   useEffect(() => {
     chrome.runtime
       .sendMessage({ type: "jobs:runtime-version", build: JobsBuildInfo.id })
       .then((version) => {
         if (!version?.running || version.reloadRequired)
           setVersionNotice(
-            "插件已更新。请先保存正在填写的内容，再到扩展管理页重新加载插件；无需刷新申请网页。",
+            "插件已更新。请先保存正在填写的内容，再到扩展管理页重新加载插件；无需刷新投递页面。",
           );
       })
       .catch(() =>
@@ -44,7 +46,7 @@ export function Popup() {
       );
   }, []);
   const [profile, profiles] = useController(createPopupProfiles, {
-    message: "正在读取当前档案…",
+    message: "正在读取本页资料…",
   });
   const [job, jobs] = useController(createPopupJob, {
     loading: true,
@@ -54,15 +56,51 @@ export function Popup() {
     <main className="popup">
       <header className="popup-header">
         <strong className="popup-brand">jobs</strong>
-        <Link
-          id="jobs-manage"
-          href={JobsBrand.website + "/#/applications"}
-          target="_blank"
-          rel="noreferrer"
-        >
-          投递管理
-          <Link.Icon />
-        </Link>
+        <div className="panel-actions popup-header-actions">
+          <a
+            id="jobs-manage"
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+            href={JobsBrand.website + "/#/applications"}
+            target="_blank"
+            rel="noreferrer"
+          >
+            投递管理
+          </a>
+          <Dropdown>
+            <Button
+              size="sm"
+              variant="secondary"
+              isIconOnly
+              aria-label="更多操作"
+            >
+              ⋯
+            </Button>
+            <Dropdown.Popover>
+              <Dropdown.Menu
+                aria-label="扩展工具"
+                onAction={(key) => {
+                  if (key === "diagnostics")
+                    window.open("diagnostics.html", "_blank");
+                  else setDialog(String(key));
+                }}
+              >
+                <Dropdown.Item
+                  id="delete"
+                  isDisabled={!job.actionable && !job.deleting}
+                  textValue="删除当前岗位"
+                >
+                  <Label>{job.undo ? "恢复当前岗位" : "删除当前岗位"}</Label>
+                </Dropdown.Item>
+                <Dropdown.Item id="account" textValue="本页账号">
+                  <Label>本页账号</Label>
+                </Dropdown.Item>
+                <Dropdown.Item id="diagnostics" textValue="填写诊断">
+                  <Label>填写诊断</Label>
+                </Dropdown.Item>
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown>
+        </div>
       </header>
       {versionNotice && (
         <p className="popup-hint" role="status">
@@ -70,131 +108,137 @@ export function Popup() {
         </p>
       )}
       <PanelProgress />
-      <section
+      <Card
         id="jobs-profile-switch"
         className="popup-section"
-        aria-label="当前档案"
+        aria-label="本页资料"
       >
-        <div className="popup-section-heading">
-          <h2>{profile.bound === false ? "默认档案" : "当前档案"}</h2>
-          <span id="jobs-profile-source" className="popup-source">
-            {profile.sourceLabel}
-          </span>
-        </div>
-        <Segment
-          className="popup-profiles"
-          aria-label="选择当前档案"
-          variant="ghost"
-          selectedKey={profile.kind || null}
-          isDisabled={profile.busy || !profile.available}
-          onSelectionChange={(kind) =>
-            void profiles.current.choose(String(kind))
-          }
-        >
-          <Segment.Item
-            id="intern"
-            data-kind="intern"
-            isDisabled={!profile.choices?.intern}
-          >
-            实习<span className="popup-profile-kind">Intern</span>
-          </Segment.Item>
-          <Segment.Item
-            id="newgrad"
-            data-kind="newgrad"
-            isDisabled={!profile.choices?.newgrad}
-          >
-            全职<span className="popup-profile-kind">Newgrad</span>
-          </Segment.Item>
-        </Segment>
-        <p
-          id="jobs-profile-hint"
-          className="popup-hint"
-          role="status"
-          data-error={profile.error || false}
-        >
-          {profile.message}
-        </p>
-      </section>
-      <Separator />
-      <PopupAccount />
-      <Separator />
-      <Separator />
-      <section
-        id="jobs-current-job"
-        className="popup-section"
-        aria-label="当前岗位"
-      >
-        {job.actionable || job.deleting ? (
-          <>
-            <h2>当前岗位</h2>
-            <p id="jobs-current-job-title" className="popup-job-title">
-              {job.title}
-            </p>
-            {!job.deleting && (
-              <TextField
-                id="jobs-delete-reason-field"
-                isRequired
-                isDisabled={job.busy}
-                value={job.reason}
-                onChange={(value) => jobs.current.setReason(value)}
-              >
-                <Label>删除原因</Label>
-                <TextArea
-                  id="jobs-delete-reason"
-                  rows={2}
-                  maxLength={500}
-                  fullWidth
-                  placeholder="例如：岗位已下线、方向不匹配"
-                />
-              </TextField>
-            )}
-            {job.deleting && (
-              <p id="jobs-removal-detail" className="popup-hint popup-detail">
-                删除原因：{job.detail}
-              </p>
-            )}
+        <Card.Content>
+          <div className="popup-section-heading">
+            <h2>
+              本页：
+              {profile.kind === "intern"
+                ? "实习"
+                : profile.kind === "newgrad"
+                  ? "全职"
+                  : "待识别"}
+              {profile.profileName ? `（${profile.profileName}）` : ""}
+            </h2>
             <Button
-              id="jobs-delete-job"
-              variant={job.undo ? "secondary" : "danger-soft"}
-              fullWidth
-              isDisabled={job.disabled}
-              isPending={job.busy}
-              onPress={() => void jobs.current.act()}
+              size="sm"
+              variant="secondary"
+              isDisabled={
+                profile.busy ||
+                !profile.available ||
+                !profile.choices?.[
+                  profile.kind === "intern" ? "newgrad" : "intern"
+                ]
+              }
+              onPress={() =>
+                void profiles.current.choose(
+                  profile.kind === "intern" ? "newgrad" : "intern",
+                )
+              }
             >
-              {job.label}
+              改为{profile.kind === "intern" ? "全职" : "实习"}
             </Button>
-            <p id="jobs-delete-status" className="popup-hint" role="status">
-              {job.message}
-            </p>
-          </>
-        ) : (
-          <EmptyState size="sm" className="popup-empty">
-            <EmptyState.Header>
-              <EmptyState.Title>
-                {job.loading ? "正在识别页面…" : "当前页面暂无可操作岗位"}
-              </EmptyState.Title>
-              <EmptyState.Description>
-                <span id="jobs-delete-status" role="status">
-                  {job.loading
-                    ? job.message
-                    : job.message + "，打开招聘岗位后可在这里操作。"}
-                </span>
-              </EmptyState.Description>
-            </EmptyState.Header>
-          </EmptyState>
-        )}
-      </section>
-      <Separator />
-      <nav className="popup-footer" aria-label="插件工具">
-        <Link href="diagnostics.html" target="_blank" rel="noreferrer">
-          填写诊断
-          <Link.Icon />
-        </Link>
-        <Link href="migration.html" target="_blank" rel="noreferrer">
-          旧资料迁移
-          <Link.Icon />
-        </Link>
-      </nav>
+          </div>
+          <p
+            id="jobs-profile-hint"
+            className="popup-hint"
+            role="status"
+            data-error={profile.error || false}
+          >
+            {profile.message}
+          </p>
+        </Card.Content>
+      </Card>
+      <Modal.Backdrop
+        isOpen={!!dialog}
+        onOpenChange={(open) => {
+          if (!open && !job.busy) setDialog(null);
+        }}
+      >
+        <Modal.Container>
+          <Modal.Dialog>
+            <Modal.CloseTrigger />
+            <Modal.Header>
+              <Modal.Heading>
+                {dialog === "account" ? "本页账号" : "当前岗位"}
+              </Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              {dialog === "account" ? (
+                <PopupAccount />
+              ) : (
+                <section
+                  id="jobs-current-job"
+                  className="popup-section"
+                  aria-label="当前岗位"
+                >
+                  {job.actionable || job.deleting ? (
+                    <>
+                      <h2>当前岗位</h2>
+                      <p
+                        id="jobs-current-job-title"
+                        className="popup-job-title"
+                      >
+                        {job.title}
+                      </p>
+                      {!job.deleting && (
+                        <TextField
+                          id="jobs-delete-reason-field"
+                          isRequired
+                          isDisabled={job.busy}
+                          value={job.reason}
+                          onChange={(value) => jobs.current.setReason(value)}
+                        >
+                          <Label>删除原因</Label>
+                          <TextArea
+                            id="jobs-delete-reason"
+                            variant="secondary"
+                            rows={2}
+                            maxLength={500}
+                            fullWidth
+                            placeholder="例如：岗位已下线、方向不匹配"
+                          />
+                        </TextField>
+                      )}
+                      {job.deleting && (
+                        <p
+                          id="jobs-removal-detail"
+                          className="popup-hint popup-detail"
+                        >
+                          删除原因：{job.detail}
+                        </p>
+                      )}
+                      <Button
+                        id="jobs-delete-job"
+                        variant={job.undo ? "secondary" : "danger-soft"}
+                        fullWidth
+                        isDisabled={job.disabled}
+                        isPending={job.busy}
+                        onPress={() => void jobs.current.act()}
+                      >
+                        {job.label}
+                      </Button>
+                      <p
+                        id="jobs-delete-status"
+                        className="popup-hint"
+                        role="status"
+                      >
+                        {job.message}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="popup-hint">{job.message}</p>
+                  )}
+                </section>
+              )}
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
     </main>
   );
 }

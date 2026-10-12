@@ -54,9 +54,8 @@ test("native package preserves the installed public identity and contains only m
               ),
             )
           ).startsWith(
-            (await fs.realpath(
-              new URL("../node_modules/date-fns", import.meta.url),
-            )) + path.sep,
+            (await fs.realpath(new URL("../node_modules", import.meta.url))) +
+              path.sep,
           ),
         input,
       );

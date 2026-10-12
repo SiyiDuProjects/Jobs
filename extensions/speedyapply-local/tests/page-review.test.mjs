@@ -1,28 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { createPageReview } from "../src/custom/page-review.js";
+import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import { createOperatorState } from "../src/custom/operator-state.js";
 
 test("page and panel share one editor; reads never claim control and writes cannot learn", async () => {
   const dom = new JSDOM("<body><form><input value='existing'></form></body>", {
     url: "https://jobs.ashbyhq.com/example/role",
+    runScripts: "outside-only",
   });
-  const names = [
-    "document",
-    "HTMLInputElement",
-    "HTMLSelectElement",
-    "HTMLTextAreaElement",
-  ];
-  const prior = names.map((name) => [name, globalThis[name]]);
-  const oldChrome = globalThis.chrome;
-  for (const name of names) globalThis[name] = dom.window[name];
-  globalThis.chrome = {
+  const { document } = dom.window;
+  dom.window.chrome = {
     runtime: {
       id: "fixture",
       getURL: (path) => "chrome-extension://fixture/" + path,
     },
   };
+  dom.window.eval(
+    await readWithDependencies(
+      new URL("../src/custom/page-review.js", import.meta.url),
+      "utf8",
+    ),
+  );
+  const { createPageReview } = dom.window;
   const operator = createOperatorState(),
     claims = [],
     actions = [];
@@ -91,10 +91,5 @@ test("page and panel share one editor; reads never claim control and writes cann
   } finally {
     page.dispose();
     dom.window.close();
-    for (const [name, value] of prior)
-      if (value === undefined) delete globalThis[name];
-      else globalThis[name] = value;
-    if (oldChrome === undefined) delete globalThis.chrome;
-    else globalThis.chrome = oldChrome;
   }
 });

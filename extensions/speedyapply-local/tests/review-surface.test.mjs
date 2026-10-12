@@ -18,20 +18,23 @@ const settle = async (check) => {
   }
   assert.fail("Review did not reach side panel");
 };
-for (const source of ["top", "frame"])
-  for (const missingTop of source === "frame" ? [false, true] : [false])
-    test(`${source} review reaches side panel; missing top receiver=${missingTop}; no page overlays`, async () => {
+for (const source of ["top", "frame", "nested"])
+  for (const missingTop of source !== "top" ? [false, true] : [false])
+    test(`${source} review reaches side panel; missing top receiver=${missingTop}; one top-page surface`, async () => {
       const w = new JSDOM("<iframe></iframe><button>Submit</button>", {
         url: "https://example.test/job",
         runScripts: "outside-only",
       }).window;
       const frame = w.document.querySelector("iframe").contentWindow;
-      const listeners = { top: [], frame: [] };
+      frame.document.body.innerHTML = "<iframe></iframe>";
+      const nested = frame.document.querySelector("iframe").contentWindow;
+      const windows = { top: w, frame, nested };
+      const listeners = { top: [], frame: [], nested: [] };
       let injections = 0;
       const h = panelWorker({
         send: async (tabId, message, target) => {
           assert.equal(tabId, 1);
-          const name = target.documentId === "form-doc" ? "frame" : "top";
+          const name = target.documentId === "form-doc" ? source : "top";
           if (!listeners[name].length)
             throw Error("Receiving end does not exist");
           return dispatch(listeners[name], message, { id: "jobs" });
@@ -45,16 +48,19 @@ for (const source of ["top", "frame"])
       });
       const sender = (name) => ({
         ...h.page,
-        frameId: name === "top" ? 0 : 3,
-        documentId: name === "top" ? "top-doc" : "form-doc",
+        frameId: { top: 0, frame: 3, nested: 5 }[name],
+        documentId:
+          name === "top"
+            ? "top-doc"
+            : name === source
+              ? "form-doc"
+              : "other-doc",
       });
-      for (const [name, win] of [
-        ["top", w],
-        ["frame", frame],
-      ]) {
+      for (const [name, win] of Object.entries(windows)) {
         win.chrome = {
           runtime: {
             id: "jobs",
+            getURL: (path) => "chrome-extension://jobs/" + path,
             sendMessage: (message) => h.call(message, sender(name)),
             onMessage: { addListener: (fn) => listeners[name].push(fn) },
           },
@@ -64,7 +70,7 @@ for (const source of ["top", "frame"])
         if (name === source) win.eval(review);
       }
       try {
-        const owner = source === "top" ? w : frame;
+        const owner = windows[source];
         const root = owner.document.createElement("form");
         root.innerHTML =
           '<label>Decision<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label>';
@@ -85,9 +91,29 @@ for (const source of ["top", "frame"])
         const read = () => h.call({ type: "jobs:panel-read", tabId: 1 });
         await settle(async () => (await read())?.review?.data.canConfirm);
         await settle(
-          () => source !== "frame" || w.JobsReviewPresenter?.pending(),
+          () => source === "top" || w.JobsReviewPresenter?.pending(),
         );
         assert.equal(injections, missingTop ? 1 : 0);
+        for (const [name, win] of Object.entries(windows)) {
+          assert.equal(
+            win.document.querySelectorAll("[data-jobs-operator]").length,
+            name === "top" ? 1 : 0,
+            `${name} must not duplicate the tab's operator surface`,
+          );
+          win.JobsOperator.update({ mode: "page-tool", epoch: "agent" });
+          win.JobsReviewPresenter.expand();
+          assert.equal(
+            win.document.querySelectorAll("[data-jobs-operator]").length,
+            name === "top" ? 1 : 0,
+            "claiming AI ownership or expanding review cannot mount child surfaces",
+          );
+        }
+        assert(
+          w.document
+            .querySelector("[data-jobs-operator]")
+            .shadowRoot.querySelector("#jobs-ai-review"),
+          "the source review remains available on the top-page surface",
+        );
         assert.equal(w.document.querySelector("#jobs-ai-review"), null);
         assert.equal(frame.document.querySelector("#jobs-ai-review"), null);
         const state = (await read()).review;
@@ -151,7 +177,7 @@ for (const source of ["top", "frame"])
         assert((await action({})).ok);
         await settle(async () => !(await read()).review);
         assert.equal(confirmed, 1);
-        if (source === "frame")
+        if (source !== "top")
           await settle(() => !w.JobsReviewPresenter.pending());
         assert(
           (

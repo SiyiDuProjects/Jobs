@@ -22,6 +22,7 @@ test("HeroUI deletion requires a reason, shows pending until ack, then permits u
   });
   const button = () => h.w.document.getElementById("jobs-delete-job");
   try {
+    await h.openTool("删除当前岗位");
     await until(() => button());
     assert(button().disabled);
     button().click();

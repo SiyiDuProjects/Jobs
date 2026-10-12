@@ -69,7 +69,7 @@ function AccountForm({ open }) {
         clearPassword: false,
       }));
       setMessage(
-        "已保存。新打开的申请页生效；已打开的页面需在保留进度后刷新。",
+        "已保存。新打开的投递页生效；已打开的页面需在保留进度后刷新。",
       );
     } catch {
       if (!mounted.current) return;
@@ -97,7 +97,7 @@ function AccountForm({ open }) {
                 edit({ useProfileEmail: event.target.checked })
               }
             />
-            使用当前申请档案的邮箱
+            使用本页资料的邮箱
           </label>
           <TextField
             isDisabled={busy || draft.useProfileEmail}
@@ -116,6 +116,7 @@ function AccountForm({ open }) {
               {draft.hasPassword ? "更换密码（留空保留）" : "自动填充密码"}
             </Label>
             <Input
+              variant="secondary"
               id="jobs-account-password"
               type="password"
               autoComplete="new-password"

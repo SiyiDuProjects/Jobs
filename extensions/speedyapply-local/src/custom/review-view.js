@@ -1,12 +1,17 @@
+import {
+  createReviewControl,
+  releaseReviewControls,
+} from "./review-components.js";
 import { stableStringify } from "./stable-value.js";
 import { calendarDate } from "./calendar-date.js";
 // Shared by the side panel and the in-page AI surface. The editor keeps the existing
-// versioned write/confirm contract and uses the bundled HeroUI CSS components.
+// versioned write/confirm contract around the shared HeroUI React controls.
 export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
   let slot, view, last;
   function removeView() {
     if (!view) return;
     for (const [node, display] of view.hidden) node.style.display = display;
+    releaseReviewControls(view.shadow);
     view.host.remove();
     view = null;
   }
@@ -98,16 +103,17 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
     };
     if (item.editorKey !== key) {
       item.editorKey = key;
+      releaseReviewControls(box);
       box.replaceChildren();
       if (editor) {
         if (editor.kind === "buttons") {
           for (const option of editor.options) {
             const button =
               /** @type {HTMLButtonElement & {valueKey?:string|boolean}} */ (
-                document.createElement("button")
+                createReviewControl(box, "button")
               );
             button.type = "button";
-            button.className = "choice button button--secondary button--sm";
+            button.classList.add("choice");
             button.textContent =
               { Yes: "是", No: "否" }[option.label] || option.label;
             button.title = option.label;
@@ -116,13 +122,13 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
               if (event.isTrusted)
                 void submit(option.value, item.reviewRow.editor.version);
             };
-            box.append(button);
           }
         } else {
           const choice = ["select", "multiple"].includes(editor.kind),
             control =
               /** @type {(HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement)&{draftVersion?:number|null,draftRevision?:number,draftSchemaVersion?:number,failedDraft?:boolean}} */ (
-                document.createElement(
+                createReviewControl(
+                  box,
                   choice
                     ? "select"
                     : editor.kind === "textarea"
@@ -131,9 +137,7 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
                 )
               );
           control.setAttribute("aria-label", row.question);
-          control.className =
-            "answer-input " +
-            (editor.kind === "textarea" ? "textarea" : "input");
+          control.classList.add("answer-input");
           if (control instanceof HTMLSelectElement) {
             control.multiple = editor.kind === "multiple";
             if (!control.multiple) {
@@ -161,7 +165,7 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
             control.draftRevision = (control.draftRevision || 0) + 1;
             control.failedDraft = false;
           };
-          box.append(control);
+
           control.onchange = (event) => {
             if (!event.isTrusted) return;
             if (editor.kind === "select")
@@ -190,16 +194,21 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
     for (const button of box.querySelectorAll(".choice"))
       button.setAttribute("aria-pressed", String(button.valueKey === chosen));
     const control = box.querySelector("input,textarea,select");
-    box.querySelector(".use-page-value")?.remove();
+    const previousChoice = box
+      .querySelector(".use-page-value")
+      ?.closest("[data-review-control]");
+    if (previousChoice) {
+      releaseReviewControls(previousChoice.parentElement, previousChoice);
+      previousChoice.remove();
+    }
     if (
       control?.draftVersion != null &&
       control.draftVersion !== editor.version &&
       editor.valid === true
     ) {
-      const button = document.createElement("button");
+      const button = createReviewControl(box, "button");
       button.type = "button";
-      button.className =
-        "choice use-page-value button button--secondary button--sm";
+      button.classList.add("choice", "use-page-value");
       button.textContent = "使用网页当前值";
       button.onclick = (event) => {
         if (event.isTrusted)
@@ -209,7 +218,6 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
             true,
           );
       };
-      box.append(button);
     }
     if (control && control.draftVersion == null) {
       if (control.multiple)
@@ -242,7 +250,20 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
       host.id = "jobs-ai-review";
       host.style.cssText = "display:block;width:100%;min-width:0";
       const shadow = host.attachShadow({ mode: "open" });
-      shadow.innerHTML = `<link rel="stylesheet"><section class="card card--secondary review-card" aria-label="AI 补填确认"><header class="review-heading"><h2>AI 补填</h2><button id="toggle" class="button button--ghost button--sm" type="button" aria-expanded="true" aria-controls="body">收起</button></header><div id="body"><div id="list"><section class="review-group" data-group="pending" aria-labelledby="pending-heading"><h3 id="pending-heading"></h3><div class="group-items"></div></section><details class="review-group" data-group="ready"><summary></summary><div class="group-items"></div></details></div><footer><p id="status" role="status"></p><button id="confirm" class="button button--primary button--full-width" type="button" disabled>确认这些答案</button></footer></div></section>`;
+      shadow.innerHTML = `<link rel="stylesheet"><section class="card card--default review-card" aria-label="AI 补填确认"><header class="review-heading"><h2>AI 补填</h2><button id="toggle" class="button button--secondary button--sm" type="button" aria-expanded="true" aria-controls="body">收起</button></header><div id="body"><div id="list"><section class="review-group" data-group="pending" aria-labelledby="pending-heading"><h3 id="pending-heading"></h3><div class="group-items"></div></section><details class="review-group" data-group="ready"><summary></summary><div class="group-items"></div></details></div><footer><p id="status" role="status"></p><button id="confirm" class="button button--primary button--full-width" type="button" disabled>确认这些答案</button></footer></div></section>`;
+      for (const id of ["toggle", "confirm"]) {
+        const old = shadow.querySelector("#" + id);
+        const control = createReviewControl(old.parentElement, "button", {
+          id,
+          variant: id === "confirm" ? "primary" : "secondary",
+          fullWidth: id === "confirm",
+          children: old.textContent,
+        });
+        for (const attribute of old.attributes)
+          if (attribute.name.startsWith("aria-"))
+            control.setAttribute(attribute.name, attribute.value);
+        old.replaceWith(control.closest("[data-review-control]"));
+      }
       shadow.querySelector("link").href = stylesheetHref;
       view = { id: data.id, host, shadow, hidden: [], items: new Map(), act };
       if (slot)
@@ -302,6 +323,7 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
     }
     for (const [id, item] of items) {
       if (!data.items.some((row) => row.id === id)) {
+        releaseReviewControls(item);
         item.remove();
         items.delete(id);
       }
@@ -311,13 +333,13 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
       if (!item) {
         const wrapper = document.createElement("div");
         wrapper.className = "review-row";
-        const button = document.createElement("button");
+        const button = createReviewControl(wrapper, "button");
         button.type = "button";
-        button.className = "item";
+        button.classList.add("item");
         button.innerHTML =
           '<span class="question"></span><span class="answer"></span><span class="source"></span><span class="evidence"></span>';
         button.onclick = () => void view.act("locate", row.id);
-        wrapper.append(button);
+
         const error = document.createElement("span");
         error.className = "error";
         error.setAttribute("role", "alert");

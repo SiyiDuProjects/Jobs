@@ -399,7 +399,7 @@ test("confirming writes an answer typed in the card before continuing; a rejecte
       "Typed in the card",
     );
     assert.equal(h.w.document.querySelector("input").value, "12");
-    assert.equal(rows[0].querySelector(".source").textContent, "你的回答");
+    assert.equal(h.w.JobsAIReview.pending(), false);
   } finally {
     h.close();
   }

@@ -1,4 +1,37 @@
 import fs from "node:fs/promises";
+import { build } from "esbuild";
+import { fileURLToPath } from "node:url";
+const uiBundles = new Map();
+async function uiModule(name) {
+  if (!uiBundles.has(name))
+    uiBundles.set(
+      name,
+      build({
+        entryPoints: [fileURLToPath(new URL(name, custom))],
+        bundle: true,
+        write: false,
+        format: "iife",
+        globalName: "JobsUIFixture",
+        platform: "browser",
+        target: "es2023",
+        define: { "process.env.NODE_ENV": '"production"' },
+      }).then(
+        (result) =>
+          `globalThis.CSS ||= {escape: value => String(value).replace(/[^\\w-]/g, c => "\\\\" + c), supports: () => false};
+globalThis.matchMedia ||= () => ({matches:false, addEventListener(){},removeEventListener(){},addListener(){},removeListener(){}});
+globalThis.ResizeObserver ||= class {observe(){} unobserve(){} disconnect(){}};
+globalThis.IntersectionObserver ||= class {observe(){} unobserve(){} disconnect(){}};
+globalThis.requestAnimationFrame ||= callback => setTimeout(callback, 0);
+globalThis.cancelAnimationFrame ||= clearTimeout;
+HTMLElement.prototype.getAnimations ||= () => [];
+HTMLElement.prototype.scrollIntoView ||= () => {};
+` +
+          result.outputFiles[0].text +
+          "\nObject.assign(globalThis, JobsUIFixture);",
+      ),
+    );
+  return uiBundles.get(name);
+}
 import { readModule } from "./module-source.mjs";
 
 // Unit fixtures can load a single module, while the extension loads packaged
@@ -7,10 +40,10 @@ import { readModule } from "./module-source.mjs";
 // Manifest ordering has its own contract test.
 const custom = new URL("../../src/custom/", import.meta.url);
 const dependencies = {
-  "diagnostics-ui.js": ["history-event-metrics.js"],
+  "diagnostics-ui.js": ["history-event-metrics.js", "diagnostics-view.jsx"],
   "review-presenter.js": ["operator-state.js", "page-review.js"],
   "page-review.js": ["review-view.js"],
-  "review-view.js": ["calendar-date.js"],
+  "review-view.js": ["calendar-date.js", "review-components.js"],
   "submission-guard.js": [
     "job-match-rules.js",
     "job-match.js",
@@ -92,6 +125,11 @@ const dependencies = {
   ],
 };
 export async function readWithDependencies(path, encoding, ancestors = []) {
+  if (
+    encoding === "utf8" &&
+    /[/](review-components[.]js|diagnostics-view[.]jsx)$/.test(String(path))
+  )
+    return uiModule(String(path).split("/").pop());
   const value = await readModule(path, encoding);
   if (encoding !== "utf8") return value;
   const name = String(path)

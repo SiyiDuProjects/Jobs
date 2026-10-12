@@ -14,7 +14,7 @@ export function createPopupProfiles(api, changed) {
         error,
         sourceLabel: state?.profileName
           ? state.bound === false
-            ? "默认选择"
+            ? "待绑定"
             : ["automatic", "resolved", "website"].includes(state.source)
               ? "自动切换"
               : "当前选择"
@@ -23,9 +23,9 @@ export function createPopupProfiles(api, changed) {
           message ||
           (state?.available
             ? state.bound === false
-              ? "此页面尚未绑定档案。这里显示最近手动选择的默认档案。"
-              : "此档案已绑定当前标签页；其他岗位独立选择。"
-            : "正在读取当前档案…"),
+              ? "此页面尚未绑定资料；识别岗位类型后将使用对应资料。"
+              : "此资料已绑定当前标签页；其他岗位独立选择。"
+            : "正在读取当前资料…"),
       });
   }
   async function request(action, kind) {
