@@ -17,6 +17,7 @@ import brand from "../../config/brand.json";
 import { ErrorBoundary, Management } from "./manage/main";
 import { store, useManagement } from "./manage/store";
 import { CLIENT_PROTOCOL_HEADERS } from "./client-protocol";
+import { profileForKind } from "./manage/kind-profiles";
 
 // Old extension links enter the same website and retain their requested view.
 if (
@@ -35,7 +36,7 @@ if (
 }
 
 export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
-  const { draftDirty, pending, docs, current, profiles, loading } =
+  const { draftDirty, pending, unsaved, docs, current, profiles, loading } =
     useManagement();
   const [kind, setKind] = useState<JobKind>(readKind);
   const [query, setQuery] = useState("");
@@ -86,7 +87,11 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
   }, [session?.authenticated, connect]);
   useEffect(() => {
     if (!session?.authenticated) return;
-    void store.start({ authenticated: true }, ["/applied", "/applications"].includes(activeRoute.current));
+    void store.start(
+      { authenticated: true },
+      ["/applied", "/applications"].includes(activeRoute.current),
+      kind,
+    );
     const before = (e: BeforeUnloadEvent) => {
       if (store.state.pending || store.state.unsaved) {
         e.preventDefault();
@@ -102,40 +107,39 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
   useEffect(() => {
     store.setApplicationsVisible(["/applied", "/applications"].includes(route));
   }, [route]);
+  const boundProfileId = profileForKind(
+    kind,
+    profiles,
+    docs.jobsKindProfiles?.value,
+  );
   useEffect(() => {
     localStorage.setItem("radar-kind", kind);
-    if (loading) return;
-    let id =
-      docs.jobsKindProfiles?.value?.[
-        kind === "internship" ? "intern" : "newgrad"
-      ];
-    if (!id || !profiles.some((p) => p.id === id)) {
-      const pattern =
-        kind === "internship"
-          ? /^(intern|internship|实习)$/i
-          : /^(new[ -]?grad|ng|全职)$/i;
-      const candidates = profiles.filter((p) =>
-        pattern.test(p.profileName.trim()),
-      );
-      id = candidates.length === 1 ? candidates[0].id : undefined;
-    }
-    if (id && id !== current?.id && profiles.some((p) => p.id === id))
-      void store.selectProfile(id).catch(store.report);
-  }, [kind, loading]);
+    if (loading || pending || unsaved || draftDirty) return;
+    if (boundProfileId !== current?.id)
+      void store.selectProfile(boundProfileId).catch(store.report);
+  }, [
+    kind,
+    loading,
+    boundProfileId,
+    current?.id,
+    pending,
+    unsaved,
+    draftDirty,
+  ]);
   const links = [
     ["/", "岗位"],
     ["/profile", "资料"],
     ["/settings", "设置"],
   ];
   return (
-    <div className="mx-auto max-w-[1440px] px-4 py-5 sm:px-8 sm:py-6">
-      <header className="flex items-center gap-5 pb-7 flex-wrap">
+    <div className="site-shell mx-auto max-w-[1440px] px-4 py-5 sm:px-8 sm:py-6">
+      <header className="site-header">
         <a href="#/" className="text-xl font-semibold tracking-tight">
           {brand.name}
         </a>
         <nav
           aria-label="jobs 主导航"
-          className="flex flex-wrap items-center gap-1"
+          className="site-nav"
         >
           {links.map(([path, label]) => {
             const selected =
@@ -212,7 +216,13 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
         ) : (
           <ErrorBoundary>
             {["/", "/applied", "/applications", "/trash"].includes(route) ? (
-              <JobWorkspace Board={Board} kind={kind} route={route} query={query} setQuery={setQuery} />
+              <JobWorkspace
+                Board={Board}
+                kind={kind}
+                route={route}
+                query={query}
+                setQuery={setQuery}
+              />
             ) : (
               <Management route={route} kind={kind} />
             )}

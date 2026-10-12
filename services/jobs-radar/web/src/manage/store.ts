@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { CLIENT_PROTOCOL_HEADERS } from "../client-protocol";
+import type { JobKind } from "../JobWorkspace";
+import { defaultKindProfiles, profileForKind } from "./kind-profiles";
 import {
   allowed,
   assertProfile,
@@ -79,14 +81,17 @@ export class ManagementStore {
   setDraftDirty = (draftDirty: boolean) => this.set({ draftDirty });
   clearError = () => this.set({ error: "" });
   private statePath() {
-    return this.applicationsVisible ? "/api/manage/state" : "/api/manage/state?applications=0";
+    return this.applicationsVisible
+      ? "/api/manage/state"
+      : "/api/manage/state?applications=0";
   }
   private async readDocuments(): Promise<Documents> {
     const lifecycle = this.lifecycle;
     for (;;) {
       const view = this.viewGeneration;
       const docs = await api(this.statePath());
-      if (view === this.viewGeneration || lifecycle !== this.lifecycle) return docs;
+      if (view === this.viewGeneration || lifecycle !== this.lifecycle)
+        return docs;
     }
   }
   setApplicationsVisible(visible: boolean) {
@@ -98,12 +103,20 @@ export class ManagementStore {
     this.set({ docs, applicationsLoading: visible });
     if (this.state.authenticated) void this.refresh();
   }
-  async start(existingSession?: { authenticated: boolean }, applicationsVisible = true) {
+  async start(
+    existingSession?: { authenticated: boolean },
+    applicationsVisible = true,
+    kind: JobKind = "newgrad",
+  ) {
     clearInterval(this.timer);
     const lifecycle = ++this.lifecycle;
     this.applicationsVisible = applicationsVisible;
     this.viewGeneration++;
-    this.set({ loading: true, applicationsLoading: applicationsVisible, error: "" });
+    this.set({
+      loading: true,
+      applicationsLoading: applicationsVisible,
+      error: "",
+    });
     try {
       const session = existingSession || (await api("/api/session"));
       if (lifecycle !== this.lifecycle) return;
@@ -112,13 +125,25 @@ export class ManagementStore {
         return;
       }
       this.set({ authenticated: true });
-      const [, profiles] = await Promise.all([this.refresh(), this.profileAPI()]);
+      const [, profiles] = await Promise.all([
+        this.refresh(),
+        this.profileAPI(),
+      ]);
       if (lifecycle !== this.lifecycle) return;
       this.set({ profiles });
-      const saved = sessionStorage.getItem("jobs:manage-profile"),
-        id =
-          profiles.find((p: ProfileSummary) => p.id === saved)?.id ||
-          profiles[0]?.id;
+      const saved = this.state.docs.jobsKindProfiles?.value || {};
+      const bindings = defaultKindProfiles(profiles, saved);
+      // Materialize name-based defaults once so a later rename keeps the same
+      // identity. Existing explicit choices are preserved, never inferred anew.
+      if (
+        !same(saved, bindings) &&
+        Object.values(bindings).every((id) =>
+          profiles.some((p: ProfileSummary) => p.id === id),
+        )
+      )
+        await this.write({ jobsKindProfiles: bindings });
+      if (lifecycle !== this.lifecycle) return;
+      const id = profileForKind(kind, profiles, bindings);
       if (id) await this.selectProfile(id);
       if (lifecycle !== this.lifecycle) return;
       this.set({ loading: false, notice: "已连接 jobs" });
@@ -160,7 +185,10 @@ export class ManagementStore {
         lifecycle === this.lifecycle &&
         version === this.generation
       )
-        this.set({ ...(!same(this.state.docs, docs) ? { docs } : {}), applicationsLoading: false });
+        this.set({
+          ...(!same(this.state.docs, docs) ? { docs } : {}),
+          applicationsLoading: false,
+        });
     } catch (error) {
       if (lifecycle === this.lifecycle) {
         this.set({ applicationsLoading: false });
@@ -184,10 +212,15 @@ export class ManagementStore {
     if (!response.ok) throw Error(value.error || "Profile request failed");
     return value;
   }
-  async selectProfile(id: string) {
+  async selectProfile(id?: string) {
     if (this.state.pending) throw Error("请等待当前保存完成");
     if (this.state.unsaved) throw Error("仍有尚未保存的更改，请先重试保存");
+    if (this.state.draftDirty) throw Error("请先保存或撤销资料更改");
     const request = ++this.profileRequest;
+    if (!id) {
+      this.set({ current: undefined });
+      return;
+    }
     const current = await this.profileAPI("/" + encodeURIComponent(id));
     if (request !== this.profileRequest) return;
     assertProfile(current.profile);
@@ -303,7 +336,8 @@ export class ManagementStore {
       const docs = await this.readDocuments();
       check();
       this.set({ docs });
-      if (typeof window !== "undefined") window.dispatchEvent(new Event("jobs:applications-changed"));
+      if (typeof window !== "undefined")
+        window.dispatchEvent(new Event("jobs:applications-changed"));
       return result;
     });
   }
@@ -326,7 +360,8 @@ export class ManagementStore {
       const docs = await this.readDocuments();
       check();
       this.set({ docs });
-      if (typeof window !== "undefined") window.dispatchEvent(new Event("jobs:applications-changed"));
+      if (typeof window !== "undefined")
+        window.dispatchEvent(new Event("jobs:applications-changed"));
       return result;
     });
   }

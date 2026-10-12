@@ -1,43 +1,16 @@
-import { Component, useEffect, type ReactNode } from "react";
+import { Component, type ReactNode } from "react";
 import { Button, Card, Spinner } from "@heroui/react";
 import type { JobKind } from "../JobWorkspace";
 import { NewProfile, Profile } from "./Profile";
 import { Settings } from "./Settings";
-import { Choice } from "./components";
 import { store, useManagement } from "./store";
 
 export function Management({ route, kind }: { route: string; kind: JobKind }) {
   const state = useManagement();
   return (
     <>
-      {state.authenticated && (
+      {state.authenticated && (state.pending > 0 || state.unsaved > 0) && (
         <div className="pb-6 flex flex-wrap items-center gap-4 text-sm">
-          {state.profiles.length > 0 && (
-            <div className="w-40">
-              <Choice
-                label="当前资料"
-                hideLabel
-                value={state.current?.id}
-                disabled={state.pending > 0 || state.draftDirty}
-                options={Object.fromEntries(
-                  state.profiles.map((p) => [p.id, p.profileName]),
-                )}
-                onChange={(id) => {
-                  void store
-                    .selectProfile(id)
-                    .then(() =>
-                      store.write({
-                        jobsKindProfiles: {
-                          ...state.docs.jobsKindProfiles?.value,
-                          [kind === "internship" ? "intern" : "newgrad"]: id,
-                        },
-                      }),
-                    )
-                    .catch(store.report);
-                }}
-              />
-            </div>
-          )}
           <span role="status" className="text-muted">
             {state.pending ? "正在保存…" : ""}
           </span>
@@ -87,13 +60,13 @@ export function Management({ route, kind }: { route: string; kind: JobKind }) {
         ) : route === "/profile/new" ? (
           <NewProfile />
         ) : route.startsWith("/profile") ? (
-          <Profile key={state.current?.id} />
+          <Profile kind={kind} />
         ) : route.startsWith("/settings") ? (
           <Settings
             route={route === "/settings" ? "/settings/autofill" : route}
           />
         ) : (
-          <Profile key={state.current?.id} />
+          <Profile kind={kind} />
         )}
       </section>
     </>

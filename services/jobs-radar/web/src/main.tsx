@@ -20,6 +20,7 @@ import { readBoardFilters, saveBoardFilters } from "./board-filters";
 import { ApplicationTotals } from "./ApplicationTotals";
 
 import { JobTable } from "./JobTable";
+import { ListToolbar, ListPagination } from "./ListControls";
 import {
   api,
   defaults,
@@ -35,6 +36,7 @@ export function JobsBoard({
   navigation,
   query,
   setQuery,
+  onTotal,
 }: BoardProps) {
   const kindRef = useRef(kind);
   kindRef.current = kind;
@@ -273,128 +275,23 @@ export function JobsBoard({
     }
   }
   const stale = data?.source_health.some((s) => s.stale);
+  useEffect(() => { if (data) onTotal?.(data.total); }, [data, onTotal]);
   return (
     <section aria-label={trash ? "回收站" : "岗位列表"}>
       {
         <>
           {!trash && <ExtensionSync onSynced={load} />}
-          <div className="board-toolbar">
-            <section
-              className="board-toolbar-scoped"
-              aria-label="类型与岗位筛选"
-            >
-              {navigation}
-              {!trash && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={filters.region ? "secondary" : "ghost"}
-                    aria-pressed={!!filters.region}
-                    onPress={() => toggleRegion(!filters.region)}
-                  >
-                    地区筛选
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={
-                      filters[companyKey] === "1" ? "secondary" : "ghost"
-                    }
-                    aria-pressed={filters[companyKey] === "1"}
-                    onPress={() =>
-                      filter(companyKey, filters[companyKey] === "1" ? "" : "1")
-                    }
-                  >
-                    公司筛选
-                  </Button>
-                </div>
-              )}
-            </section>
-            <section className="board-toolbar-shared" aria-label="通用筛选">
-              {!trash && (
-                <DateWindowFilter
-                  value={filters.added_date}
-                  onChange={(v) => filter("added_date", v)}
-                />
-              )}
-              <TextField
-                aria-label="搜索公司或岗位"
-                value={query}
-                onChange={setQuery}
-                className="board-search"
-              >
-                <Input placeholder="搜索公司或岗位" variant="secondary" />
-              </TextField>
-              {!trash && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-haspopup="dialog"
-                  onPress={() => {
-                    setExcludedCompanies(filters.exclude_companies);
-                    setExclusionsOpen(true);
-                  }}
-                >
-                  排除公司
-                </Button>
-              )}
-            </section>
-          </div>
-          {!trash && !!filters.exclude_companies && (
-            <div
-              className="excluded-companies flex gap-2 flex-wrap mt-2"
-              aria-label="已排除公司"
-            >
-              {splitCompanies(filters.exclude_companies).map((company) => (
-                <Button
-                  key={company}
-                  size="sm"
-                  variant="secondary"
-                  aria-label={"取消排除 " + company}
-                  onPress={() =>
-                    filter(
-                      "exclude_companies",
-                      splitCompanies(filters.exclude_companies)
-                        .filter((v) => v !== company)
-                        .join(", "),
-                    )
-                  }
-                >
-                  已排除 {company} ×
-                </Button>
-              ))}
-            </div>
-          )}
-
-          <div className="my-4 flex flex-wrap items-center gap-3">
-            <h1>
-              {trash ? "回收站" : kind === "newgrad" ? "全职" : "实习"}{" "}
-              <span className="text-muted">
-                {data?.total.toLocaleString() ?? "—"}
-              </span>
-            </h1>
-            <div className="flex flex-wrap items-center gap-3 text-xs sm:ml-auto">
-              <ApplicationTotals key={kind} kind={kind} />
-              <span className={stale ? "text-warning" : "text-muted"}>
-                {busy ? "正在更新…" : stale ? "部分来源待更新" : ""}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                isDisabled={busy}
-                onPress={() => {
-                  void load();
-                }}
-              >
-                刷新
-              </Button>
-            </div>
-          </div>
-          {trash && (
-            <p className="mb-5 text-sm text-muted">
-              保留 24
-              小时供恢复；到期后“已删除”标签仍有效，同步不会带回。恢复后人工保留。
-            </p>
-          )}
+          <ListToolbar
+            navigation={navigation}
+            totals={<span title={stale ? "部分来源待更新" : busy ? "正在更新" : undefined}><ApplicationTotals key={kind} kind={kind}/></span>}
+            filters={!trash && <>
+              <Button size="sm" variant="secondary" aria-pressed={!!filters.region} onPress={() => toggleRegion(!filters.region)}>地区</Button>
+              <Button size="sm" variant="secondary" aria-pressed={filters[companyKey] === "1"} onPress={() => filter(companyKey, filters[companyKey] === "1" ? "" : "1")}>公司</Button>
+            </>}
+            date={!trash && <DateWindowFilter value={filters.added_date} onChange={v => filter("added_date", v)}/>}
+            query={query} onQuery={setQuery}
+            menu={trash ? [{ id: "retention", label: "删除记录保留 24 小时供恢复", disabled: true, onAction: () => {} }] : [{ id: "exclude", label: `排除公司${filters.exclude_companies ? `（${splitCompanies(filters.exclude_companies).length}）` : ""}`, onAction: () => { setExcludedCompanies(filters.exclude_companies); setExclusionsOpen(true); } }]}
+          />
           {!data && !error && <p className="text-muted">正在读取岗位…</p>}
           {data?.jobs.length === 0 && (
             <div className="px-3 py-18 text-center text-muted">
@@ -415,39 +312,8 @@ export function JobsBoard({
             />
           )}
 
-          <footer className="flex flex-wrap items-center gap-2 pt-3 text-xs">
-            <span className="text-muted">
-              第 {filters.page} /{" "}
-              {Math.max(1, Math.ceil((data?.total || 0) / 50))} 页
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              isDisabled={filters.page === 1 || busy}
-              onPress={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
-            >
-              上一页
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              isDisabled={filters.page * 50 >= (data?.total || 0) || busy}
-              onPress={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
-            >
-              下一页
-            </Button>
-            <Button
-              size="sm"
-              className="ml-auto"
-              variant="ghost"
-              onPress={async () => {
-                await api("/api/session", { method: "DELETE" });
-                location.reload();
-              }}
-            >
-              退出
-            </Button>
-          </footer>
+          <ListPagination page={filters.page} pages={Math.max(1, Math.ceil((data?.total || 0) / 50))} busy={busy} onPage={page => setFilters(f => ({ ...f, page }))}/>
+
         </>
       }
       {error && (
@@ -466,7 +332,7 @@ export function JobsBoard({
           {undo && (
             <Button
               size="sm"
-              variant="ghost"
+              variant="secondary"
               isDisabled={saving}
               onPress={() => undoSubmission(undo)}
             >
@@ -493,7 +359,7 @@ export function JobsBoard({
               <p className="mt-2 text-xs text-muted">多家公司用逗号分隔。</p>
             </Modal.Body>
             <Modal.Footer>
-              <Button variant="ghost" onPress={() => setExcludedCompanies("")}>
+              <Button variant="secondary" onPress={() => setExcludedCompanies("")}>
                 清空
               </Button>
               <Button
@@ -548,7 +414,7 @@ export function JobsBoard({
             </Modal.Body>
             <Modal.Footer>
               <Button
-                variant="ghost"
+                variant="secondary"
                 isDisabled={saving}
                 onPress={() => setAction(null)}
               >

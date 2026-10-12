@@ -21,25 +21,25 @@ export function ApplicationEditor({
   onClose,
 }: {
   row?: AppRow;
-  kind: 'newgrad' | 'internship';
+  kind: "newgrad" | "internship";
   profiles: { id: string; profileName: string }[];
   profileId?: string;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(
-      row || {
-        kind,
-        jobTitle: "",
-        jobLink: "",
-        companyName: "",
-        companyLink: "",
-        date: new Date().toISOString(),
-        status: "applied",
-        profileName:
-          profiles.find((p) => p.id === profileId)?.profileName || "Default",
-      },
-    ),
-    [profile, setProfile] = useState(profileId || profiles[0]?.id || "");
+    row || {
+      kind,
+      jobTitle: "",
+      jobLink: "",
+      companyName: "",
+      companyLink: "",
+      date: new Date().toISOString(),
+      status: "applied",
+      profileName:
+        profiles.find((p) => p.id === profileId)?.profileName || "Default",
+    },
+  );
+  const profile = profileId || profiles[0]?.id || "";
   const update = (key: string, value: string) =>
     setDraft((d) => ({ ...d, [key]: value }));
   return (
@@ -102,14 +102,6 @@ export function ApplicationEditor({
               options={statuses}
               onChange={(v) => update("status", v)}
             />
-            <Choice
-              label="资料"
-              value={profile}
-              options={Object.fromEntries(
-                profiles.map((p) => [p.id, p.profileName]),
-              )}
-              onChange={setProfile}
-            />
           </>
         )}
       </div>
@@ -166,7 +158,7 @@ export function ProgressEditor({
       : nextStages(row);
   return (
     <Dialog
-      title="申请进度"
+      title="投递进展"
       onClose={onClose}
       saveLabel={choice ? "保存进度" : "关闭"}
       onSave={async () => {
@@ -210,9 +202,7 @@ export function ProgressEditor({
       </p>
       <p>当前：{progressLabel(row)}</p>
       {row.progress?.summary && (
-        <p className="text-sm text-muted">
-          {row.progress.summary}
-        </p>
+        <p className="text-sm text-muted">{row.progress.summary}</p>
       )}
       {!!Object.keys(options).length && (
         <Choice
@@ -225,7 +215,7 @@ export function ProgressEditor({
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
-          variant="ghost"
+          variant="secondary"
           onPress={() => {
             setMore((v) => !v);
             setChoice("");
@@ -235,7 +225,7 @@ export function ProgressEditor({
         </Button>
         <Button
           size="sm"
-          variant="ghost"
+          variant="secondary"
           onPress={() => {
             setCorrection((v) => !v);
             setChoice("");
@@ -279,7 +269,8 @@ export function ProgressEditor({
             }}
           />
           <p className="text-sm text-muted">
-            在线笔试、游戏和录播题统一记为在线测评；自动发放不计入有效推进。HR 沟通记为 HR 面试，其他面试按轮次记录。
+            在线笔试、游戏和录播题统一记为在线测评；自动发放不计入有效推进。HR
+            沟通记为 HR 面试，其他面试按轮次记录。
           </p>
         </div>
       )}
@@ -305,7 +296,8 @@ export function ProgressEditor({
         {[...history].reverse().map((event, i) => (
           <div key={i} className="border-b border-separator py-2 text-sm">
             <p>
-              {chineseProgress(event.from_label || event.from)} → {chineseProgress(event.to_label || event.to)}
+              {chineseProgress(event.from_label || event.from)} →{" "}
+              {chineseProgress(event.to_label || event.to)}
               {!event.applied ? "（仅保留记录，未改变当前状态）" : ""}
             </p>
             <p className="text-muted">

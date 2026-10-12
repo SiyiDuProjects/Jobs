@@ -1,8 +1,16 @@
-import { type ComponentType, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { Segment } from "@heroui-pro/react";
 import { AppliedView } from "./manage/AppliedView";
 import { useManagement } from "./manage/store";
 import { ApplicationTotals } from "./ApplicationTotals";
+import { api } from "./job-board-model";
 export type JobKind = "newgrad" | "internship";
 export type BoardProps = {
   kind: JobKind;
@@ -10,6 +18,7 @@ export type BoardProps = {
   navigation: ReactNode;
   query: string;
   setQuery: (value: string) => void;
+  onTotal?: (value: number) => void;
 };
 export function readKind(): JobKind {
   const value =
@@ -39,17 +48,78 @@ export function JobWorkspace({
       : route === "/trash"
         ? "trash"
         : "jobs";
-  const navigation = <Segment
-          aria-label="岗位视图"
-          selectedKey={view}
-          onSelectionChange={(v) => {
-            location.hash = v === "jobs" ? "/" : "/" + v;
-          }}
-        >
-          <Segment.Item id="jobs">岗位</Segment.Item>
-          <Segment.Item id="applied">已投递</Segment.Item>
-          <Segment.Item id="trash">已删除</Segment.Item>
-        </Segment>;
+  const activeView = useRef(view);
+  activeView.current = view;
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = () => {
+      if (document.hidden) return;
+      for (const view of ["jobs", "trash"]) {
+        if (activeView.current === view) continue;
+        void api(
+          `/api/jobs?kind=${kind}&view=${view}&status=${view === "jobs" ? "unsubmitted" : ""}&page=1&page_size=1`,
+          { signal: controller.signal },
+        )
+          .then((data) =>
+            setCounts((current) => ({ ...current, [kind + view]: data.total })),
+          )
+          .catch(() => {});
+      }
+      void api("/api/application-overview", { signal: controller.signal })
+        .then((data) => {
+          const values = data.highest_stage_counts?.[kind];
+          if (values)
+            setCounts((current) => ({
+              ...current,
+              [kind + "applied"]: Object.values(values).reduce<number>(
+                (total, value) => total + Number(value),
+                0,
+              ),
+            }));
+        })
+        .catch(() => {});
+    };
+    refresh();
+    window.addEventListener("jobs:applications-changed", refresh);
+    const timer = setInterval(refresh, 60000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+      window.removeEventListener("jobs:applications-changed", refresh);
+    };
+  }, [kind]);
+  const onTotal = useCallback(
+    (total: number) =>
+      setCounts((current) =>
+        current[kind + view] === total
+          ? current
+          : { ...current, [kind + view]: total },
+      ),
+    [kind, view],
+  );
+  const navigation = (
+    <Segment
+      aria-label="岗位视图"
+      selectedKey={view}
+      onSelectionChange={(v) => {
+        location.hash = v === "jobs" ? "/" : "/" + v;
+      }}
+    >
+      {[
+        ["jobs", "岗位"],
+        ["applied", "已投递"],
+        ["trash", "已删除"],
+      ].map(([id, label]) => (
+        <Segment.Item id={id} key={id} aria-label={label}>
+          {label}
+          <span className="view-count">
+            {counts[kind + id]?.toLocaleString() ?? "—"}
+          </span>
+        </Segment.Item>
+      ))}
+    </Segment>
+  );
   return (
     <div className="space-y-5">
       {error && (
@@ -58,15 +128,23 @@ export function JobWorkspace({
         </p>
       )}
       {view === "applied" ? (
-        <>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            {navigation}
-            <ApplicationTotals key={kind} kind={kind} />
-          </div>
-          <AppliedView key={kind} kind={kind} />
-        </>
+        <AppliedView
+          key={kind}
+          kind={kind}
+          onTotal={onTotal}
+          navigation={navigation}
+          totals={<ApplicationTotals key={kind} kind={kind} />}
+        />
       ) : (
-        <Board key={`${view}:${kind}`} kind={kind} trash={view === "trash"} navigation={navigation} query={query} setQuery={setQuery} />
+        <Board
+          key={`${view}:${kind}`}
+          kind={kind}
+          trash={view === "trash"}
+          navigation={navigation}
+          onTotal={onTotal}
+          query={query}
+          setQuery={setQuery}
+        />
       )}
     </div>
   );

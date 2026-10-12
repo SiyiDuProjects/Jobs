@@ -133,7 +133,7 @@ export function Tags({
             }
           }}
         >
-          <Input placeholder={`添加${label}…`} />
+          <Input variant="secondary" placeholder={`添加${label}…`} />
         </TextField>
         <Button
           variant="secondary"

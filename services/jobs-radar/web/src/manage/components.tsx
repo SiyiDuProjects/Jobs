@@ -58,7 +58,7 @@ export function Field({
       maxLength={maxLength}
     >
       <Label>{label}</Label>
-      {multiline ? <TextArea rows={4} /> : <Input />}
+      {multiline ? <TextArea rows={4} variant="secondary" /> : <Input variant="secondary" />}
       {description && <Description>{description}</Description>}
       <FieldError />
     </TextField>
@@ -81,6 +81,7 @@ export function Choice({
 }) {
   return (
     <Select
+      variant="secondary"
       className="w-full min-w-0"
       aria-label={label}
       value={value || null}
@@ -147,7 +148,7 @@ export function Menu({
   return (
     <Dropdown>
       <Button
-        variant="ghost"
+        variant="secondary"
         aria-label={ariaLabel || label}
         isIconOnly={!!ariaLabel}
       >

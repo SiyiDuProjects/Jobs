@@ -21,6 +21,7 @@ async function fixture(route='/',authenticated=true,legacy=false,applications,se
   if(url==='/api/session')data={authenticated};
   else if(url.startsWith('/api/jobs?'))data={groups:{},jobs:[],application_counts:{submitted:0},total:0,source_health:[]};
   else if(url.startsWith('/api/filter-counts?'))data={newgrad:{total:0,submitted:0},internship:{total:0,submitted:0},total:0};
+  else if(url==='/api/application-overview')data={highest_stage_counts:{newgrad:{no_answer:docs.appliedList.value.filter(r=>r.kind==='newgrad').length},internship:{no_answer:docs.appliedList.value.filter(r=>r.kind==='internship').length}}};
   else if(url.startsWith('/api/application-counts?'))data={today:1,week:1};
   else if(url==='/api/manage/state'||url==='/api/manage/state?applications=0'){if(body){for(const c of body.changes){if((docs[c.key]?.revision||0)!==c.revision){status=409;break;}}if(status===200)for(const c of body.changes)docs[c.key]={value:c.value,revision:c.revision+1};}data=status===409?{error:'Conflict'}:docs;if(status===200&&url.endsWith('applications=0')){const {appliedList,applicationProgressReview,...rest}=data;data=rest;}}
   else if(url==='/api/manage/applications'){
@@ -31,12 +32,12 @@ async function fixture(route='/',authenticated=true,legacy=false,applications,se
   else throw Error('Unexpected URL '+url);
   return {ok:status===200,status,json:async()=>structuredClone(data)};
  };
- w.eval(bundle);for(let i=0;i<100&&!w.document.body.textContent.includes(authenticated?'今日已投':'连接你的 jobs');i++)await tick();await tick();await tick();
+ w.eval(bundle);for(let i=0;i<100&&!w.document.body.textContent.includes(authenticated?'今日 ':'连接你的 jobs');i++)await tick();await tick();await tick();
  return {w,dom,errors,requests,docs,records,setFailProfile:v=>{failProfile=v;}};
 }
 const findButton=(h,text)=>[...h.w.document.querySelectorAll('button, [role=tab]')].find(b=>b.textContent.trim()===text||b.getAttribute('aria-label')===text);
 
-async function click(h,text){const button=findButton(h,text);assert(button,'button '+text);button.click();await tick();await tick();}
+async function click(h,text){let button=findButton(h,text);if(!button&&['导出 CSV','手动补录','投递进展图','编辑','更新进展'].includes(text)){const menu=['编辑','更新进展'].includes(text)?h.w.document.querySelector('td button[aria-haspopup]'):findButton(h,'列表更多操作');menu.click();await tick();await tick();button=[...h.w.document.querySelectorAll('[role=menuitem]')].find(n=>n.textContent===text);}assert(button,'button '+text);button.click();await tick();await tick();}
 function fill(h,label,value){const labels=[...h.w.document.querySelectorAll('label')],node=labels.find(l=>l.textContent.replace('*','').trim()===label);const input=node?h.w.document.getElementById(node.htmlFor):h.w.document.querySelector(`[aria-label="${label}"]`);assert(input,'field '+label);const proto=input.tagName==='TEXTAREA'?h.w.HTMLTextAreaElement.prototype:h.w.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(input,value);input.dispatchEvent(new h.w.Event('input',{bubbles:true}));}
 async function until(predicate){for(let i=0;i<60;i++){if(predicate())return;await tick();}assert(predicate(),'condition did not become true');}
 
@@ -50,15 +51,15 @@ test('one employment switch scopes rows, flow, export, counts and trash independ
   await until(()=>h.w.document.body.textContent.includes('Fulltime engineer'));
   assert(h.w.document.body.textContent.includes('Another fulltime'));
   assert(!h.w.document.body.textContent.includes('Intern engineer'));
-  assert(h.w.document.body.textContent.includes('共 2 条'));
+  assert.equal(h.w.document.querySelectorAll('.job-list-desktop tbody tr').length,2);
   assert(!h.w.document.body.textContent.includes('待核对邮件'));
-  assert(findButton(h,'无回复 · 2'));
+  await click(h,'投递进展图');assert(findButton(h,'无回复 · 2'));await click(h,'取消');
   assert(!h.w.document.body.textContent.includes('暂无有效推进'));
   await click(h,'实习');
   await until(()=>h.w.document.body.textContent.includes('Intern engineer'));
   assert(!h.w.document.body.textContent.includes('Fulltime engineer'));
   assert(!h.w.document.body.textContent.includes('Another fulltime'));
-  assert(h.w.document.body.textContent.includes('共 1 条'));
+  assert.equal(h.w.document.querySelectorAll('.job-list-desktop tbody tr').length,1);
   assert(h.requests.some(r=>r.url.startsWith('/api/application-counts?kind=internship&')));
   let exported;
   h.w.URL.createObjectURL=blob=>{exported=blob;return 'blob:test';};h.w.URL.revokeObjectURL=()=>{};
@@ -89,6 +90,7 @@ test('highest-stage chart counts external and rejected applications once within 
  });
  const h=await fixture('/',true,false,rows);
  try {
+  await click(h,'投递进展图');
   await until(()=>findButton(h,'在线测评 · 3'));
   assert(findButton(h,'面试 · 第 1 轮 · 2'));
   assert(findButton(h,'面试 · 第 2 轮 · 2'));
@@ -98,11 +100,11 @@ test('highest-stage chart counts external and rejected applications once within 
   assert(h.w.document.body.textContent.includes('Role 0'));
   assert(h.w.document.body.textContent.includes('Role 1'));
   assert(!h.w.document.body.textContent.includes('Role 2'));
-  await click(h,'在线测评 · 3');
+  await click(h,'投递进展图');await click(h,'在线测评 · 3');
   assert(h.w.document.body.textContent.includes('Role 3'));
   assert(!h.w.document.body.textContent.includes('Role 0'));
   await click(h,'实习');
-  await until(()=>findButton(h,'在线测评 · 5'));
+  await click(h,'投递进展图');await until(()=>findButton(h,'在线测评 · 5'));
   assert(!findButton(h,'面试 · 第 2 轮 · 2'));
   assert(h.w.document.body.textContent.includes('共 5 条'));
   assert.deepEqual(h.errors,[]);
@@ -110,6 +112,24 @@ test('highest-stage chart counts external and rejected applications once within 
 });
 test('settings keep only navigation switches and preserve old private configuration',async()=>{const settings={autofillSettings:{autoSubmit:false},premiumSettings:{responseContext:'Unmigrated synthetic context'}};const h=await fixture('/settings',true,false,undefined,settings);try{await until(()=>h.w.document.querySelectorAll('[role="switch"]').length===2);h.w.document.querySelector('[role="switch"]').click();await until(()=>h.docs.settings.value.autofillSettings.autoClickNextPage===true);assert.equal(h.docs.settings.value.autofillSettings.autoSubmit,false);assert.equal(h.docs.settings.value.autofillSettings.saveApplications,true);assert.equal(h.docs.settings.value.autofillSettings.saveResponses,true);assert.equal(h.docs.settings.value.premiumSettings.responseContext,settings.premiumSettings.responseContext);assert.doesNotMatch(h.w.document.body.textContent,/Daily|Configuration|AI 回答|Workday 自动填写技能/);assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
 test('unauthenticated page never reads private documents',async()=>{const h=await fixture('/',false);try{assert.equal(h.requests.length,1);assert.match(h.w.document.body.textContent,/有服务器访问权限的助手/);}finally{h.dom.window.close();}});
-test('editing one application retains its Profile and uses row mutation',async()=>{const h=await fixture();try{await click(h,'编辑');fill(h,'岗位名称','Edited Intern');await tick();await click(h,'保存');await until(()=>h.docs.appliedList.value[0].jobTitle==='Edited Intern');assert.equal(h.docs.appliedList.value[0].profileName,'Intern');assert(h.requests.some(r=>r.url==='/api/manage/applications'));assert(!h.requests.some(r=>r.url==='/api/manage/state'&&r.body));assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
+test('editing one application retains its Profile and uses row mutation',async()=>{const h=await fixture();try{await click(h,'编辑');fill(h,'岗位名称','Edited Intern');await tick();await click(h,'保存');await until(()=>h.docs.appliedList.value[0].jobTitle==='Edited Intern');assert.equal(h.docs.appliedList.value[0].profileName,'Intern');assert(h.requests.some(r=>r.url==='/api/manage/applications'));assert(!h.requests.some(r=>r.url==='/api/manage/state'&&r.body&&JSON.parse(r.body).changes.some(c=>c.key==='appliedList')));assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
 test('inline Profile edit saves bound revision and preserves attachments',async()=>{const h=await fixture('/profile');try{await until(()=>h.w.document.getElementById('personal'));await click(h,'个人');fill(h,'名','Changed');await tick();await click(h,'保存更改');await until(()=>h.records[ng].profile.nameData.firstName==='Changed');const write=h.requests.find(r=>r.url==='/api/manage/profiles/'+ng&&r.body);assert.equal(JSON.parse(write.body).expected_sync,'v1');assert.deepEqual(h.records[ng].profile.resumeData,{resumeBase64:'',fileName:'',fileSize:0,dateUploaded:''});assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
 test('failed inline save retains draft and blocks navigation until retry succeeds',async()=>{const h=await fixture('/profile');try{await until(()=>h.w.document.getElementById('personal'));await click(h,'个人');h.setFailProfile(true);fill(h,'名','Keep my draft');await tick();assert(findButton(h,'设置').disabled);await click(h,'保存更改');await until(()=>h.w.document.body.textContent.includes('Profile version conflict'));assert([...h.w.document.querySelectorAll('input')].some(i=>i.value==='Keep my draft'));const unsaved=new h.w.Event('beforeunload',{cancelable:true});h.w.dispatchEvent(unsaved);assert(unsaved.defaultPrevented);h.setFailProfile(false);await click(h,'保存更改');await until(()=>h.records[ng].profile.nameData.firstName==='Keep my draft');await tick();const saved=new h.w.Event('beforeunload',{cancelable:true});h.w.dispatchEvent(saved);assert(!saved.defaultPrevented);assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
+
+test('top-level kind is the only Profile selector and switching never rewrites its correspondence',async()=>{
+ const h=await fixture('/profile');
+ try {
+  await until(()=>h.w.document.querySelector('h1')?.textContent==='全职资料（Newgrad）');
+  assert(!h.w.document.querySelector('[aria-label="当前资料"]'));
+  const bindingWrites=()=>h.requests.filter(r=>r.body&&r.url.startsWith('/api/manage/state')&&JSON.parse(r.body).changes.some(c=>c.key==='jobsKindProfiles')).length;
+  assert.equal(bindingWrites(),1,'name defaults are materialized once');
+  const original=structuredClone(h.docs.jobsKindProfiles.value);
+  await click(h,'实习');await until(()=>h.w.document.querySelector('h1')?.textContent==='实习资料（Intern）');
+  await click(h,'全职');await until(()=>h.w.document.querySelector('h1')?.textContent==='全职资料（Newgrad）');
+  assert.deepEqual(h.docs.jobsKindProfiles.value,original);assert.equal(bindingWrites(),1);
+  await click(h,'更多');await until(()=>h.w.document.querySelector('[role="menu"]'));
+  const items=[...h.w.document.querySelectorAll('[role="menuitem"]')].map(n=>n.textContent);
+  for(const label of ['新建资料','重命名','删除资料'])assert(items.includes(label));
+  assert.deepEqual(h.errors,[]);
+ } finally {h.dom.window.close();}
+});

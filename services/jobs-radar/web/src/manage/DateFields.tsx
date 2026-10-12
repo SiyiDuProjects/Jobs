@@ -43,7 +43,7 @@ export function CalendarField({
         isRequired={required}
       >
         <Label>{label}</Label>
-        <DateField.Group fullWidth>
+        <DateField.Group fullWidth variant="secondary">
           <DateField.Input>
             {(segment) => <DateField.Segment segment={segment} />}
           </DateField.Input>
@@ -112,6 +112,7 @@ export function MonthField({
       <legend className="text-sm font-medium">{label}</legend>
       <div className="grid grid-cols-2 gap-2">
         <NumberField
+          variant="secondary"
           aria-label={`${label}年份`}
           fullWidth
           value={year}
@@ -129,6 +130,7 @@ export function MonthField({
           </NumberField.Group>
         </NumberField>
         <Select
+          variant="secondary"
           aria-label={`${label}月份`}
           className="w-full min-w-0"
           value={month || null}

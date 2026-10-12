@@ -29,7 +29,7 @@ export function ApplicationTotals({ kind }: { kind: 'newgrad' | 'internship' }) 
       window.removeEventListener("jobs:applications-changed", refresh);
     };
   }, [kind]);
-  return <span className="text-sm text-muted" aria-live="polite">
-    {failed ? "投递数暂时不可用" : counts ? `今日已投 ${counts.today} · 本周已投 ${counts.week}` : "正在读取投递数…"}
+  return <span className="application-totals text-muted" aria-live="polite">
+    {failed ? "投递数暂时不可用" : counts ? `今日 ${counts.today} · 本周 ${counts.week}` : "今日 — · 本周 —"}
   </span>;
 }

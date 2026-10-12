@@ -39,7 +39,7 @@ export function DateWindowFilter({
                   key={key}
                   slot={null}
                   size="sm"
-                  variant={value === key ? "secondary" : "ghost"}
+                  variant="secondary"
                   aria-pressed={value === key}
                   onPress={() => {
                     onChange(key);

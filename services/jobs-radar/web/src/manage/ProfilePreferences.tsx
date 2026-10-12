@@ -313,7 +313,7 @@ export function ProfilePreferences({
         onChange={(v) => set("interviewLanguage", v)}
       />
       <Field
-        label="得知职位的渠道"
+        label="得知岗位的渠道"
         value={app.defaultSource}
         onChange={(v) => set("defaultSource", v)}
       />

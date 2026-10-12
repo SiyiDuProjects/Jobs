@@ -19,6 +19,7 @@ async function page(actionFailures=0,jobState={},saved={},applications=[]){
   const u=new URL(path,w.location.href);requests.push(u.pathname+u.search);let value;
   if(u.pathname==='/api/session')value={authenticated:true};
   else if(u.pathname==='/api/manage/state')value=u.searchParams.get('applications')==='0'?{}:{appliedList:{value:applications,revision:0}};
+  else if(u.pathname==='/api/application-overview')value={highest_stage_counts:{newgrad:{no_answer:applications.length}}};
   else if(u.pathname==='/api/application-counts')value={today:2,week:5};
   else if(u.pathname==='/api/manage/profiles')value=[];
   else if(u.pathname==='/api/manage/progress')value={applications:[{history:[]}]};
@@ -45,6 +46,11 @@ async function page(actionFailures=0,jobState={},saved={},applications=[]){
  catch(error){const details=JSON.stringify({errors,requests,text:w.document.body.textContent});w.close();throw Error(error.message+' '+details);}
  return {w,dom,requests,errors,actions};
 }
+async function toolbarAction(h,label){
+ h.w.document.querySelector('[aria-label="列表更多操作"]').click();
+ await until(()=>[...h.w.document.querySelectorAll('[role=menuitem]')].some(n=>n.textContent.startsWith(label)));
+ [...h.w.document.querySelectorAll('[role=menuitem]')].find(n=>n.textContent.startsWith(label)).click();
+}
 async function menuAction(h,label){
  const trigger=h.w.document.querySelector('td button[aria-haspopup]');
  trigger.click();
@@ -52,10 +58,11 @@ async function menuAction(h,label){
  await until(()=>item()&&item().getAttribute('aria-disabled')!=='true');
  item().click();await until(()=>!h.w.document.querySelector('[role="menu"]'));
 }
-test('board uses list totals without extra statistics or application history requests',async()=>{
+test('view tabs read a count summary once without loading application history',async()=>{
  const h=await page();try{
   await tick();assert(h.w.document.body.textContent.includes('Fixture Employer'));
-  assert(!h.requests.some(path=>path.startsWith('/api/filter-counts')||path.startsWith('/api/application-overview')));
+  assert(!h.requests.some(path=>path.startsWith('/api/filter-counts')||path==='/api/manage/state'));
+  assert.equal(h.requests.filter(path=>path==='/api/application-overview').length,1);
   assert.deepEqual(h.errors,[]);
  }finally{h.dom.window.close();}
 });
@@ -70,12 +77,12 @@ test('board pagination issues only a list request',async()=>{
 
 test('rows expose only exceptional states and the Apply action',async()=>{
  for(const [status,active,label,state] of [
-  ['not_started',true,'申请','待初筛'],
-  ['in_progress',true,'申请','待初筛'],
-  ['needs_input',true,'申请','待初筛'],
-  ['submitted_unconfirmed',true,'申请','待初筛'],
+  ['not_started',true,'投递','待初筛'],
+  ['in_progress',true,'投递','待初筛'],
+  ['needs_input',true,'投递','待初筛'],
+  ['submitted_unconfirmed',true,'投递','待初筛'],
   ['submitted',true,null,'已投递'],
-  ['not_started',false,'申请','待初筛'],
+  ['not_started',false,'投递','待初筛'],
  ]){
   const h=await page(0,{status,active});try{
    assert.equal(h.w.document.querySelector('a[data-jobs-id]')?.textContent || null,label);
@@ -88,8 +95,8 @@ test('rows expose only exceptional states and the Apply action',async()=>{
  }
 });
 
-const lastJobs=h=>new URL(h.requests.filter(p=>p.startsWith('/api/jobs?')).at(-1),'https://fixture.test').searchParams;
-const toggle=h=>[...h.w.document.querySelectorAll('button[aria-pressed]')].filter(n=>['地区筛选','公司筛选'].includes(n.textContent));
+const lastJobs=h=>new URL(h.requests.filter(p=>p.startsWith('/api/jobs?')&&p.includes('page_size=50')).at(-1),'https://fixture.test').searchParams;
+const toggle=h=>[...h.w.document.querySelectorAll('button[aria-pressed]')].filter(n=>['地区','公司'].includes(n.textContent));
 test('region and employer switches have independent defaults and remember both kinds',async()=>{
  const h=await page();try{
   assert.equal(lastJobs(h).get('status'),'unsubmitted');
@@ -137,11 +144,11 @@ test('job submission badges and application progress stay on their respective pa
   assert(badge?.textContent.includes('已投递'));
   assert(!h.w.document.body.textContent.includes('面试 · 第 2 轮'));
   assert(!h.requests.includes('/api/manage/state'),'the jobs page does not load application history');
-  assert(h.w.document.body.textContent.includes('今日已投 2 · 本周已投 5'));
+  assert(h.w.document.body.textContent.includes('今日 2 · 本周 5'));
   h.w.location.hash='/applications';
   await until(()=>h.w.document.body.textContent.includes('面试 · 第 2 轮'));
-  [...h.w.document.querySelectorAll('button')].find(b=>b.textContent.includes('面试 · 第 2 轮')).click();
-  await until(()=>h.w.document.body.textContent.includes('申请进度'));
+  await menuAction(h,'更新进展');
+  await until(()=>h.w.document.body.textContent.includes('投递进展'));
   assert(h.requests.some(url=>url.startsWith('/api/manage/progress?')));
   assert.deepEqual(h.errors,[]);
  } finally {h.dom.window.close();}
@@ -181,14 +188,14 @@ test('simplified filters preserve exclusions and clear retired hidden criteria',
   const p=lastJobs(h);assert.equal(p.get('exclude_companies'),'TikTok');assert.equal(p.get('company_newgrad'),'1');
   for(const name of ['group','screening','category','location','roles','exclude_titles'])assert(!p.has(name));
   assert.equal(p.get('status'),'unsubmitted');
-  const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label);
+  const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label||b.getAttribute('aria-label')===label);
   assert(!button('仅看未投递'));
   assert(!button('筛选设置'));assert(!h.w.document.body.textContent.includes('FAANG+ 或精选公司'));
-  button('排除公司').click();await until(()=>h.w.document.querySelector('[role="dialog"] input'));
+  await toolbarAction(h,'排除公司');await until(()=>h.w.document.querySelector('[role="dialog"] input'));
   assert.equal(h.w.document.querySelector('[role="dialog"] input').value,'TikTok');
   button('清空').click();button('取消').click();await until(()=>!h.w.document.querySelector('[role="dialog"]'));
   assert.equal(lastJobs(h).get('exclude_companies'),'TikTok');
-  button('排除公司').click();await until(()=>h.w.document.querySelector('[role="dialog"] input'));
+  await toolbarAction(h,'排除公司');await until(()=>h.w.document.querySelector('[role="dialog"] input'));
   button('清空').click();await until(()=>h.w.document.querySelector('[role="dialog"] input').value==='');button('保存').click();await until(()=>lastJobs(h).get('exclude_companies')==='');
   assert.deepEqual(h.errors,[]);
  }finally{h.dom.window.close();}
@@ -198,7 +205,7 @@ test('date shortcuts and same-grid cross-month selection work',async()=>{
  const h=await page(0,{}, {'radar-filters-shared-v8':{added_date:'2026-10-09/2026-10-09'}});
  try {
   const trigger=()=>h.w.document.querySelector('button[aria-label^="收录时间："]');
-  const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label);
+  const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label||b.getAttribute('aria-label')===label);
   trigger().click();await until(()=>button('近 7 天'));
   button('今天').click();await until(()=>trigger().textContent.includes('今天'));
   assert.equal(Number(lastJobs(h).get('added_before'))-Number(lastJobs(h).get('added_since')),86400);
@@ -241,7 +248,7 @@ test('jobs always requests unsubmitted across kind changes while trash remains u
   assert.equal(lastJobs(h).get('status'),'unsubmitted');
   assert.equal(lastJobs(h).get('text'),'');
   assert(!h.w.document.body.textContent.includes('仅看未投递'));
-  const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label);
+  const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label||b.getAttribute('aria-label')===label);
   button('实习').click();await until(()=>lastJobs(h).get('kind')==='internship');
   assert.equal(lastJobs(h).get('status'),'unsubmitted');
   assert.equal(lastJobs(h).get('exclude_companies'),'Preserved');

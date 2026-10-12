@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Tabs } from "@heroui/react";
+import { Button, Card, Spinner, Tabs } from "@heroui/react";
+import type { JobKind } from "../JobWorkspace";
+import { kindLabel, profileForKind } from "./kind-profiles";
 import { store, useManagement } from "./store";
 import {
   blankEducation,
@@ -7,7 +9,7 @@ import {
   same,
   type Profile as ProfileData,
 } from "./model";
-import { Field, Menu, Upload, Toggle, download } from "./components";
+import { Dialog, Field, Menu, Upload, Toggle, download } from "./components";
 import { Tags } from "./ProfileWidgets";
 import { HistoryFields, readResume } from "./ProfileEditors";
 import { ProfilePersonal, ProfilePreferences } from "./ProfilePreferences";
@@ -37,25 +39,49 @@ export function missingProfileFields(p: ProfileData) {
     );
   }).length;
 }
-export function Profile() {
-  const { current, docs, pending } = useManagement();
-  if (!current)
+export function Profile({ kind }: { kind: JobKind }) {
+  const { current, docs, profiles, pending } = useManagement();
+  const id = profileForKind(kind, profiles, docs.jobsKindProfiles?.value);
+  if (!id)
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-semibold">资料</h1>
-        <p>还没有资料。</p>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-base font-semibold">
+            {kindLabel(kind)}资料（未设置）
+          </h1>
+          <Menu
+            label="更多"
+            items={[
+              {
+                id: "new",
+                label: "新建资料",
+                action: () => {
+                  location.hash = "/profile/new";
+                },
+              },
+            ]}
+          />
+        </div>
+        <p>请在设置中选择{kindLabel(kind)}使用的资料。</p>
         <Button
           onPress={() => {
-            location.hash = "/profile/new";
+            location.hash = "/settings";
           }}
         >
-          新建资料
+          设置资料对应
         </Button>
+      </div>
+    );
+  if (current?.id !== id)
+    return (
+      <div className="py-20 flex justify-center">
+        <Spinner aria-label={`正在读取${kindLabel(kind)}资料`} />
       </div>
     );
   return (
     <ProfileForm
       key={current.id}
+      kind={kind}
       record={current}
       responses={docs["jobsResponses:" + current.id]?.value || []}
       busy={pending > 0}
@@ -66,11 +92,16 @@ function ProfileForm({
   record,
   responses,
   busy,
+  kind,
 }: {
   record: NonNullable<ReturnType<typeof useManagement>["current"]>;
   responses: any[];
   busy: boolean;
+  kind: JobKind;
 }) {
+  const [dialog, setDialog] = useState<"rename" | "delete" | null>(null);
+  const [name, setName] = useState("");
+  const { profiles, unsaved } = useManagement();
   const [p, setP] = useState<ProfileData>(() =>
     structuredClone(record.profile),
   );
@@ -127,21 +158,39 @@ function ProfileForm({
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">{p.profileName}</h1>
+          <h1 className="text-base font-semibold break-words">
+            {kindLabel(kind)}资料（{p.profileName}）
+          </h1>
           <p className="text-sm text-muted mt-1">
             常用资料还有 {missingProfileFields(p)} 项未填写
           </p>
         </div>
         <Menu
-          label="管理资料"
+          label="更多"
           items={[
             {
               id: "new",
               label: "新建资料",
-              disabled: dirty,
+              disabled: dirty || busy || unsaved > 0,
               action: () => {
                 location.hash = "/profile/new";
               },
+            },
+            {
+              id: "rename",
+              label: "重命名",
+              disabled: dirty || busy || unsaved > 0,
+              action: () => {
+                setName(p.profileName);
+                setDialog("rename");
+              },
+            },
+            {
+              id: "delete",
+              label: "删除资料",
+              danger: true,
+              disabled: dirty || busy || unsaved > 0 || profiles.length < 2,
+              action: () => setDialog("delete"),
             },
             {
               id: "export",
@@ -199,9 +248,6 @@ function ProfileForm({
           className="data-[inert=true]:hidden"
         >
           <Card id="experience">
-            <Card.Header>
-              <Card.Title>经历</Card.Title>
-            </Card.Header>
             <Card.Content className="gap-6">
               {(["jobData", "educationData"] as const).map((kind) => (
                 <section key={kind} className="space-y-4">
@@ -241,7 +287,7 @@ function ProfileForm({
                       />
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="secondary"
                         onPress={() =>
                           part(
                             kind,
@@ -313,7 +359,7 @@ function ProfileForm({
                     ))}
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       onPress={() =>
                         part(
                           "projectData",
@@ -374,7 +420,7 @@ function ProfileForm({
                     />
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       onPress={() =>
                         part(
                           "languageData",
@@ -431,15 +477,7 @@ function ProfileForm({
           className="data-[inert=true]:hidden"
         >
           <Card id="personal">
-            <Card.Header>
-              <Card.Title>个人</Card.Title>
-            </Card.Header>
             <Card.Content className="gap-5">
-              <Field
-                label="资料名称"
-                value={p.profileName}
-                onChange={(v) => part("profileName", v)}
-              />
               {textGroup("nameData", {
                 firstName: "名",
                 middleName: "中间名",
@@ -481,19 +519,42 @@ function ProfileForm({
           className="data-[inert=true]:hidden"
         >
           <Card id="preferences">
-            <Card.Header>
-              <Card.Title>偏好</Card.Title>
-            </Card.Header>
             <Card.Content>
               <ProfilePreferences p={p} onChange={setP} />
             </Card.Content>
           </Card>
         </Tabs.Panel>
       </Tabs>
+      {dialog === "rename" && (
+        <Dialog
+          title="重命名资料"
+          onClose={() => setDialog(null)}
+          onSave={async () => {
+            if (!name.trim()) throw Error("请填写资料名称");
+            await store.saveProfile({ ...p, profileName: name.trim() }, record);
+          }}
+        >
+          <Field label="资料名称" value={name} onChange={setName} required />
+        </Dialog>
+      )}
+      {dialog === "delete" && (
+        <Dialog
+          title="删除资料"
+          danger
+          saveLabel="删除资料"
+          onClose={() => setDialog(null)}
+          onSave={() => store.deleteProfile(record.id)}
+        >
+          <p>
+            删除“{p.profileName}
+            ”后，使用它的岗位类型需要在设置中重新选择资料。已有投递记录会保留。
+          </p>
+        </Dialog>
+      )}
       {dirty && (
         <div className="flex justify-end gap-3">
           <Button
-            variant="ghost"
+            variant="secondary"
             isDisabled={busy}
             onPress={() => {
               setP(structuredClone(base));
