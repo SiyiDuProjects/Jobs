@@ -182,9 +182,7 @@ test('simplified filters preserve exclusions and clear retired hidden criteria',
   for(const name of ['group','screening','category','location','roles','exclude_titles'])assert(!p.has(name));
   assert.equal(p.get('status'),'unsubmitted');
   const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label);
-  assert.equal(button('仅看未投递')?.getAttribute('aria-pressed'),'true');
-  button('仅看未投递').click();await until(()=>lastJobs(h).get('status')==='recent');
-  button('仅看未投递').click();await until(()=>lastJobs(h).get('status')==='unsubmitted');
+  assert(!button('仅看未投递'));
   assert(!button('筛选设置'));assert(!h.w.document.body.textContent.includes('FAANG+ 或精选公司'));
   button('排除公司').click();await until(()=>h.w.document.querySelector('[role="dialog"] input'));
   assert.equal(h.w.document.querySelector('[role="dialog"] input').value,'TikTok');
@@ -234,4 +232,24 @@ test('a visible next-month date can finish a range without navigating',async()=>
   await until(()=>trigger().textContent.includes('09/28 – 10/02'));
   assert.deepEqual(h.errors,[]);
  }finally{h.dom.window.close();}
+});
+
+
+test('jobs always requests unsubmitted across kind changes while trash remains unrestricted',async()=>{
+ const h=await page(0,{}, {'radar-filters-shared-v9':{status:'recent',added_date:'last7',exclude_companies:'Preserved',text:'discard'}});
+ try {
+  assert.equal(lastJobs(h).get('status'),'unsubmitted');
+  assert.equal(lastJobs(h).get('text'),'');
+  assert(!h.w.document.body.textContent.includes('仅看未投递'));
+  const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label);
+  button('实习').click();await until(()=>lastJobs(h).get('kind')==='internship');
+  assert.equal(lastJobs(h).get('status'),'unsubmitted');
+  assert.equal(lastJobs(h).get('exclude_companies'),'Preserved');
+  assert(!('status' in JSON.parse(h.w.localStorage.getItem('radar-filters-shared-v9'))));
+  button('已删除').click();await until(()=>lastJobs(h).get('view')==='trash');
+  assert.equal(lastJobs(h).get('status'),'');
+  const jobsRequests=h.requests.filter(p=>p.startsWith('/api/jobs?')).map(p=>new URL(p,'https://fixture.test').searchParams).filter(p=>p.get('view')==='jobs');
+  assert(jobsRequests.every(p=>p.get('status')==='unsubmitted'));
+  assert.deepEqual(h.errors,[]);
+ } finally {h.dom.window.close();}
 });

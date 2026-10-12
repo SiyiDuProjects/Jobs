@@ -47,7 +47,6 @@ export type Filters = {
   company_internship: string;
   region: string;
   text: string;
-  status: string;
   added_date: string;
   page: number;
 };
@@ -74,7 +73,6 @@ export const defaults: Filters = {
   company_internship: "1",
   region: "focus_remote",
   text: "",
-  status: "unsubmitted",
   added_date: "",
   page: 1,
 };

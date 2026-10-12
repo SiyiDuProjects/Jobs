@@ -29,7 +29,13 @@ import {
   type Listing,
   type Filters,
 } from "./job-board-model";
-export function JobsBoard({ kind, trash, navigation, query, setQuery }: BoardProps) {
+export function JobsBoard({
+  kind,
+  trash,
+  navigation,
+  query,
+  setQuery,
+}: BoardProps) {
   const kindRef = useRef(kind);
   kindRef.current = kind;
   const auth = true;
@@ -45,12 +51,14 @@ export function JobsBoard({ kind, trash, navigation, query, setQuery }: BoardPro
         company_internship: "",
         company_newgrad: "",
         region: "",
-        status: "",
+        text: query,
       };
     return { ...readBoardFilters(localStorage, kind), text: query };
   });
   const [excludedCompanies, setExcludedCompanies] = useState("");
-  const [action, setAction] = useState<{ type: "trash"; job: Job } | null>(null),
+  const [action, setAction] = useState<{ type: "trash"; job: Job } | null>(
+      null,
+    ),
     [detail, setDetail] = useState(""),
     [actionError, setActionError] = useState(""),
     [saving, setSaving] = useState(false);
@@ -75,7 +83,7 @@ export function JobsBoard({ kind, trash, navigation, query, setQuery }: BoardPro
       kind,
       view: trash ? "trash" : "jobs",
       page_size: "50",
-      ...(trash ? { status: "" } : {}),
+      status: trash ? "" : "unsubmitted",
     });
     try {
       const v = await loader.jobs(params);
@@ -89,7 +97,7 @@ export function JobsBoard({ kind, trash, navigation, query, setQuery }: BoardPro
     } finally {
       if (current()) setBusy(false);
     }
-  }, [filters, kind, loader]);
+  }, [filters, kind, loader, trash]);
   useEffect(
     () => () => {
       ++serial.current;
@@ -271,36 +279,64 @@ export function JobsBoard({ kind, trash, navigation, query, setQuery }: BoardPro
         <>
           {!trash && <ExtensionSync onSynced={load} />}
           <div className="board-toolbar">
-            <section className="board-toolbar-scoped" aria-label="类型与岗位筛选">
+            <section
+              className="board-toolbar-scoped"
+              aria-label="类型与岗位筛选"
+            >
               {navigation}
-              {!trash && <div className="flex items-center gap-2">
-                <Button size="sm" variant={filters.region ? "secondary" : "ghost"}
-                  aria-pressed={!!filters.region} onPress={() => toggleRegion(!filters.region)}>
-                  地区筛选
-                </Button>
-                <Button size="sm" variant={filters[companyKey] === "1" ? "secondary" : "ghost"}
-                  aria-pressed={filters[companyKey] === "1"}
-                  onPress={() => filter(companyKey, filters[companyKey] === "1" ? "" : "1")}>
-                  公司筛选
-                </Button>
-              </div>}
+              {!trash && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={filters.region ? "secondary" : "ghost"}
+                    aria-pressed={!!filters.region}
+                    onPress={() => toggleRegion(!filters.region)}
+                  >
+                    地区筛选
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={
+                      filters[companyKey] === "1" ? "secondary" : "ghost"
+                    }
+                    aria-pressed={filters[companyKey] === "1"}
+                    onPress={() =>
+                      filter(companyKey, filters[companyKey] === "1" ? "" : "1")
+                    }
+                  >
+                    公司筛选
+                  </Button>
+                </div>
+              )}
             </section>
             <section className="board-toolbar-shared" aria-label="通用筛选">
-              {!trash && <DateWindowFilter value={filters.added_date} onChange={(v) => filter("added_date", v)} />}
-              <TextField aria-label="搜索公司或岗位" value={query} onChange={setQuery} className="board-search">
+              {!trash && (
+                <DateWindowFilter
+                  value={filters.added_date}
+                  onChange={(v) => filter("added_date", v)}
+                />
+              )}
+              <TextField
+                aria-label="搜索公司或岗位"
+                value={query}
+                onChange={setQuery}
+                className="board-search"
+              >
                 <Input placeholder="搜索公司或岗位" variant="secondary" />
               </TextField>
-              {!trash && <>
-                <Button size="sm" variant={filters.status === "unsubmitted" ? "secondary" : "ghost"}
-                  aria-pressed={filters.status === "unsubmitted"}
-                  onPress={() => filter("status", filters.status === "unsubmitted" ? "recent" : "unsubmitted")}>
-                  仅看未投递
+              {!trash && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-haspopup="dialog"
+                  onPress={() => {
+                    setExcludedCompanies(filters.exclude_companies);
+                    setExclusionsOpen(true);
+                  }}
+                >
+                  排除公司
                 </Button>
-                <Button size="sm" variant="ghost" aria-haspopup="dialog" onPress={() => {
-                  setExcludedCompanies(filters.exclude_companies);
-                  setExclusionsOpen(true);
-                }}>排除公司</Button>
-              </>}
+              )}
             </section>
           </div>
           {!trash && !!filters.exclude_companies && (
