@@ -75,6 +75,12 @@ elif command == 'ssh':
             print('Insufficient free disk space', file=sys.stderr)
             sys.exit(1)
         print('{"passed": true}')
+    elif remote[0] == 'flock':
+        # Retention holds the host and live release locks around the stdin program.
+        assert remote[:2] == ['flock', '-n'] and remote[2].endswith('/.jobs-radar-release-host.lock')
+        assert remote[3:5] == ['flock', '-n'] and remote[5].endswith('/jobs-radar/.release.lock')
+        assert remote[6:10] == ['sudo', '-n', 'python3', '-'] and 'def plan(' in data
+        print('{"applied": ' + ('true' if remote[-1] == '--apply' else 'false') + '}')
     elif remote[:2] == ['bash', '-s']:
         if remote[3].endswith('/source.tar'):
             assert 'sha256sum' in data and 'tar -xf' in data

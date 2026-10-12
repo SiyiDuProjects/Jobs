@@ -90,6 +90,32 @@ def test_compatible_rollback_keeps_post_release_writes_and_restores_code(tmp_pat
     assert (live / 'data' / 'jobs.sqlite').read_text() == 'new owner records after release'
 
 
+def retention_calls(state):
+    return [call for call in state['calls'] if call[0] == 'sudo' and any(value.endswith('/prune_releases.py') for value in call)]
+
+
+@pytest.mark.parametrize('failure', ['probe', 'public_verify'])
+def test_failed_release_retires_no_recovery_copies(tmp_path, failure):
+    setup(tmp_path, failure)
+    result, state = run(tmp_path)
+    assert result.returncode != 0 and not retention_calls(state)
+
+
+def test_retention_runs_after_the_rollback_pair_is_recorded_but_not_on_rollback(tmp_path):
+    live, _, archive = setup(tmp_path)
+    result, state = run(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    [call] = retention_calls(state)
+    assert call[-1] == '--apply' and call[call.index('--live') + 1] == str(live)
+    assert call[call.index('--stage') + 1] == str(tmp_path) and call[call.index('--archive') + 1] == str(archive)
+    assert (live / '.rollback-target').exists()
+    state['calls'] = []
+    (tmp_path / 'state.json').write_text(json.dumps(state))
+    result, state = run(tmp_path, '--rollback')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not retention_calls(state)
+
+
 def test_candidate_digest_mismatch_refuses_before_any_writer_is_paused(tmp_path):
     live, _, _ = setup(tmp_path)
     result, state = run(tmp_path, image_id='sha256:' + '0' * 64)

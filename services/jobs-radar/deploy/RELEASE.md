@@ -240,3 +240,29 @@ container ID remains pending in the durable cleanup ledger. An empty container
 list cannot prove that the daemon will not finish that create later. Pending
 receipts block another release and background writer resumption; later cleanup
 retries the exact name and ownership label, then records the full verified ID.
+
+## Release retention
+
+Every release writes a full pre-change database copy, a code archive, a staged
+source tree, an import folder and a commit image tag. Daily backups keep three
+(`prune_backups.py`); these per-release copies are bounded by
+`prune_releases.py`, which a completed release runs under its locks after the
+new rollback pair is recorded. Failed releases and rollbacks remove nothing.
+
+Kept: the live release and its recorded rollback commit (stage, image tag and
+code archive), the two newest pre-change database copies (each verified before
+anything older is removed), the two newest code archives and per-run scratch
+records, and any stage/import folder or its commit image modified within the
+last hour (a concurrent release). Migration reports stay. Images are never
+force-removed, so a tag used by any container remains. Website bundles,
+scheduled backups and every name not written by the release scripts are only
+listed under `unmanaged` for a separate decision.
+
+```text
+bash services/jobs-radar/deploy/release.sh --prune           # dry run, JSON plan
+bash services/jobs-radar/deploy/release.sh --prune --apply   # committed rules only
+```
+
+The rules travel over stdin under the same host/live locks, so a disk too full
+for the next release's capacity preflight can be recovered without first
+installing a release. A failed capacity preflight points here.

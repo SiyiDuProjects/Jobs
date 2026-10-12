@@ -111,6 +111,27 @@ def test_rollback_uses_recorded_server_artifacts_without_a_new_candidate(tmp_pat
 
 
 
+@pytest.mark.parametrize('args', [('--prune',), ('--prune', '--apply')])
+def test_retention_runs_under_release_locks_and_defaults_to_dry_run(tmp_path, args):
+    result, calls = run(tmp_path, args)
+    assert result.returncode == 0, result.stderr
+    [remote] = [call for call in calls if call[0] == 'ssh']
+    assert '"applied": ' + ('true' if '--apply' in args else 'false') in result.stdout
+    assert remote[-1] == ('--apply' if '--apply' in args else '/home/ubuntu/siyi/jobs-radar-archive')
+
+
+@pytest.mark.parametrize('args,changes', [(('--prune', '--apply'), dict(dirty=True)), (('--prune', '--force'), {}),
+                                          (('--prune', '--apply', '--apply'), {})])
+def test_retention_apply_requires_committed_rules_and_no_other_arguments(tmp_path, args, changes):
+    result, calls = run(tmp_path, args, **changes)
+    assert result.returncode != 0 and not any(call[0] == 'ssh' for call in calls)
+
+
+def test_capacity_failure_points_to_retention_review(tmp_path):
+    result, _ = run(tmp_path, ('release', '--image-id', 'sha256:' + '1' * 64), capacity_insufficient=True)
+    assert result.returncode != 0 and 'release.sh --prune' in result.stderr
+
+
 @pytest.mark.parametrize('mode', ['--rehearse', '--recover-profiles', '--resume-applications'])
 def test_retired_modes_fail_before_remote_access(tmp_path, mode):
     result, calls = run(tmp_path, (mode,))

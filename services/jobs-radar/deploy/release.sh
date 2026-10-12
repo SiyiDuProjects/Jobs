@@ -14,7 +14,7 @@ remote() { python3 "$ENTRY_DIR/host_command.py" --timeout 3600 -- ssh -o BatchMo
 case "$MODE" in --build-web|--release-web|--rollback-web|--web-status)
   exec node "$ENTRY_DIR/web_release.mjs" "$MODE" "$@";;
 esac
-case "$MODE" in release|--build|--rollback) ;; *) echo 'Unknown release mode' >&2; exit 2;; esac
+case "$MODE" in release|--build|--rollback|--prune) ;; *) echo 'Unknown release mode' >&2; exit 2;; esac
 if [ "$MODE" = --build ]; then
   [ "$#" = 0 ] || { echo 'Local builds accept no host or builder overrides.' >&2; exit 2; }
   exec python3 "$ENTRY_DIR/local_build.py" build
@@ -24,6 +24,19 @@ if [ "$MODE" = --rollback ]; then
   [ "$#" = 0 ] || { echo 'Rollback uses its recorded image/archive; no candidate arguments are accepted.' >&2; exit 2; }
   # The last committed release installed its matching transaction driver.
   remote bash "$LIVE/deploy/switch_release.sh" --rollback "$LIVE" "$STAGE_ROOT/rollback" "$ARCHIVE"
+  exit $?
+fi
+if [ "$MODE" = --prune ]; then
+  # Dry run by default. Rules travel over stdin, so a full disk that blocks the
+  # next release can still be recovered without copying files to the server.
+  [ "$#" = 0 ] || { [ "$#" = 1 ] && [ "$1" = --apply ]; } || { echo 'Retention accepts only --apply' >&2; exit 2; }
+  if [ "$#" = 1 ]; then
+    cd "$(git rev-parse --show-toplevel)"
+    CHANGES=$(git status --porcelain -- services/jobs-radar)
+    [ -z "$CHANGES" ] || { echo 'services/jobs-radar has uncommitted changes; commit them first.' >&2; exit 1; }
+  fi
+  remote flock -n "$(dirname "$LIVE")/.jobs-radar-release-host.lock" flock -n "$LIVE/.release.lock" \
+    sudo -n python3 - --live "$LIVE" --stage "$STAGE_ROOT" --archive "$ARCHIVE" "$@" < "$ENTRY_DIR/prune_releases.py"
   exit $?
 fi
 ARTIFACT=
@@ -52,7 +65,8 @@ TRANSFER_BYTES=0
 if [ -n "$ARTIFACT" ]; then
   TRANSFER_BYTES=$(python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); print(sum((p/n).stat().st_size for n in ("source.tar","image.tar","manifest.json")))' "$ARTIFACT")
 fi
-remote sudo -n python3 - "$LIVE/data/jobs.sqlite" "$LIVE/data/migrations" "$TRANSFER_BYTES" < "$ENTRY_DIR/../jobs_radar/capacity.py"
+remote sudo -n python3 - "$LIVE/data/jobs.sqlite" "$LIVE/data/migrations" "$TRANSFER_BYTES" < "$ENTRY_DIR/../jobs_radar/capacity.py" \
+  || { echo 'Review reclaimable release copies with: release.sh --prune' >&2; exit 1; }
 if [ -n "$ARTIFACT" ]; then
   IMPORT=$STAGE_ROOT/import-$FULL_SHA-$(python3 -c 'import secrets;print(secrets.token_hex(6))')
   # Transfer data only; production runs the importer from committed source.

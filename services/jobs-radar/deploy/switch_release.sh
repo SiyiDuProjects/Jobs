@@ -298,3 +298,9 @@ mv .rollback-target.pending .rollback-target
 helper -c 'from pathlib import Path; Path("/data/.release-maintenance").unlink()'
 trap - ERR
 echo "Released $TARGET (previous: $CURRENT; mode: $MODE)"
+# Retire superseded copies only once the new rollback pair is recorded. Still
+# under both locks with writers paused; a failure here never undoes the release.
+if [ "$MODE" = release ] && [ -z "$REHEARSAL_ROOT" ]; then
+  sudo -n python3 "$DRIVER_DIR/prune_releases.py" --live "$LIVE" --stage "$(dirname "$STAGE")" --archive "$ARCHIVE" --apply \
+    || echo 'Release is complete, but retention cleanup failed; inspect with release.sh --prune.' >&2
+fi
