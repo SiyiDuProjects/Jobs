@@ -51,28 +51,10 @@ export type Filters = {
   added_date: string;
   page: number;
 };
-export const displayFilterStatus = (status: string) =>
-  [
-    "unsubmitted",
-    "not_started",
-    "needs_input",
-    "skipped",
-    "retryable_failure",
-    "in_progress",
-    "submitted_unconfirmed",
-  ].includes(status)
-    ? "unsubmitted"
-    : "recent";
 export const names: Record<string, string> = {
   simplify: "Simplify",
   speedyapply: "SpeedyApply",
   jobright: "Jobright",
-};
-export const screenings: Record<string, string> = {
-  pending: "待初筛",
-  keep: "已保留",
-  review: "待核实",
-  trash: "已删除",
 };
 export type Kind = "newgrad" | "internship";
 
@@ -92,13 +74,11 @@ export const defaults: Filters = {
   company_internship: "1",
   region: "focus_remote",
   text: "",
-  status: "recent",
+  status: "unsubmitted",
   added_date: "",
   page: 1,
 };
 export const filterKey = "radar-filters-shared-v8";
-export const statusColor = (job: Job) =>
-  job.status === "submitted" ? "success" : "default";
 export const safe = (url: string | null) => {
   try {
     const u = new URL(url || "");

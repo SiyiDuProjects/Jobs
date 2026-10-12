@@ -15,22 +15,21 @@ import "./style.css";
 import { ExtensionSync } from "./ExtensionSync";
 import { createBoardLoader } from "./board-loader";
 import { DateWindowFilter } from "./DateWindowFilter";
-import { addedRange, normalizeDateWindow } from "./date-window";
+import { addedRange } from "./date-window";
+import { readBoardFilters, saveBoardFilters } from "./board-filters";
+import { ApplicationTotals } from "./ApplicationTotals";
 
 import { JobTable } from "./JobTable";
 import {
   api,
-  displayFilterStatus,
   defaults,
-  filterKey,
   splitCompanies,
   type Job,
   type UndoTarget,
   type Listing,
   type Filters,
 } from "./job-board-model";
-export function JobsBoard({ kind, trash }: BoardProps) {
-  const scopedFilterKey = `${filterKey}:${kind}`;
+export function JobsBoard({ kind, trash, navigation, query, setQuery }: BoardProps) {
   const kindRef = useRef(kind);
   kindRef.current = kind;
   const auth = true;
@@ -48,46 +47,10 @@ export function JobsBoard({ kind, trash }: BoardProps) {
         region: "",
         status: "",
       };
-    try {
-      const raw =
-        localStorage.getItem(scopedFilterKey) ||
-        localStorage.getItem(filterKey) ||
-        localStorage.getItem("radar-filters-shared-v7") ||
-        localStorage.getItem("radar-filters-shared-v5") ||
-        localStorage.getItem("radar-filters-shared-v4") ||
-        localStorage.getItem("radar-filters-shared-v3");
-      if (!raw) return defaults;
-      const prior = JSON.parse(raw);
-      // Copy only controls still available in the toolbar. Retired fine filters
-      // must not silently hide jobs; preserve explicit company/region choices.
-      return {
-        ...defaults,
-        exclude_companies:
-          typeof prior.exclude_companies === "string"
-            ? prior.exclude_companies
-            : "",
-        text: typeof prior.text === "string" ? prior.text : "",
-        company_newgrad: ["", "1"].includes(prior.company_newgrad)
-          ? prior.company_newgrad
-          : defaults.company_newgrad,
-        company_internship: ["", "1"].includes(prior.company_internship)
-          ? prior.company_internship
-          : defaults.company_internship,
-        region: ["", "ca", "ca_remote", "focus_remote"].includes(prior.region)
-          ? prior.region
-          : prior.compact === false
-            ? ""
-            : defaults.region,
-        added_date: normalizeDateWindow(prior.added_date),
-        status: displayFilterStatus(prior.status),
-      };
-    } catch {
-      return defaults;
-    }
+    return { ...readBoardFilters(localStorage, kind), text: query };
   });
   const [excludedCompanies, setExcludedCompanies] = useState("");
-  const [query, setQuery] = useState(filters.text),
-    [action, setAction] = useState<{ type: "trash"; job: Job } | null>(null),
+  const [action, setAction] = useState<{ type: "trash"; job: Job } | null>(null),
     [detail, setDetail] = useState(""),
     [actionError, setActionError] = useState(""),
     [saving, setSaving] = useState(false);
@@ -138,8 +101,8 @@ export function JobsBoard({ kind, trash }: BoardProps) {
     if (auth) void load();
   }, [auth, load]);
   useEffect(() => {
-    if (!trash) localStorage.setItem(scopedFilterKey, JSON.stringify(filters));
-  }, [filters]);
+    if (!trash) saveBoardFilters(localStorage, kind, filters);
+  }, [filters, kind, trash]);
   useEffect(() => {
     const timer = setTimeout(
       () =>
@@ -307,82 +270,37 @@ export function JobsBoard({ kind, trash }: BoardProps) {
       {
         <>
           {!trash && <ExtensionSync onSynced={load} />}
-          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:flex-wrap">
-            {!trash && (
-              <section
-                className="flex flex-wrap items-center gap-2"
-                aria-label="收录日期筛选"
-              >
-                <DateWindowFilter
-                  value={filters.added_date}
-                  onChange={(v) => filter("added_date", v)}
-                />
-              </section>
-            )}
-            <section
-              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-              aria-label="岗位筛选"
-            >
-              <TextField
-                aria-label="搜索公司或岗位"
-                value={query}
-                onChange={setQuery}
-                className="w-full sm:w-56 sm:shrink-0"
-              >
+          <div className="board-toolbar">
+            <section className="board-toolbar-scoped" aria-label="类型与岗位筛选">
+              {navigation}
+              {!trash && <div className="flex items-center gap-2">
+                <Button size="sm" variant={filters.region ? "secondary" : "ghost"}
+                  aria-pressed={!!filters.region} onPress={() => toggleRegion(!filters.region)}>
+                  地区筛选
+                </Button>
+                <Button size="sm" variant={filters[companyKey] === "1" ? "secondary" : "ghost"}
+                  aria-pressed={filters[companyKey] === "1"}
+                  onPress={() => filter(companyKey, filters[companyKey] === "1" ? "" : "1")}>
+                  公司筛选
+                </Button>
+              </div>}
+            </section>
+            <section className="board-toolbar-shared" aria-label="通用筛选">
+              {!trash && <DateWindowFilter value={filters.added_date} onChange={(v) => filter("added_date", v)} />}
+              <TextField aria-label="搜索公司或岗位" value={query} onChange={setQuery} className="board-search">
                 <Input placeholder="搜索公司或岗位" variant="secondary" />
               </TextField>
-              {!trash && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={
-                      filters.status === "unsubmitted" ? "secondary" : "ghost"
-                    }
-                    aria-pressed={filters.status === "unsubmitted"}
-                    onPress={() =>
-                      filter(
-                        "status",
-                        filters.status === "unsubmitted"
-                          ? "recent"
-                          : "unsubmitted",
-                      )
-                    }
-                  >
-                    仅看未投递
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={filters.region ? "secondary" : "ghost"}
-                    aria-pressed={!!filters.region}
-                    onPress={() => toggleRegion(!filters.region)}
-                  >
-                    地区筛选
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={
-                      filters[companyKey] === "1" ? "secondary" : "ghost"
-                    }
-                    aria-pressed={filters[companyKey] === "1"}
-                    onPress={() =>
-                      filter(companyKey, filters[companyKey] === "1" ? "" : "1")
-                    }
-                  >
-                    公司筛选
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onPress={() => {
-                      setExcludedCompanies(filters.exclude_companies);
-                      setExclusionsOpen(true);
-                    }}
-                    aria-haspopup="dialog"
-                  >
-                    排除公司
-                  </Button>
-                </div>
-              )}
+              {!trash && <>
+                <Button size="sm" variant={filters.status === "unsubmitted" ? "secondary" : "ghost"}
+                  aria-pressed={filters.status === "unsubmitted"}
+                  onPress={() => filter("status", filters.status === "unsubmitted" ? "recent" : "unsubmitted")}>
+                  仅看未投递
+                </Button>
+                <Button size="sm" variant="ghost" aria-haspopup="dialog" onPress={() => {
+                  setExcludedCompanies(filters.exclude_companies);
+                  setExclusionsOpen(true);
+                }}>排除公司</Button>
+              </>}
             </section>
           </div>
           {!trash && !!filters.exclude_companies && (
@@ -418,20 +336,8 @@ export function JobsBoard({ kind, trash }: BoardProps) {
                 {data?.total.toLocaleString() ?? "—"}
               </span>
             </h1>
-            {!trash && data && (
-              <div
-                className="flex flex-wrap gap-3 text-xs tabular-nums text-muted"
-                aria-label="当前筛选投递进度"
-              >
-                <span className="count-submitted">
-                  已投递 {data.application_counts.submitted}
-                </span>
-                <span className="count-unstarted">
-                  未投递 {data.total - data.application_counts.submitted}
-                </span>
-              </div>
-            )}
-            <div className="flex items-center gap-2 text-xs sm:ml-auto">
+            <div className="flex flex-wrap items-center gap-3 text-xs sm:ml-auto">
+              <ApplicationTotals key={kind} kind={kind} />
               <span className={stale ? "text-warning" : "text-muted"}>
                 {busy ? "正在更新…" : stale ? "部分来源待更新" : ""}
               </span>

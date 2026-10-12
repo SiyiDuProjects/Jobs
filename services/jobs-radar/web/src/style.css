@@ -1,3 +1,88 @@
-@import 'tailwindcss';
-@import '@heroui/styles';
-@import '@heroui-pro/react/css';
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@heroui-pro/react/css";
+
+.job-list {
+  container-type: inline-size;
+}
+.job-list-scroll-hint {
+  display: none;
+}
+.job-table-content {
+  table-layout: fixed;
+  min-width: 960px;
+}
+.job-company-column {
+  width: 160px;
+}
+.job-location-column {
+  width: 180px;
+}
+.job-date-column {
+  width: 96px;
+}
+.job-state-column {
+  width: 104px;
+}
+.job-actions-column {
+  width: 132px;
+}
+.job-table :is(.table__cell, .table__column) {
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+.job-table .table__cell {
+  height: 48px;
+  padding-block: 6px;
+}
+.job-table .job-title-button {
+  font-size: 14px;
+  font-weight: 500;
+}
+.job-table .table__column:last-child {
+  text-align: end;
+}
+
+@container (width < 960px) {
+  .job-list-scroll-hint {
+    display: block;
+  }
+}
+
+@media (pointer: coarse) {
+  .job-table :is(button, a.button) {
+    min-height: 44px;
+  }
+  .job-table button[aria-haspopup] {
+    min-width: 44px;
+  }
+  .job-actions-column {
+    width: 144px;
+  }
+}
+
+.board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+.board-toolbar-scoped,
+.board-toolbar-shared {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.board-toolbar-shared { margin-inline-start: auto; }
+.board-search { width: 200px; min-width: 0; }
+@media (width < 640px) {
+  .board-toolbar-scoped,
+  .board-toolbar-shared { width: 100%; }
+  .board-search { flex: 1; min-width: 160px; }
+}
+@media (pointer: coarse) {
+  .board-toolbar button { min-height: 44px; }
+}

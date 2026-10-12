@@ -38,6 +38,7 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
   const { draftDirty, pending, docs, current, profiles, loading } =
     useManagement();
   const [kind, setKind] = useState<JobKind>(readKind);
+  const [query, setQuery] = useState("");
   const [route, setRoute] = useState(
     location.hash.slice(1).split("?")[0] ||
       (location.pathname === "/trash" ? "/trash" : "/"),
@@ -211,7 +212,7 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
         ) : (
           <ErrorBoundary>
             {["/", "/applied", "/applications", "/trash"].includes(route) ? (
-              <JobWorkspace Board={Board} kind={kind} route={route} />
+              <JobWorkspace Board={Board} kind={kind} route={route} query={query} setQuery={setQuery} />
             ) : (
               <Management route={route} kind={kind} />
             )}
