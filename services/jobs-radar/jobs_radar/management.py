@@ -1,6 +1,6 @@
 """Private management documents. Explicit keys, optimistic writes and revision history.
 
-The existing Radar application ledger is NOT replaced by an imported extension list.
+The existing Jobs application ledger is NOT replaced by an imported extension list.
 Application records project their submitted state onto matching existing jobs.
 """
 import json

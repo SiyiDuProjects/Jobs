@@ -120,7 +120,7 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
             c.execute("UPDATE oauth_requests SET csrf_hash=? WHERE id=?", (digest(csrf), rid))
         status = "Approved. Continue to ChatGPT." if row["approved"] else "Waiting for the owner's approval."
         page = f"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-        <title>Connect Jobs Radar</title><body><main><h1>Connect Jobs Radar</h1>
+        <title>Connect Jobs</title><body><main><h1>Connect Jobs</h1>
         <p>Private access to jobs and your application records.</p><p>{status}</p>
         <p>Request ID: <strong>{html.escape(rid)}</strong></p>
         <p>Return to: {html.escape(str(params.redirect_uri))}</p><p>Permissions: {html.escape(', '.join(params.scopes or []))}</p>

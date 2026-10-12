@@ -1,1 +1,1 @@
-"""Private Jobs Radar collection and MCP service."""
+"""Private Jobs collection and MCP service."""

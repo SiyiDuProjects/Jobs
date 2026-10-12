@@ -1,6 +1,8 @@
-# Jobs Radar
+# Jobs
 
 Private job collection, Profiles, application records and supervised browser integration. The authenticated MCP endpoint is `https://jobs.siyidu.com/mcp`. This document describes current source, not the running release. Use the [release contract](deploy/RELEASE.md) for deployment and verification; dated evidence is retained in [the deployment archive](docs/archive/deployment-2026-10-02.md).
+
+The product name is Jobs (styled `jobs` in the website and extension). Existing `jobs-radar` / `jobs_radar` paths, package and service identifiers, and `radar-*` browser storage keys remain compatibility identifiers.
 
 ## Data and interfaces
 

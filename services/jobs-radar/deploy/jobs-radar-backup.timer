@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily verified Jobs Radar backup
+Description=Daily verified Jobs backup
 
 [Timer]
 OnCalendar=*-*-* 03:25:00 UTC

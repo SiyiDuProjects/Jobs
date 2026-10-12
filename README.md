@@ -1,13 +1,13 @@
 # Jobs
 
-私人求职工作区：Jobs Radar 管理岗位、Profile 和投递记录；浏览器插件负责识别表单、填写、上传和进度提示。当前使用方式是插件辅助填写，由本人检查并最终提交。全职和实习按岗位绑定各自的服务器 Profile，不共用一份默认答案或附件。
+私人求职工作区：Jobs 管理岗位、Profile 和投递记录；浏览器插件负责识别表单、填写、上传和进度提示。当前使用方式是插件辅助填写，由本人检查并最终提交。全职和实习按岗位绑定各自的服务器 Profile，不共用一份默认答案或附件。
 
 ## 从哪里开始
 
 | 工作 | 入口 |
 | --- | --- |
 | 安装、开发和更新浏览器插件 | [插件说明](extensions/speedyapply-local/README.md) |
-| 服务、数据与接口 | [Jobs Radar](services/jobs-radar/README.md) |
+| 服务、数据与接口 | [Jobs](services/jobs-radar/README.md) |
 | 服务发布和回滚 | [发布契约](services/jobs-radar/deploy/RELEASE.md) |
 | 修改代码、保存故障证据的约定 | [AGENTS.md](AGENTS.md) |
 | 当前故障与复验范围 | [平台问题索引](notes/ats-platform-status.md) |

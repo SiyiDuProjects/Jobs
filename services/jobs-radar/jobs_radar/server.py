@@ -35,7 +35,7 @@ def create_server(store, origin=None):
     provider = OwnerOAuth(store, origin)
     from .browser_control import BrowserControl, enabled as control_enabled, observable as control_observable
     browser_control_enabled = control_enabled()
-    server = JobsMCPServer("Jobs Radar", instructions=operation_instructions(),
+    server = JobsMCPServer("Jobs", instructions=operation_instructions(),
         origin=origin, auth_server_provider=provider,
         auth=AuthSettings(issuer_url=origin + '/', resource_server_url=origin + "/mcp", validate_token_resource=True,
                           required_scopes=["jobs:read"],

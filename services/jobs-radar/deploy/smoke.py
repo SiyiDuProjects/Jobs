@@ -31,7 +31,7 @@ with httpx.Client(timeout=30, follow_redirects=False) as client:
     assert client.post(base + "/mcp").status_code == 401
     meta = client.get(base + "/.well-known/oauth-authorization-server").json()
     assert meta["issuer"] == provider.issuer
-    registration = client.post(base + "/register", json={"client_name": "Jobs Radar temporary deployment smoke", "redirect_uris": ["http://127.0.0.1:19876/callback"],
+    registration = client.post(base + "/register", json={"client_name": "Jobs temporary deployment smoke", "redirect_uris": ["http://127.0.0.1:19876/callback"],
         "token_endpoint_auth_method": "none", "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": "jobs:read"})
     registration.raise_for_status()
     client_id = registration.json()["client_id"]
@@ -88,7 +88,7 @@ with httpx.Client(timeout=30, follow_redirects=False) as client:
             "idempotency_key": "readonly-smoke-" + secrets.token_hex(8)}})
         assert rejected["isError"]
         assert "required scope" in json.dumps(rejected), "Write rejection was not an authorization check"
-        result.update({"oauth": True, "tools": len(tools), "source_count": len(status["sources"]), "all_sources_fresh": all(not s["stale"] for s in status["sources"]),
+        result.update({"oauth": True, "server_name": initialized["serverInfo"]["name"], "tools": len(tools), "source_count": len(status["sources"]), "all_sources_fresh": all(not s["stale"] for s in status["sources"]),
             "jobs": status["jobs"], "query_results": len(search["jobs"]), "readonly_scope_enforced": True,
             "profiles_read_without_attachments_or_credentials": checked_profiles})
     finally:

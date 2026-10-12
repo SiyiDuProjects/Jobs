@@ -9,7 +9,7 @@ from .store import Store
 
 def main():
     os.umask(0o077)
-    parser = argparse.ArgumentParser(description="Private Jobs Radar administration")
+    parser = argparse.ArgumentParser(description="Private Jobs administration")
     parser.add_argument("--db", default=os.environ.get("JOBS_DB", "data/jobs.sqlite"))
     commands = parser.add_subparsers(dest="command", required=True)
     collect = commands.add_parser("collect")
@@ -44,7 +44,7 @@ def main():
         from .workday_identity import refresh
         async def refresh_identities():
             async with httpx.AsyncClient(follow_redirects=False, trust_env=False,
-                                         headers={'User-Agent': 'JobsRadar/0.1'}) as client:
+                                         headers={'User-Agent': 'Jobs/0.1'}) as client:
                 return await refresh(store, client, limit=args.limit)
         print(json.dumps(asyncio.run(refresh_identities())))
     elif args.command == "collect":

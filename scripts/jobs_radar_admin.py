@@ -1,4 +1,4 @@
-"""Explicit SSH administrator bridge for tasks without native Jobs Radar tools.
+"""Explicit SSH administrator bridge for tasks without native Jobs tools.
 
 Pass a JSON file with method and args. Uses the same Store methods as MCP;
 Browser methods reuse the existing opt-in BrowserControl contract. They cannot

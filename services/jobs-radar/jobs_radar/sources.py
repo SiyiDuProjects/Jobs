@@ -176,7 +176,7 @@ async def collect(store, selected=None):
         c.execute("INSERT INTO locks VALUES('collector',?,?) ON CONFLICT(name) DO UPDATE SET owner=excluded.owner,expires=excluded.expires", (run_id, now + 3600))
     results = []
     try:
-        async with httpx.AsyncClient(timeout=45, follow_redirects=False, headers={"User-Agent": "JobsRadar/0.1 (+https://jobs.siyidu.com)"}) as client:
+        async with httpx.AsyncClient(timeout=45, follow_redirects=False, headers={"User-Agent": "Jobs/0.1 (+https://jobs.siyidu.com)"}) as client:
             for stream in ACTIVE_STREAMS:
                 if selected and stream.id not in selected:
                     continue

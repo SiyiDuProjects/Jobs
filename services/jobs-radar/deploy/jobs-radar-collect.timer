@@ -1,5 +1,5 @@
 [Unit]
-Description=Collect Jobs Radar hourly
+Description=Collect Jobs hourly
 
 [Timer]
 OnCalendar=hourly

@@ -53,7 +53,7 @@ def test_agent_reads_each_profiles_supplemental_facts_without_attachment_bytes(t
 
 
 def connect(client, store, scopes="jobs:read applications:write"):
-    registration = client.post("/register", json={"client_name": "Jobs Radar Integration Test", "redirect_uris": ["http://127.0.0.1:9876/callback"],
+    registration = client.post("/register", json={"client_name": "Jobs Integration Test", "redirect_uris": ["http://127.0.0.1:9876/callback"],
         "token_endpoint_auth_method": "none", "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": scopes})
     assert registration.status_code == 201, registration.text
     client_id = registration.json()["client_id"]
