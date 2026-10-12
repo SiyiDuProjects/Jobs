@@ -11,7 +11,7 @@ from jobs_radar.web import WebAccess
 from test_store import observation
 
 
-def test_date_filter_uses_first_repo_sync_not_publication_or_jobright_history(tmp_path):
+def test_date_filter_uses_earliest_recorded_collection_not_publication(tmp_path):
     store=Store(tmp_path/'dates.sqlite');board=Board(store)
     now=time.time();start=now-3600;end=start+86400
     rows=[{**observation(url='https://example.org/'+key),'source_id':key,'posted_at':now-3*86400}
@@ -21,8 +21,7 @@ def test_date_filter_uses_first_repo_sync_not_publication_or_jobright_history(tm
     with store.connect(True) as c:
         for key,added in [('yesterday',start-1),('today',start),('later',start+100)]:
             c.execute('UPDATE observations SET first_seen=? WHERE job_id=?',(added,ids[key]))
-        # Earlier retired Jobright discovery cannot hide today's first approved-repo appearance.
-        c.execute('UPDATE jobs SET first_seen=?',(start-86400,))
+            c.execute('UPDATE jobs SET first_seen=? WHERE id=?',(added+60,ids[key]))
     def selected(lo,hi):
         return [r['id'] for r in board.list(added_since=lo,added_before=hi)['jobs']]
     assert selected(start,end)==[ids['later'],ids['today']]
@@ -34,6 +33,11 @@ def test_date_filter_uses_first_repo_sync_not_publication_or_jobright_history(tm
     new={**observation(url='https://example.org/new'),'source_id':'new'}
     store.ingest('simplify:newgrad',[*rows,new],'late-arrival')
     assert len(selected(start,end))==3
+    # An older job record still determines its age after a source reappears.
+    with store.connect(True) as c:
+        c.execute('UPDATE jobs SET first_seen=? WHERE id=?',(start-86400,ids['today']))
+    assert ids['today'] not in selected(start,end)
+    assert ids['today'] in selected(start-86400,start)
 
 
 def test_private_date_api_parses_bounds_and_rejects_invalid_dates(tmp_path):

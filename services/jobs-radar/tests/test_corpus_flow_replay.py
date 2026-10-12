@@ -39,7 +39,7 @@ def page():
 
 def insert_job(store, url, title, description='', locations=None):
     with store.connect(True) as connection:
-        connection.execute('INSERT INTO jobs(id,identity,job_key) VALUES(?,?,?)', ('a'*24, job_key(url), job_key(url)))
+        connection.execute('INSERT INTO jobs(id,identity,job_key,first_seen,last_seen) VALUES(?,?,?,1,1)', ('a'*24, job_key(url), job_key(url)))
         connection.execute('INSERT INTO observations VALUES(?,?,?,?,?,?,?)', ('synthetic', 'one', 'a'*24,
             json.dumps(dict(title=title, description=description, locations=locations or [])), 1, 1, 1))
 
