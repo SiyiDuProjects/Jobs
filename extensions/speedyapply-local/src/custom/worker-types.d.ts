@@ -92,7 +92,7 @@ export interface PrivateConnectionState {
 }
 /** The archive transports field details opaquely; the diagnostics page reads them. */
 export interface DiagnosticReport {
-  journalOnly?: boolean;
+  eventOnly?: boolean;
   schemaVersion: number;
   sessionId: string;
   runId?: string;
@@ -111,6 +111,11 @@ export interface DiagnosticReport {
   };
   fields: unknown[];
   events: BrowserEvent[];
+  unansweredContainers?: Array<{
+    question?: string;
+    reason?: string;
+    structure?: string;
+  }>;
 }
 export interface DiagnosticArchiveState {
   reports: Record<

@@ -51,7 +51,7 @@ export function bindCorpusPage(root, profile, reader, isReview) {
     });
   }
 }
-export function captureCorpusPage(correctionNode = null) {
+export function captureCorpusPage(correctionNode = null, failure = null) {
   if (!context?.root?.isConnected || context.isReview()) return;
   try {
     const { root, profile, reader } = context;
@@ -78,10 +78,37 @@ export function captureCorpusPage(correctionNode = null) {
       (row) => row.node === correctionNode,
     );
     if (value)
-      void chrome.runtime
+      return chrome.runtime
         .sendMessage({
           type: "jobs:corpus-page",
           value,
+          ...(failure
+            ? {
+                failure: {
+                  runId: failure.runId,
+                  documentId: failure.documentId,
+                  reason: failure.reason,
+                  fieldIds: rows.flatMap((row, index) =>
+                    failure.fieldIds.includes(row.public.id) &&
+                    value.fields.some(
+                      (field) => field.id === "field-" + (index + 1),
+                    )
+                      ? ["field-" + (index + 1)]
+                      : [],
+                  ),
+                  fieldLinks: Object.fromEntries(
+                    rows.flatMap((row, index) =>
+                      failure.fieldIds.includes(row.public.id) &&
+                      value.fields.some(
+                        (field) => field.id === "field-" + (index + 1),
+                      )
+                        ? [["field-" + (index + 1), row.public.id]]
+                        : [],
+                    ),
+                  ),
+                },
+              }
+            : {}),
           ...(correctionIndex >= 0
             ? {
                 correction: "field-" + (correctionIndex + 1),
@@ -90,11 +117,23 @@ export function captureCorpusPage(correctionNode = null) {
             : {}),
         })
         .then((response) => {
-          if (response?.error) failed();
+          if (response?.error || (failure && !response?.data?.failureId)) {
+            failed();
+            return null;
+          }
+          return {
+            captured: true,
+            fields: value.fields.length,
+            truncated: value.coverage.truncated,
+            ...response?.data,
+          };
         }, failed);
   } catch {
     failed();
   }
+}
+export function captureCorpusFailure(failure) {
+  return captureCorpusPage(null, failure);
 }
 // Never log page text, search terms, server payloads or Profile values.
 function failed() {

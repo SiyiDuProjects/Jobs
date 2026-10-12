@@ -85,7 +85,7 @@ def attach_web(server, store, origin):
     from .answer_jobs import AnswerJobs
     answer_jobs = AnswerJobs(store, answers)
     api = RouteAPI(server)
-    from .browser_history import Diagnostics
+    from .event_log import Diagnostics
     diagnostics = Diagnostics(store)
     def profile_access(request):
         auth = request.headers.get('authorization', '')

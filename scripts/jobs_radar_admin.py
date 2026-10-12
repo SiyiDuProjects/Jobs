@@ -12,7 +12,7 @@ from pathlib import Path
 METHODS = {'search', 'get_jobs', 'filter_options', 'health', 'progress'}
 BROWSER_METHODS = {'browser_pages': 'pages', 'browser_command': 'command', 'browser_command_status': 'get_command'}
 PROGRESS_METHODS = {'application_states': 'list', 'update_application_progress': 'update', 'record_pending_email': 'record_pending_email'}
-PRIVATE_READS = {'profiles': ('profiles', 'Profiles', 'agent_read'), 'browser_history': ('browser_history', 'Diagnostics', 'history')}
+PRIVATE_READS = {'profiles': ('profiles', 'Profiles', 'agent_read'), 'browser_history': ('event_log', 'Diagnostics', 'history')}
 REMOTE_COMMAND = ('cd /home/ubuntu/siyi/jobs-radar && '
                   'flock -s -n .release.lock docker compose exec -T mcp python -')
 

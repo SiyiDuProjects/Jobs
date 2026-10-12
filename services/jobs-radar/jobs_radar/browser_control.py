@@ -14,7 +14,7 @@ import uuid
 from urllib.parse import parse_qsl, urlsplit
 
 from .store import encoded
-from . import browser_history
+from . import event_log
 
 
 ACTIONS = {'inspect', 'autofill', 'fill_answers', 'answer_review', 'confirm_review', 'next', 'submit'}
@@ -175,7 +175,7 @@ class BrowserControl:
               CREATE TABLE IF NOT EXISTS browser_command_context(id TEXT PRIMARY KEY,data TEXT);
               CREATE TABLE IF NOT EXISTS browser_command_reconciliation(id TEXT PRIMARY KEY,document TEXT,shape TEXT);
             ''')
-            browser_history.initialize(c)
+            event_log.initialize(c)
 
     @staticmethod
     def _expire(c, now):
@@ -279,7 +279,7 @@ class BrowserControl:
         if application_id is not None:
             text(application_id, 128)
         with self.store.connect() as c:
-            return browser_history.read(c, application_id)
+            return event_log.read(c, application_id)
 
     def pages(self, device_id=None, session_id=None, page_target=None):
         now = self.clock()

@@ -42,7 +42,7 @@ export function mountDiagnosticsView() {
     root.render(
       <main className="diagnostics-page">
         <header className="diagnostics-heading">
-          <h1>填写诊断</h1>
+          <h1>填写记录</h1>
           <Button id="reload" size="sm" variant="secondary">
             重新读取
           </Button>
@@ -56,10 +56,7 @@ export function mountDiagnosticsView() {
             <div className="diagnostics-tools">
               <Select id="pages" label="投递页面" placeholder="尚无记录" />
               <Button id="inspect">读取当前状态</Button>
-              <More
-                label="诊断更多操作"
-                items={[["export", "导出诊断 JSON"]]}
-              />
+              <More label="诊断更多操作" items={[["export", "导出事件日志"]]} />
             </div>
             <p id="message" role="status" />
             <p id="overview" />
@@ -67,22 +64,21 @@ export function mountDiagnosticsView() {
         </Card>
         <Card>
           <Card.Header>
-            <Card.Title>故障复现案例</Card.Title>
+            <Card.Title>失败题库页面</Card.Title>
             <Card.Description>
-              未解决案例持续保留；验证解决后保留 30
-              天。导出使用虚构答案，保留控件结构与事件顺序。
+              页面结构只在题库存一份，失败标记关联本次事件。解决标记不会删除题库页面。
             </Card.Description>
           </Card.Header>
           <Card.Content>
             <div className="diagnostics-tools">
-              <Select id="cases" label="已保存案例" placeholder="尚无案例" />
-              <Button id="capture-case">保存当前案例</Button>
+              <Select id="cases" label="已标记页面" placeholder="尚无标记" />
+              <Button id="capture-case">标记当前页面失败</Button>
               <More
                 label="案例更多操作"
                 items={[
-                  ["export-case", "导出复现案例"],
+                  ["export-case", "导出题库页面"],
                   ["resolve-case", "标记已验证解决"],
-                  ["reopen-case", "重新打开案例"],
+                  ["reopen-case", "重新标记失败"],
                 ]}
               />
             </div>

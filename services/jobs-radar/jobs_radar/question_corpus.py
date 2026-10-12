@@ -66,7 +66,7 @@ def validate(page):
         raise ValueError('Invalid corpus page')
     if set(page) - {'version', 'platform', 'build', 'company', 'step', 'trees', 'fields', 'coverage', 'jobIdentity', 'redactionVersion', 'quality'}:
         raise ValueError('Invalid corpus metadata')
-    if not isinstance(page.get('trees'), list) or not isinstance(page.get('fields'), list) or not 1 <= len(page['fields']) <= 300:
+    if not isinstance(page.get('trees'), list) or not page['trees'] or not isinstance(page.get('fields'), list) or not 0 <= len(page['fields']) <= 300:
         raise ValueError('Invalid corpus fields')
     for key in ('platform', 'build', 'company', 'step'):
         if not isinstance(page.get(key), str) or len(page[key]) > 200: raise ValueError('Invalid corpus context')
@@ -138,6 +138,7 @@ class QuestionCorpus:
                 CREATE TABLE IF NOT EXISTS corpus_page_fields(fingerprint TEXT,field_id TEXT,question_id TEXT,PRIMARY KEY(fingerprint,field_id));
                 CREATE TABLE IF NOT EXISTS corpus_bindings(question_id TEXT,country TEXT,model TEXT,cache_key TEXT,updated REAL,PRIMARY KEY(question_id,country,model));
                 CREATE TABLE IF NOT EXISTS corpus_searches(id TEXT PRIMARY KEY,page_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS corpus_failures(id TEXT PRIMARY KEY,page_id TEXT NOT NULL,run_id TEXT NOT NULL,document_id TEXT NOT NULL,field_ids TEXT NOT NULL,reason TEXT NOT NULL,created REAL NOT NULL,resolved INTEGER NOT NULL DEFAULT 0);
             ''')
 
     def probe(self, fingerprint, company='', job_identity=''):
@@ -163,22 +164,44 @@ class QuestionCorpus:
                     c.execute('INSERT INTO corpus_occurrences(question_id,company) VALUES(?,?) ON CONFLICT(question_id,company) DO UPDATE SET visits=visits+1', (row[0], str(company)[:200]))
             return {'known': bool(known)}
 
-    def capture(self, fingerprint, page):
+    def capture(self, fingerprint, page, failure=None):
         validate(page)
         if fingerprint != digest({k: page[k] for k in ('trees', 'fields')}): raise ValueError('Corpus fingerprint mismatch')
+        if failure is not None:
+            from .validation import shape, text, sequence
+            shape(failure, ('runId', 'documentId', 'fieldIds', 'reason'), ('fieldLinks',))
+            field_ids = sorted(set(text(key, 20) for key in sequence(failure['fieldIds'], 300)))
+            links = failure.get('fieldLinks', {})
+            if not isinstance(links, dict) or set(links) - set(field_ids) or any(not isinstance(v, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,80}', v) for v in links.values()):
+                raise ValueError('Invalid corpus event field links')
+            failure = {**{key: text(failure[key], 128) for key in ('runId', 'documentId')},
+                       'fieldIds': field_ids,
+                       'reason': text(failure['reason'], 40), 'fieldLinks': links}
+            if failure['reason'] not in {'incomplete', 'site_error', 'unrecognized_control', 'manual_report'}:
+                raise ValueError('Invalid corpus failure reason')
+            if set(failure['fieldIds']) - {field['id'] for field in page['fields']}:
+                raise ValueError('Unknown failed corpus field')
         questions = {question_key(field): field for field in page['fields']}
         shapes = structures(page)
         with self.store.connect(True) as c:
-            if c.execute('SELECT 1 FROM corpus_seen WHERE fingerprint=?', (fingerprint,)).fetchone(): return {'stored': False}
+            known = c.execute('SELECT 1 FROM corpus_seen WHERE fingerprint=?', (fingerprint,)).fetchone()
+            if known and failure is None: return {'stored': False}
             novel = any(not c.execute('SELECT 1 FROM corpus_questions WHERE id=?', (key,)).fetchone() for key in questions)
             novel = novel or any(not c.execute('SELECT 1 FROM corpus_structures WHERE id=?', (key,)).fetchone() for key in shapes)
             # New recorded searches also carry reproducible behavior even when
             # the public question and DOM skeleton already exist.
             searches = {digest([question_key(field), observation]) for field in page['fields'] for observation in field['observations']}
-            stored = novel or any(not c.execute('SELECT 1 FROM corpus_searches WHERE id=?', (key,)).fetchone() for key in searches)
+            stored = bool(failure) or novel or any(not c.execute('SELECT 1 FROM corpus_searches WHERE id=?', (key,)).fetchone() for key in searches)
             if stored:
                 stored_page = dict(page, quality=quality(page))
-                c.execute('INSERT INTO corpus_pages VALUES(?,?,?)', (fingerprint, zlib.compress(encoded(stored_page), 9), time.time()))
+                stored = c.execute('INSERT OR IGNORE INTO corpus_pages VALUES(?,?,?)', (fingerprint, zlib.compress(encoded(stored_page), 9), time.time())).rowcount == 1
+            if failure:
+                ident = digest([fingerprint, failure])
+                c.execute('INSERT OR IGNORE INTO corpus_failures(id,page_id,run_id,document_id,field_ids,reason,created) VALUES(?,?,?,?,?,?,?)',
+                          (ident, fingerprint, failure['runId'], failure['documentId'], encoded({'ids': failure['fieldIds'], 'links': links}).decode(), failure['reason'], time.time()))
+            if known:
+                c.execute('UPDATE corpus_seen SET page_id=? WHERE fingerprint=?', (fingerprint, fingerprint))
+                return {'stored': stored, 'pageId': fingerprint, 'failureId': ident}
             c.execute('INSERT INTO corpus_seen(fingerprint,page_id) VALUES(?,?)', (fingerprint, fingerprint if stored else None))
             for key, field in questions.items():
                 public = {k: v for k, v in field.items() if k not in {'id', 'observations'}}
@@ -188,7 +211,30 @@ class QuestionCorpus:
                 c.execute('INSERT INTO corpus_page_fields VALUES(?,?,?)', (fingerprint, field['id'], question_key(field)))
             for key in shapes: c.execute('INSERT OR IGNORE INTO corpus_structures VALUES(?,?)', (key, fingerprint))
             for key in searches: c.execute('INSERT OR IGNORE INTO corpus_searches VALUES(?,?)', (key, fingerprint))
-        return {'stored': stored}
+        return {'stored': stored, **({'pageId': fingerprint, 'failureId': ident} if failure else {})}
+
+    def failures(self):
+        with self.store.connect() as c:
+            return [dict(id=r['id'], pageId=r['page_id'], runId=r['run_id'], documentId=r['document_id'],
+                         fieldIds=fields['ids'] if isinstance(fields, dict) else fields,
+                         fieldLinks=fields.get('links', {}) if isinstance(fields, dict) else {},
+                         reason=r['reason'], at=int(r['created'] * 1000), resolved=bool(r['resolved']))
+                    for r in c.execute('SELECT * FROM corpus_failures ORDER BY created DESC,id')
+                    for fields in [json.loads(r['field_ids'])]]
+
+    def resolve_failure(self, ident, resolved):
+        if type(resolved) is not bool: raise ValueError('Invalid corpus resolution')
+        with self.store.connect(True) as c:
+            if c.execute('UPDATE corpus_failures SET resolved=? WHERE id=?', (int(resolved), ident)).rowcount != 1:
+                raise ValueError('Unknown corpus failure')
+        return {'ok': True}
+
+    def failure_page(self, ident):
+        with self.store.connect() as c:
+            row = c.execute('SELECT p.id,p.payload FROM corpus_failures f JOIN corpus_pages p ON p.id=f.page_id WHERE f.id=?', (ident,)).fetchone()
+            if not row: raise ValueError('Unknown corpus failure')
+            return {'id': row['id'], 'page': json.loads(zlib.decompress(row['payload'])),
+                    'failures': [item for item in self.failures() if item['pageId'] == row['id']]}
 
     def correction(self, fingerprint, field_id, ident):
         if not isinstance(ident, str) or not re.fullmatch('[a-f0-9-]{36}', ident): raise ValueError('Invalid correction ID')
@@ -228,7 +274,7 @@ class QuestionCorpus:
                 page = json.loads(zlib.decompress(row['payload']))
                 page['quality'] = quality(page)
                 pages.append({'id': row['id'], 'page': page})
-            return {'pages': pages,
+            return {'pages': pages, 'failures': self.failures(),
                     'labels': labels, 'bindings': bindings, 'corrections': corrections, 'next': offset + limit if len(rows) > limit else None}
 
 
@@ -239,6 +285,9 @@ def register_corpus_routes(api, store, authorize):
     async def exchange(request, payload, principal):
         if request.method == 'GET': return corpus.export(int(request.query_params.get('offset', 0)))
         if payload.get('action') == 'probe': return corpus.probe(payload.get('fingerprint'), payload.get('company', ''), payload.get('jobIdentity', ''))
-        if payload.get('action') == 'capture': return corpus.capture(payload.get('fingerprint'), payload.get('page'))
+        if payload.get('action') == 'capture': return corpus.capture(payload.get('fingerprint'), payload.get('page'), payload.get('failure'))
         if payload.get('action') == 'correction': return corpus.correction(payload.get('fingerprint'), payload.get('fieldId'), payload.get('id'))
+        if payload.get('action') == 'failures': return corpus.failures()
+        if payload.get('action') == 'failure-page': return corpus.failure_page(payload.get('id'))
+        if payload.get('action') == 'resolve-failure': return corpus.resolve_failure(payload.get('id'), payload.get('resolved'))
         raise ValueError('Invalid corpus action')

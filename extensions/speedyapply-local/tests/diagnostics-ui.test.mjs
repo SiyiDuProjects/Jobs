@@ -64,7 +64,7 @@ test("diagnostics viewer renders records as text and refreshes without requestin
         calls.push(message.type);
         return {
           data:
-            message.type === "jobs:repro-list"
+            message.type === "jobs:corpus-failures"
               ? []
               : message.type === "jobs:diagnostics-list"
                 ? {
@@ -101,7 +101,7 @@ test("diagnostics viewer renders records as text and refreshes without requestin
           "jobs:diagnostics-list",
           "jobs:diagnostics-get",
           "jobs:diagnostics-refresh",
-          "jobs:repro-list",
+          "jobs:corpus-failures",
         ].includes(type),
       ),
     );
@@ -154,19 +154,21 @@ test("diagnostics capture and export use the selected page and stored case witho
             reports: [{ id: "page-1", pageUrl: report.pageUrl, receivedAt: 1 }],
           },
           "jobs:diagnostics-get": { report },
-          "jobs:repro-list": archived
+          "jobs:corpus-failures": archived
             ? [
                 {
                   id: "case-1",
                   at: 1,
-                  origin: report.pageUrl,
+                  reason: "manual_report",
+                  pageId: "corpus-page-1",
+                  fieldIds: ["field-1"],
                   fields: 1,
                   build: "fixture",
                 },
               ]
             : [],
-          "jobs:repro-get": {
-            capturedAt: 123,
+          "jobs:corpus-failure-page": {
+            id: "page-123",
             schemaVersion: 1,
             valuePolicy: "synthetic_fixture",
           },
@@ -192,8 +194,11 @@ test("diagnostics capture and export use the selected page and stored case witho
     );
     assert(!w.document.getElementById("export-case").disabled);
     await w.document.getElementById("export-case").onclick();
-    assert.equal(calls.find((m) => m.type === "jobs:repro-get").id, "case-1");
-    assert.equal(download, "jobs-repro-123.json");
+    assert.equal(
+      calls.find((m) => m.type === "jobs:corpus-failure-page").id,
+      "case-1",
+    );
+    assert.equal(download, "jobs-corpus-page-123.json");
     assert.equal(blob.type, "application/json");
     assert(!calls.some((m) => /fill|command|submit|advance/.test(m.type)));
   } finally {

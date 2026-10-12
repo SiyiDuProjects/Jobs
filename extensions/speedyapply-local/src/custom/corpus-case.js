@@ -82,12 +82,7 @@ export function captureCorpus({
   company = "",
   step = "",
 }) {
-  if (
-    review ||
-    !root?.isConnected ||
-    !rows.length ||
-    rows.length > CORPUS_LIMITS.fields
-  )
+  if (review || !root?.isConnected || rows.length > CORPUS_LIMITS.fields)
     return null;
   const doc = root.ownerDocument || root;
   const clean = corpusRedactor(profile, rows),

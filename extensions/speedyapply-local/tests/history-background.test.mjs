@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 const source = await readWithDependencies(
-  new URL("../src/custom/history-background.js", import.meta.url),
+  new URL("../src/custom/event-log-background.js", import.meta.url),
   "utf8",
 );
 function setup(local = {}, session = {}, now = Date.now()) {
@@ -44,7 +44,7 @@ function setup(local = {}, session = {}, now = Date.now()) {
     },
   });
   vm.runInContext(source, context);
-  return { api: context.JobsDiagnosticHistory, local, session, context };
+  return { api: context.JobsEventLog, local, session, context };
 }
 function archive(local) {
   const index = local.jobsDiagnosticHistoryV1;
@@ -107,7 +107,7 @@ test("storage property reordering cannot duplicate cumulative diagnostic events"
   const restarted = setup(h.local, h.session);
   await restarted.api.capture({ ...first, observedAt: first.observedAt + 10 });
   const batch = await restarted.api.pending(300000);
-  assert.equal(batch.items[0].events.length, 2);
+  assert.equal(batch.items[0].events.length, 3);
   await restarted.api.capture({
     ...first,
     observedAt: first.observedAt + 20,
@@ -116,7 +116,7 @@ test("storage property reordering cannot duplicate cumulative diagnostic events"
       { at: first.events[0].at, type: "phase", detail: "page-complete" },
     ],
   });
-  assert.equal((await restarted.api.pending(300000)).items[0].events.length, 3);
+  assert.equal((await restarted.api.pending(300000)).items[0].events.length, 4);
 });
 test("closed-tab records survive worker restart as synthetic values, without arbitrary details", async () => {
   const h = setup();
@@ -126,7 +126,8 @@ test("closed-tab records survive worker restart as synthetic values, without arb
   assert.equal(pending.items.length, 1);
   assert(!JSON.stringify(h.local).includes("PRIVATE_"));
   assert.match(
-    pending.items[0].snapshots[0].fields[0].value,
+    pending.items[0].events.find((e) => e.type === "field_observed").field
+      .value,
     /^synthetic-[a-f0-9]{32}$/,
   );
   assert.equal(pending.items[0].schemaVersion, 2);
@@ -167,7 +168,10 @@ test("one run merges steps, a later run remains distinct, and a stale ack cannot
   await h.api.capture(next);
   const pending = await h.api.pending(300000);
   assert.equal(pending.items.length, 1);
-  assert.equal(pending.items[0].snapshots.length, 2);
+  assert.equal(
+    pending.items[0].events.filter((e) => e.type === "phase").length,
+    2,
+  );
   const later = {
     ...next,
     observedAt: next.observedAt + 1000,
@@ -209,16 +213,19 @@ test("ordinary acknowledged records expire after 30 days; offline and unresolved
   assert.equal((await h.api.pending(1)).items.length, 0);
 });
 
-test("history has bounded snapshots and payloads with explicit truncation", async () => {
-  const h = setup();
-  for (let i = 0; i < 75; i++) {
-    const p = report(1, 1000 + i);
-    p.phase = "phase-" + i;
-    await h.api.capture(p);
-  }
+test("event logs bound payloads and report truncation without page snapshots", async () => {
+  const h = setup(),
+    p = report();
+  p.events = Array.from({ length: 1700 }, (_, i) => ({
+    at: p.observedAt + i,
+    type: "action_returned",
+    fieldId: "f1",
+  }));
+  await h.api.capture(p);
   const item = (await h.api.pending(300000)).items[0];
   assert(item.truncated);
-  assert.equal(item.snapshots.length, 60);
+  assert.equal(item.snapshots.length, 0);
+  assert(item.events.length <= 1500);
   assert(Buffer.byteLength(JSON.stringify(item)) <= 150000);
 });
 
@@ -247,7 +254,9 @@ test("synthetic tokens retain equality and distinctions across traces and restar
     },
   ];
   await h.api.capture(r);
-  const field = (await h.api.pending(300000)).items[0].snapshots[0].fields[0];
+  const field = (await h.api.pending(300000)).items[0].events.find(
+    (e) => e.type === "field_observed",
+  ).field;
   assert.deepEqual(
     { ...field.decision },
     {
@@ -269,8 +278,9 @@ test("synthetic tokens retain equality and distinctions across traces and restar
     phase: "checked",
   });
   assert.equal(
-    (await restarted.api.pending(300000)).items[0].snapshots.at(-1).fields[0]
-      .value,
+    (await restarted.api.pending(300000)).items[0].events.findLast(
+      (e) => e.type === "field_observed",
+    ).field.value,
     field.value,
   );
   assert(!JSON.stringify(h.local).includes("PRIVATE_"));
@@ -278,8 +288,9 @@ test("synthetic tokens retain equality and distinctions across traces and restar
   const anotherSession = setup();
   await anotherSession.api.capture(r);
   assert.notEqual(
-    (await anotherSession.api.pending(300000)).items[0].snapshots[0].fields[0]
-      .value,
+    (await anotherSession.api.pending(300000)).items[0].events.find(
+      (e) => e.type === "field_observed",
+    ).field.value,
     field.value,
   );
 });
@@ -331,7 +342,8 @@ test("an entirely unrecognized form still retains diagnostic evidence", async ()
   ];
   await h.api.capture(r);
   const item = (await h.api.pending(300000)).items[0];
-  assert.equal(item.snapshots[0].unrecognized[0].question, "Start date");
+  assert.equal(item.snapshots.length, 0);
+  assert(!JSON.stringify(item).includes("spinbutton"));
 });
 
 test("archive capacity never evicts pinned or unacknowledged runs", async () => {
@@ -366,7 +378,10 @@ test("an old connection acknowledgement leaves synthetic history pending for the
   const task = h.api.sync();
   await started.promise;
   await h.context.JobsPrivateSession.clear();
-  late.resolve({ ok: true, json: async () => ({ historyAccepted: true }) });
+  late.resolve({
+    ok: true,
+    json: async () => ({ historyAccepted: true, eventLog: 1 }),
+  });
   await assert.rejects(task, /连接已改变/);
   assert.equal((await h.api.pending(300000)).items.length, 1);
 });
@@ -427,34 +442,41 @@ test("failed index publication preserves the previous run and can retry after re
   assert.equal(JSON.stringify(h.local.jobsDiagnosticHistoryV1), old);
   const restarted = setup(h.local, h.session);
   assert.equal(
-    (await restarted.api.pending(300000)).items[0].snapshots.length,
+    (await restarted.api.pending(300000)).items[0].events.filter(
+      (e) => e.type === "phase",
+    ).length,
     1,
   );
   await restarted.api.capture({ ...first, phase: "page-complete" });
   assert.equal(
-    (await restarted.api.pending(300000)).items[0].snapshots.length,
+    (await restarted.api.pending(300000)).items[0].events.filter(
+      (e) => e.type === "phase",
+    ).length,
     2,
   );
 });
 
 test("legacy archive upgrades losslessly and remains intact if payload persistence fails", async () => {
-  const seed = setup();
-  await seed.api.capture(report());
+  const seed = setup(),
+    original = report();
+  await seed.api.capture(original);
   const legacy = structuredClone(archive(seed.local));
   const h = setup({ jobsDiagnosticHistoryV1: legacy }, seed.session);
   h.context.chrome.storage.local.set = async () => {
     throw Error("synthetic disk failure");
   };
   await assert.rejects(
-    h.api.capture({ ...report(), phase: "page-complete" }),
+    h.api.capture({ ...original, phase: "page-complete" }),
     /disk failure/,
   );
   assert.deepEqual(h.local.jobsDiagnosticHistoryV1, legacy);
   const restarted = setup(h.local, h.session);
-  await restarted.api.capture({ ...report(), phase: "page-complete" });
+  await restarted.api.capture({ ...original, phase: "page-complete" });
   assert.equal(h.local.jobsDiagnosticHistoryV1.version, 2);
   assert.equal(
-    (await restarted.api.pending(300000)).items[0].snapshots.length,
+    (await restarted.api.pending(300000)).items[0].events.filter(
+      (e) => e.type === "phase",
+    ).length,
     2,
   );
 });
@@ -488,7 +510,7 @@ function connectedHistory() {
   h.context.AbortSignal = AbortSignal;
   h.context.fetch = async () => ({
     ok: true,
-    json: async () => ({ historyAccepted: true }),
+    json: async () => ({ historyAccepted: true, eventLog: 1 }),
   });
   return h;
 }
@@ -536,7 +558,10 @@ test("bounded timings and visibility survive archive restart without arbitrary d
   const restarted = setup(h.local, h.session);
   await restarted.api.capture(value);
   const events = (await restarted.api.pending(300000)).items[0].events;
-  assert.equal(events.length, value.events.length);
+  assert.equal(
+    events.filter((e) => e.type !== "field_observed").length,
+    value.events.length,
+  );
   assert.deepEqual(JSON.parse(JSON.stringify(events.at(-2).timing)), {
     ms: 1234567,
     heldMs: 20,
@@ -592,6 +617,7 @@ for (const mode of ["old", "new", "rollback"]) {
         );
       return Response.json({
         historyAccepted: true,
+        eventLog: 1,
         ...(mode !== "old" ? { historyEventMetrics: 1 } : {}),
       });
     };
@@ -642,7 +668,11 @@ for (const [boundary, status] of [
       if (calls === failureAt) return Response.json({}, { status });
       if (boundary === "fallback" && calls === 2)
         return Response.json({}, { status: 400 });
-      return Response.json({ historyAccepted: true, historyEventMetrics: 1 });
+      return Response.json({
+        historyAccepted: true,
+        eventLog: 1,
+        historyEventMetrics: 1,
+      });
     };
     await assert.rejects(h.api.sync(), new RegExp(String(status)));
     assert.equal(calls, failureAt);
@@ -669,7 +699,11 @@ test("a connection changed during the capability response cannot send the old ba
   const task = h.api.sync();
   await started.promise;
   await h.context.JobsPrivateSession.clear();
-  finish.resolve({ historyAccepted: true, historyEventMetrics: 1 });
+  finish.resolve({
+    historyAccepted: true,
+    eventLog: 1,
+    historyEventMetrics: 1,
+  });
   await assert.rejects(task, /连接已改变/);
   assert.equal(calls, 1);
   assert.equal((await h.api.pending(300000)).items.length, 1);
@@ -718,7 +752,10 @@ for (const boundary of ["payload", "index"])
     const restarted = setup(h.local, h.session);
     const batch = await restarted.api.pending(300000);
     assert.equal(batch.items.length, 1);
-    assert.equal(batch.items[0].snapshots.length, 1);
+    assert.equal(
+      batch.items[0].events.filter((e) => e.type === "field_observed").length,
+      1,
+    );
     await restarted.api.acknowledge(batch.ack);
     assert.equal((await restarted.api.pending(300000)).items.length, 0);
   });
@@ -744,7 +781,12 @@ test("failed acknowledgement confirmation remains pending after cleanup and anot
   await restarted.api.capture(report(2));
   batch = await setup(h.local, h.session).api.pending(300000);
   assert.equal(batch.items.length, 2);
-  assert(batch.items.every((item) => item.snapshots.length === 1));
+  assert(
+    batch.items.every(
+      (item) =>
+        item.events.filter((e) => e.type === "field_observed").length === 1,
+    ),
+  );
 });
 
 test("a worker stopped after staging acknowledgements restores pending runs before cleanup", async () => {
@@ -768,7 +810,10 @@ test("a worker stopped after staging acknowledgements restores pending runs befo
   const restarted = setup(stoppedStorage, structuredClone(h.session));
   const batch = await restarted.api.pending(300000);
   assert.equal(batch.items.length, 1);
-  assert.equal(batch.items[0].snapshots.length, 1);
+  assert.equal(
+    batch.items[0].events.filter((e) => e.type === "field_observed").length,
+    1,
+  );
   const live = Object.values(
     stoppedStorage.jobsDiagnosticHistoryV1.applications,
   )[0].storageKey;
@@ -806,7 +851,7 @@ test("a confirmed old connection acknowledgement stays valid if connection chang
 test("durable journal keeps each same-field choice with sequence and redacts values before storage", async () => {
   const h = setup(),
     r = report();
-  r.journalOnly = true;
+  r.eventOnly = true;
   r.fields = [];
   r.events = [
     {
@@ -912,7 +957,10 @@ test("a rejected run does not block valid siblings and is never acknowledged", a
     const body = JSON.parse(options.body);
     return body.history.some((r) => r.runId === "run-1")
       ? { ok: false, status: 400 }
-      : { ok: true, json: async () => ({ historyAccepted: true }) };
+      : {
+          ok: true,
+          json: async () => ({ historyAccepted: true, eventLog: 1 }),
+        };
   };
   await h.api.sync();
   const pending = await h.api.pending(300000);
@@ -926,7 +974,10 @@ test("rejected batches and network errors retain only a real previous acknowledg
   const h = connectedHistory();
   await h.api.capture(report(1));
   await h.api.capture(report(2));
-  h.context.fetch = async () => ({ ok: false, status: 400 });
+  h.context.fetch = async (_, options) =>
+    JSON.parse(options.body).history.length
+      ? { ok: false, status: 400 }
+      : Response.json({ historyAccepted: true, eventLog: 1 });
   await h.api.sync();
   assert.equal((await h.api.health()).lastAckAt, undefined);
   assert.equal((await h.api.health()).pending, 2);
@@ -964,6 +1015,7 @@ test("answer batch counts survive restart, discard text, and wait for service ca
     calls.push(JSON.parse(options.body));
     return Response.json({
       historyAccepted: true,
+      eventLog: 1,
       historyEventMetrics: 1,
       historyEvidence: 1,
     });
@@ -976,6 +1028,7 @@ test("answer batch counts survive restart, discard text, and wait for service ca
     calls.push(JSON.parse(options.body));
     return Response.json({
       historyAccepted: true,
+      eventLog: 1,
       historyEventMetrics: 1,
       historyEvidence: 1,
       historyAnswerUsage: 1,

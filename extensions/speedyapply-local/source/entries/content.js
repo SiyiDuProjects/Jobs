@@ -11,7 +11,6 @@ import "../../src/custom/response-contract.js";
 import { initializeAnswerResolver } from "../../src/custom/answer-resolver.js";
 import { initializeControlConfig } from "../../src/custom/control-config.js";
 import { initializeDomWait } from "../../src/custom/dom-wait.js";
-import { initializeReproCase } from "../../src/custom/repro-case.js";
 import { initializeDiagnostics } from "../../src/custom/diagnostics.js";
 import { initializeAnswerMemory } from "../../src/custom/answer-memory.js";
 import { initializeAshbyControls } from "../../src/custom/ashby-controls.js";
@@ -55,7 +54,6 @@ if (!globalThis.__jobsNativePage) {
   initializeAnswerResolver();
   initializeControlConfig();
   initializeDomWait();
-  initializeReproCase();
   initializeDiagnostics();
   initializeAnswerMemory();
   initializeAshbyControls();

@@ -10,11 +10,11 @@ import { JobsJobMatch } from "./job-match.js";
 import { JobsBuildInfo } from "./build-info.js";
 import { JobsSync } from "./sync.js";
 import { JobsBrand } from "./brand.js";
-import { createDiagnosticHistoryStore } from "./history-store.js";
+import { createEventLogStore } from "./event-log-store.js";
 import { historyEventMetrics } from "./history-event-metrics.js";
-export var JobsDiagnosticHistory;
+export var JobsEventLog;
 let initialized = false;
-export function initializeHistoryBackground() {
+export function initializeEventLogBackground() {
   if (initialized) return;
   initialized = true;
   (() => {
@@ -32,7 +32,7 @@ export function initializeHistoryBackground() {
       );
       return task;
     };
-    const store = createDiagnosticHistoryStore();
+    const store = createEventLogStore();
     const { read, write } = store;
     const bytes = (value) =>
       new TextEncoder().encode(JSON.stringify(value)).byteLength;
@@ -186,52 +186,57 @@ export function initializeHistoryBackground() {
         const data = entry.data;
         if (state.retentions?.[storageKey])
           data.caseRetention = state.retentions[storageKey];
-        const snapshot = {
-          at,
-          document: report.sessionId,
-          phase: report.phase || "unknown",
-          step: publicText(report.step),
-          fields: (report.fields || [])
-            .filter(
-              (f) =>
-                !secret.test(f.question || "") &&
-                !["password", "hidden"].includes(f.kind),
-            )
-            .slice(0, 150)
-            .map((f) => ({
-              id: f.id,
-              question: publicText(f.question),
-              kind: f.kind,
-              required: !!f.required,
-              hasValue: !!f.hasValue,
-              invalid: !!f.invalid,
-              status: f.status || "unknown",
-              attempts: f.attempts || 0,
-              // Why the field holds what it holds: the answer decision and the last
-              // write's choice. This is what a later "why was this wrong" needs.
-              ...(f.value ? { value: synthetic(f.value) } : {}),
-              ...(f.decision ? { decision: decision(f.decision) } : {}),
-              ...(f.traces?.length ? { trace: trace(f.traces.at(-1)) } : {}),
-            })),
-          // Questions no reader turned into a field, with their structure only.
-          ...(report.unansweredContainers?.length
-            ? {
-                unrecognized: report.unansweredContainers
-                  .slice(0, 20)
-                  .map((u) => ({
-                    question: publicText(u.question).slice(0, 200),
-                    reason: short(u.reason, 40),
-                    structure: String(u.structure || "").slice(0, 800),
-                  })),
-              }
-            : {}),
-        };
-        const signature = stableStringify({ ...snapshot, at: 0 });
-        let changed = !report.journalOnly && entry.signature !== signature;
-        if (changed) {
-          data.snapshots.push(snapshot);
-          entry.signature = signature;
+        const observedFields = (report.fields || [])
+          .filter(
+            (f) =>
+              !secret.test(f.question || "") &&
+              !["password", "hidden"].includes(f.kind),
+          )
+          .slice(0, 150)
+          .map((f) => ({
+            id: f.id,
+            question: publicText(f.question),
+            kind: f.kind,
+            required: !!f.required,
+            hasValue: !!f.hasValue,
+            invalid: !!f.invalid,
+            status: f.status || "unknown",
+            attempts: f.attempts || 0,
+            // Why the field holds what it holds: the answer decision and the last
+            // write's choice. This is what a later "why was this wrong" needs.
+            ...(f.value ? { value: synthetic(f.value) } : {}),
+            ...(f.decision ? { decision: decision(f.decision) } : {}),
+            ...(f.traces?.length ? { trace: trace(f.traces.at(-1)) } : {}),
+          }));
+        // A field state is one typed event. No page, DOM outline or inventory
+        // snapshot is persisted; corpus is the only page capture format.
+        const fieldEvents = [];
+        if (
+          !report.eventOnly &&
+          report.phase &&
+          data.events.findLast((e) => e.type === "phase")?.phase !==
+            report.phase
+        )
+          fieldEvents.push({ at, type: "phase", detail: report.phase });
+        for (const field of observedFields) {
+          const previous = data.events.findLast(
+            (e) =>
+              e.type === "field_observed" &&
+              e.document === report.sessionId &&
+              e.fieldId === field.id,
+          );
+          if (
+            !previous ||
+            stableStringify(previous.field) !== stableStringify(field)
+          )
+            fieldEvents.push({
+              at,
+              type: "field_observed",
+              fieldId: field.id,
+              field,
+            });
         }
+        let changed = false;
         // Storage may reorder object properties. Event identity must not depend
         // on that order, including when compacting already duplicated history.
         const eventKey = (e) =>
@@ -247,6 +252,7 @@ export function initializeHistoryBackground() {
             e.evidence || null,
             e.trace || null,
             e.decision || null,
+            e.field || null,
             historyEventMetrics(e.type, e.timing).timing || null,
             e.answerUsage || null,
           ]);
@@ -258,12 +264,13 @@ export function initializeHistoryBackground() {
         ];
         changed ||= data.events.length !== priorEventCount;
         const known = new Set(data.events.map(eventKey));
-        for (const e of report.events || []) {
+        for (const e of [...(report.events || []), ...fieldEvents]) {
           const event = /** @type {import('./sync-types').HistoryEvent} */ ({
             at: e.at,
             document: report.sessionId,
             type: e.type,
             ...(e.fieldId ? { fieldId: e.fieldId } : {}),
+            ...(fieldEvents.includes(e) && e.field ? { field: e.field } : {}),
             ...historyEventMetrics(e.type, e.detail),
             ...(Number.isSafeInteger(e.sequence) && e.sequence > 0
               ? { sequence: e.sequence }
@@ -291,10 +298,6 @@ export function initializeHistoryBackground() {
         data.firstSeen = Math.min(data.firstSeen, report.startedAt || at);
         data.lastSeen = Math.max(data.lastSeen, at);
         data.events.sort((a, b) => a.at - b.at);
-        if (data.snapshots.length > 60) {
-          data.snapshots = data.snapshots.slice(-60);
-          data.truncated = true;
-        }
         if (data.events.length > 1500) {
           while (data.events.length > 1500) evictDiagnosticEvent(data.events);
           data.truncated = true;
@@ -303,10 +306,7 @@ export function initializeHistoryBackground() {
           data.truncated = true;
         while (bytes(data) > MAX_BYTES) {
           data.truncated = true;
-          if (data.snapshots.length > 1) data.snapshots.shift();
-          else if (data.events.length) evictDiagnosticEvent(data.events);
-          else if (data.snapshots[0]?.fields.length)
-            data.snapshots[0].fields.pop();
+          if (data.events.length) evictDiagnosticEvent(data.events);
           else throw Error("Diagnostic metadata exceeds the storage budget");
         }
         entry.revision++;
@@ -481,6 +481,7 @@ export function initializeHistoryBackground() {
           metrics: data.historyEventMetrics === 1,
           evidence: data.historyEvidence === 1,
           answerUsage: data.historyAnswerUsage === 1,
+          eventFields: data.eventLog === 1,
         };
       };
       const accepted = (response) => {
@@ -488,6 +489,9 @@ export function initializeHistoryBackground() {
           throw Error("Diagnostics upload failed (" + response.status + ")");
         return response;
       };
+      const hasFields = batch.items.some((item) =>
+        item.events.some((event) => event.field),
+      );
       const hasEvidence = batch.items.some((item) =>
         item.events.some(
           (event) =>
@@ -508,10 +512,11 @@ export function initializeHistoryBackground() {
       // Probe with the existing empty-packet contract. Old servers never see
       // new event fields; the local archive still retains those measurements.
       const capabilities =
-        hasMetrics || hasEvidence || hasAnswerUsage
+        hasMetrics || hasEvidence || hasAnswerUsage || hasFields
           ? accepted(await post([]))
           : null;
       if (
+        (hasFields && !capabilities?.eventFields) ||
         (hasEvidence && !capabilities?.evidence) ||
         (hasAnswerUsage && !capabilities?.answerUsage)
       ) {
@@ -660,7 +665,7 @@ export function initializeHistoryBackground() {
       });
       void sync().catch(() => {});
     }
-    JobsDiagnosticHistory = {
+    JobsEventLog = {
       capture,
       pending,
       acknowledge,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDiagnosticJournal } from "../src/custom/diagnostic-journal.js";
+import { createEventStream } from "../src/custom/event-stream.js";
 import {
   diagnosticGuard,
   diagnosticEvidence,
@@ -11,14 +11,14 @@ test("journal preserves same-millisecond events and old runs until durable ackno
   let runId = "first",
     acknowledge;
   const reports = [];
-  const journal = createDiagnosticJournal({
+  const journal = createEventStream({
     context: () => ({ runId }),
     defer: setTimeout,
     cancel: clearTimeout,
     send: async (report) => {
       reports.push(report);
       if (reports.length === 1) await new Promise((r) => (acknowledge = r));
-      return { ok: true };
+      return { data: { ok: true } };
     },
   });
   journal.append({
@@ -46,7 +46,7 @@ test("journal preserves same-millisecond events and old runs until durable ackno
 test("missing or failed acknowledgements retain evidence and report overflow instead of success", async () => {
   let retry,
     ok = false;
-  const journal = createDiagnosticJournal({
+  const journal = createEventStream({
     context: () => ({ runId: "one" }),
     defer: (fn) => {
       retry = fn;

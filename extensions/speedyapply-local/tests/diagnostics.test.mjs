@@ -39,6 +39,7 @@ function harness(
     listeners = [],
     sent = [];
   w.TextEncoder = TextEncoder;
+  w.JobsBuildInfo = { id: "synthetic" };
   w.JobsControlConfig = { enabled: false, observe: true };
   w.chrome = {
     runtime: {
@@ -48,7 +49,9 @@ function harness(
         sent.push(msg);
         return msg.type === "jobs:tab-profile"
           ? { data: { id: "ng", profile: { profileName: "Newgrad" } } }
-          : {};
+          : msg.type === "jobs:corpus-page"
+            ? { data: { ok: true, failureId: "fixture-failure" } }
+            : {};
       },
       onMessage: { addListener: (fn) => listeners.push(fn) },
     },
@@ -183,7 +186,7 @@ test("form mutation bursts share the scheduled diagnostic scan without losing ch
     assert.equal(report.fields.length, 2);
     assert.equal(report.fields[0].invalid, true);
     assert(
-      report.events.some(
+      h.w.JobsDiagnostics.snapshot().events.some(
         (e) =>
           e.type === "field_value_lost" && e.fieldId === initial.fields[0].id,
       ),
@@ -284,9 +287,15 @@ for (const phase of ["complete-required", "ai-review"])
     );
     try {
       await h.start();
+      h.w.bindCorpusPage(
+        h.doc.querySelector("form"),
+        { profileName: "Synthetic" },
+        h.w.JobsControlFields.create(h.doc),
+        () => false,
+      );
       h.actual().setMessage(phase);
       await new Promise((r) => setTimeout(r, 260));
-      const cases = h.sent.filter((m) => m.type === "jobs:repro-push");
+      const cases = h.sent.filter((m) => m.type === "jobs:corpus-page");
       assert(cases.length > 0);
       assert(!JSON.stringify(cases).includes("PRIVATE_ANSWER"));
       assert.equal(h.doc.querySelector("input").value, "PRIVATE_ANSWER");
@@ -294,20 +303,57 @@ for (const phase of ["complete-required", "ai-review"])
       assert.match(
         (
           await h.send({
-            type: "jobs:repro-capture",
+            type: "jobs:corpus-capture-failure",
             sessionId: "old-document",
           })
         ).error,
         /页面已切换/,
       );
       assert.equal(
-        (await h.send({ type: "jobs:repro-capture", sessionId })).data.captured,
+        (await h.send({ type: "jobs:corpus-capture-failure", sessionId })).data
+          .captured,
         true,
       );
     } finally {
       h.close();
     }
   });
+
+test("unacknowledged corpus failure capture does not loop on its own error event", async () => {
+  const h = harness(
+    '<label>Summary<input required aria-invalid="true"></label>',
+  );
+  try {
+    await h.start();
+    h.w.bindCorpusPage(
+      h.doc.querySelector("form"),
+      {},
+      h.w.JobsControlFields.create(h.doc),
+      () => false,
+    );
+    let captures = 0;
+    const original = h.w.chrome.runtime.sendMessage;
+    h.w.chrome.runtime.sendMessage = async (message) => {
+      if (message.type === "jobs:corpus-page") {
+        captures++;
+        return { data: { stored: true } };
+      }
+      return original(message);
+    };
+    h.actual().setMessage("site-error");
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(captures, 1);
+    assert.equal(
+      h.w.JobsDiagnostics.snapshot().events.filter(
+        (e) => e.type === "corpus_capture_failed",
+      ).length,
+      1,
+    );
+    assert.equal(h.doc.querySelector("input").value, "");
+  } finally {
+    h.close();
+  }
+});
 
 test("Workday grouped input links to the question and records a later property-only reset without filling or navigating", async () => {
   const h = harness(

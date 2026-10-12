@@ -57,16 +57,19 @@ const dependencies = {
   "automatic-field-policy.js": ["answer-proof.js"],
   "form-pipeline.js": ["page-actions.js", "dom-wait.js", "page-commit.js"],
   "manual-answer.js": ["form-pipeline.js"],
-  "history-background.js": [
-    "history-store.js",
+  "event-log-background.js": [
+    "event-log-store.js",
     "history-event-metrics.js",
     "diagnostic-evidence.js",
   ],
   "diagnostics.js": [
     "history-event-metrics.js",
     "diagnostic-evidence.js",
-    "diagnostic-journal.js",
+    "event-stream.js",
+    "corpus-content.js",
   ],
+  "corpus-content.js": ["corpus-case.js"],
+  "corpus-case.js": ["corpus-observations.js"],
   "control-fields.js": [
     "dom-wait.js",
     "calendar-date.js",

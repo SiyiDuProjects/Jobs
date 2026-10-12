@@ -1,10 +1,10 @@
 import { stableStringify } from "./stable-value.js";
 import { diagnosticEvidence } from "./diagnostic-evidence.js";
-import { createDiagnosticJournal } from "./diagnostic-journal.js";
+import { createEventStream } from "./event-stream.js";
 import { publicJobUrl } from "./public-job-url.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsBuildInfo } from "./build-info.js";
-import { JobsReproCase } from "./repro-case.js";
+import { captureCorpusFailure } from "./corpus-content.js";
 import { JobsControlConfig } from "./control-config.js";
 import { JobsPlatformConfig } from "./platform-config.js";
 import { historyEventMetrics } from "./history-event-metrics.js";
@@ -60,6 +60,7 @@ export function initializeDiagnostics() {
     let lastRows = [],
       lastUnrecognized = [],
       lastCaseSignature = "",
+      lastCaseAttempt = null,
       profileEvent = null;
     // Job paths are public identifiers (Greenhouse job numbers, Ashby/Lever UUIDs).
     // Mask only an email or a long opaque segment, one segment at a time, so the
@@ -249,7 +250,7 @@ export function initializeDiagnostics() {
     let journal;
     function makeJournal() {
       if (journal) return;
-      journal = createDiagnosticJournal({
+      journal = createEventStream({
         context: () =>
           session && !stopped
             ? {
@@ -268,7 +269,7 @@ export function initializeDiagnostics() {
             : null,
         send: (report) =>
           chrome.runtime.sendMessage({
-            type: "jobs:diagnostics-journal",
+            type: "jobs:event-log",
             report,
           }),
         defer: (fn, ms) => view.setTimeout(fn, ms),
@@ -339,6 +340,7 @@ export function initializeDiagnostics() {
           hasAiNotes: !!value?.profile?.applicationData?.aiNotes,
         }),
       };
+      profileEvent = journal?.append(profileEvent) || profileEvent;
       schedule();
     }
     function scope() {
@@ -583,7 +585,10 @@ export function initializeDiagnostics() {
           lastPush = pushed;
           lastPushAt = Date.now();
           void chrome.runtime
-            .sendMessage({ type: "jobs:diagnostics-push", report })
+            .sendMessage({
+              type: "jobs:diagnostics-push",
+              report: { ...report, events: [] },
+            })
             .catch(() => {});
         }
         if (
@@ -886,8 +891,8 @@ export function initializeDiagnostics() {
       });
     }
     async function saveCase(report, force = false) {
-      if (!JobsReproCase) return null;
       const signature = stableStringify([
+        report.sessionId,
         report.step,
         report.fields.map((f) => [f.id, f.completion, f.attempts]),
         report.unansweredContainers.map((u) => u.question),
@@ -895,46 +900,40 @@ export function initializeDiagnostics() {
           .filter((e) => e.type === "answer_decision")
           .map((e) => e.detail),
       ]);
-      if (!force && signature === lastCaseSignature) return null;
-      // An unrecognized question is saved like a failing field: its region's
-      // sanitized structure becomes a fixture for the reader that missed it.
-      const extra = lastUnrecognized.map((item, index) => ({
-        row: { node: item.node, public: { id: "unrecognized-" + (index + 1) } },
-        field: {
-          id: "unrecognized-" + (index + 1),
-          kind: "unknown",
-          component: "unrecognized",
-          required: item.reason === "required-title-without-field",
-          hasValue: false,
-          invalid: false,
-          completion: "unrecognized",
-        },
-      }));
-      const value = JobsReproCase.capture({
-        report: {
-          ...report,
-          fields: [...report.fields, ...extra.map((item) => item.field)],
-        },
-        rows: [...lastRows, ...extra.map((item) => item.row)],
-        document: doc,
-      });
-      if (!value) return null;
-      const result = await chrome.runtime.sendMessage({
-        type: "jobs:repro-push",
-        value,
+      if (
+        !force &&
+        (signature === lastCaseSignature ||
+          (lastCaseAttempt?.signature === signature &&
+            Date.now() - lastCaseAttempt.at < 30000))
+      )
+        return null;
+      lastCaseAttempt = { signature, at: Date.now() };
+      const result = await captureCorpusFailure({
         runId: report.runId,
+        documentId: report.sessionId,
+        fieldIds: report.fields
+          .filter(
+            (f) =>
+              f.invalid ||
+              (f.required && !f.hasValue) ||
+              f.status === "attempted_still_empty",
+          )
+          .map((f) => f.id),
+        reason: force
+          ? "manual_report"
+          : report.unansweredContainers.length
+            ? "unrecognized_control"
+            : report.phase === "site-error"
+              ? "site_error"
+              : "incomplete",
       });
-      if (result?.error) throw Error(result.error);
-      lastCaseSignature = signature;
-      return {
-        captured: true,
-        fields: value.fields.length,
-        truncated: value.coverage.truncated,
-      };
+      if (result?.captured) lastCaseSignature = signature;
+      return result;
     }
+
     chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (
-        !["jobs:diagnostics-inspect", "jobs:repro-capture"].includes(
+        !["jobs:diagnostics-inspect", "jobs:corpus-capture-failure"].includes(
           message?.type,
         )
       )
@@ -943,7 +942,7 @@ export function initializeDiagnostics() {
         reply({ error: "Background only" });
         return;
       }
-      if (message.type === "jobs:repro-capture") {
+      if (message.type === "jobs:corpus-capture-failure") {
         if (message.sessionId !== session?.sessionId) {
           reply({ error: "页面已切换，请重新选择申请页面" });
           return;

@@ -70,12 +70,25 @@ function render(row) {
   $("events").replaceChildren(
     ...report.events.map((event) => {
       const li = document.createElement("li");
-      const usage = historyEventMetrics(event.type, event.detail).answerUsage;
+      const usage =
+        event.answerUsage ||
+        historyEventMetrics(event.type, event.detail).answerUsage;
       const detail = usage
         ? usage.unavailable
           ? "回答批次计数不可用"
           : `缓存命中 ${usage.cacheHits} 题 / 送模型 ${usage.modelFields} 题 / 模型请求 ${usage.modelCalls} 次（含核验）`
-        : event.detail;
+        : event.detail ||
+          event.phase ||
+          (event.field
+            ? JSON.stringify({
+                question: event.field.question,
+                decision: event.field.decision,
+                trace: event.field.trace,
+                status: event.field.status,
+              })
+            : event.trace
+              ? JSON.stringify(event.trace)
+              : "");
       li.textContent = `${new Date(event.at).toLocaleTimeString()} · ${event.sequence ? "#" + event.sequence + " · " : ""}${event.type}${event.fieldId ? " · " + event.fieldId : ""}${detail ? " · " + detail : ""}${event.evidence ? " · " + JSON.stringify(event.evidence) : ""}`;
       return li;
     }),
@@ -120,7 +133,7 @@ async function load() {
     );
   else {
     $("message").textContent =
-      "还没有记录。重新加载 local.14 扩展后，新打开或刷新投递页，让原插件开始识别页面。";
+      "还没有事件记录。下一次正常打开申请页时会开始记录；无需刷新正在填写的页面。";
   }
 }
 function action(fn) {
@@ -134,12 +147,12 @@ function action(fn) {
   };
 }
 async function loadCases() {
-  const rows = await request("jobs:repro-list");
+  const rows = await request("jobs:corpus-failures");
   select("cases").replaceChildren(
     ...(rows || []).map((row) => {
       const option = document.createElement("option");
       option.value = row.id;
-      option.textContent = `${new Date(row.at).toLocaleString()} · ${row.origin} · ${row.fields} 个字段 · ${row.build} · ${row.resolved ? "已解决" : "未解决"}`;
+      option.textContent = `${new Date(row.at).toLocaleString()} · ${row.reason} · ${row.fieldIds.length} 道标记题目 · ${row.pageId.slice(0, 12)} · ${row.resolved ? "已解决" : "未解决"}`;
       return option;
     }),
   );
@@ -152,7 +165,7 @@ for (const [id, resolved] of [
 ])
   $(id).onclick = action(async () => {
     if (!select("cases").value) return;
-    await request("jobs:repro-resolve", {
+    await request("jobs:corpus-resolve-failure", {
       id: select("cases").value,
       resolved,
     });
@@ -176,14 +189,16 @@ $("capture-case").onclick = action(async () => {
   await loadCases();
   $("case-message").textContent = result?.captured
     ? `已保存 ${result.fields} 个字段${result.truncated ? "（结构已达到上限）" : ""}。`
-    : "当前没有可记录的未完成字段。";
+    : "当前没有可采集的题库页面，或题库尚未确认接收。";
 });
 $("export-case").onclick = action(async () => {
-  const value = await request("jobs:repro-get", { id: select("cases").value });
+  const value = await request("jobs:corpus-failure-page", {
+    id: select("cases").value,
+  });
   if (!value) throw Error("案例已被更新，请刷新列表");
-  download(value, `jobs-repro-${value.capturedAt}.json`);
+  download(value, `jobs-corpus-${value.id}.json`);
   $("case-message").textContent =
-    "已导出。案例可生成离线控件回归测试；不代表完整网站行为已重现。";
+    "已导出失败题库页面，可用于离线回放；不代表真实网站已验收。";
 });
 $("reload").addEventListener("click", action(loadCases));
 $("reload").onclick = action(load);

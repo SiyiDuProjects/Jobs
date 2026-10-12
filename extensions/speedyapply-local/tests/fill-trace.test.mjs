@@ -29,7 +29,7 @@ const custom = Object.fromEntries(
   ),
 );
 const domControls = await read("source/content/shared/dom-controls.js");
-const history = await read("src/custom/history-background.js");
+const history = await read("src/custom/event-log-background.js");
 
 function harness(html) {
   const dom = new JSDOM(
@@ -137,15 +137,14 @@ test("a deliberate wrong first-pass fill is explained by its record alone, and t
       },
     });
     vm.runInContext(history, c);
-    await c.JobsDiagnosticHistory.capture({
+    await c.JobsEventLog.capture({
       ...h.w.JobsDiagnostics.snapshot(),
       pageUrl: "https://jobs.ashbyhq.com/example/job/application",
     });
-    const kept = (
-      await c.JobsDiagnosticHistory.pending(300000)
-    ).items[0].snapshots
-      .at(-1)
-      .fields.find((item) => item.question === "Degree");
+    const kept = (await c.JobsEventLog.pending(300000)).items[0].events
+      .filter((e) => e.type === "field_observed")
+      .map((e) => e.field)
+      .find((item) => item.question === "Degree");
     assert.match(kept.value, /^synthetic-/);
     assert.equal(kept.trace.source, "binding:degree");
     assert.equal(kept.trace.chosen, kept.value);

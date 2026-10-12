@@ -19,6 +19,37 @@ def page(question='Are you eligible to work in the United States?'):
 def fingerprint(value): return digest({key: value[key] for key in ('trees', 'fields')})
 
 
+def test_failed_capture_promotes_deduplicated_page_and_keeps_one_snapshot(tmp_path):
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    original = page()
+    corpus.capture(fingerprint(original), original)
+    variant = copy.deepcopy(original)
+    variant['trees'][0]['attrs']['class'] = 'same-question-new-container'
+    key = fingerprint(variant)
+    assert not corpus.capture(key, variant)['stored']
+    failure = dict(runId='run-1', documentId='document-1', fieldIds=['field-1'], reason='site_error', fieldLinks={'field-1': 'runtime-field-3'})
+    one = corpus.capture(key, variant, failure)
+    assert one['stored']
+    assert not corpus.capture(key, variant, failure)['stored']
+    assert corpus.capture(key, variant, failure)['failureId'] == one['failureId']
+    assert len(corpus.failures()) == 1
+    assert corpus.failures()[0]['fieldLinks'] == {'field-1': 'runtime-field-3'}
+    assert len(corpus.export()['pages']) == 2
+    assert corpus.failure_page(one['failureId'])['page']['trees'] == variant['trees']
+    corpus.resolve_failure(one['failureId'], True)
+    assert corpus.failures()[0]['resolved']
+    assert len(corpus.export()['pages']) == 2
+    with pytest.raises(ValueError): corpus.capture(key, variant, {**failure, 'fieldIds': ['other']})
+    with pytest.raises(ValueError): corpus.capture(key, variant, {**failure, 'answer': 'private'})
+
+
+def test_unrecognized_form_is_a_failed_corpus_page_without_invented_questions(tmp_path):
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    value = page(); value['fields'] = []
+    result = corpus.capture(fingerprint(value), value, dict(runId='run-1', documentId='document-1', fieldIds=[], reason='unrecognized_control'))
+    assert corpus.failure_page(result['failureId'])['page']['fields'] == []
+
+
 def test_compressed_roundtrip_dedup_and_new_question(tmp_path):
     corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite')); value = page(); key = fingerprint(value)
     assert corpus.probe(key) == {'known': False}

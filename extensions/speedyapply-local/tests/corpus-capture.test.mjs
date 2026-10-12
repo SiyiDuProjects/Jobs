@@ -178,3 +178,76 @@ test("cleared native input surfaces retain the exact question and required seman
     dom.window.close();
   }
 });
+
+test("failure pages require a server failure acknowledgement and private UI access", async () => {
+  const dom = readerWindow();
+  try {
+    const w = dom.window;
+    let listener;
+    let accepted = false;
+    const requests = [];
+    Object.defineProperty(w, "crypto", { value: webcrypto });
+    w.chrome = {
+      runtime: {
+        id: "extension",
+        getURL: (path) => "chrome-extension://extension/" + path,
+        onMessage: {
+          addListener: (fn) => {
+            listener = fn;
+          },
+        },
+      },
+    };
+    w.JobsSync = {
+      corpusRequest: async (_method, body) => {
+        requests.push(body);
+        return accepted
+          ? { stored: true, failureId: "failure-1" }
+          : { stored: true };
+      },
+    };
+    w.eval(
+      await readModule(
+        new URL("../src/custom/corpus-background.js", import.meta.url),
+        "utf8",
+      ),
+    );
+    w.initializeCorpusBackground();
+    const sender = {
+      id: "extension",
+      tab: { id: 8 },
+      url: "https://jobs.ashbyhq.com/example/job",
+    };
+    const message = {
+      type: "jobs:corpus-page",
+      value: seedCorpus()[0].page,
+      failure: {
+        runId: "run-1",
+        documentId: "doc-1",
+        fieldIds: ["field-1"],
+        reason: "site_error",
+      },
+    };
+    const send = (msg, from = sender) =>
+      new Promise((resolve) => listener(msg, from, resolve));
+    assert((await send(message)).error);
+    accepted = true;
+    assert.equal((await send(message)).data.failureId, "failure-1");
+    assert(requests.every((item) => item.action === "capture"));
+    assert.deepEqual(requests[0].failure, message.failure);
+    assert((await send({ type: "jobs:corpus-failures" })).error);
+    assert(
+      (
+        await send(
+          { type: "jobs:corpus-failures" },
+          {
+            id: "extension",
+            url: "chrome-extension://extension/diagnostics.html",
+          },
+        )
+      ).data,
+    );
+  } finally {
+    dom.window.close();
+  }
+});

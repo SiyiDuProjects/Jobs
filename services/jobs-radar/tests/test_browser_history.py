@@ -5,7 +5,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from jobs_radar.browser_control import BrowserControl
-from jobs_radar.browser_history import Diagnostics, RETENTION_DAYS, MAX_RUNS, pin
+from jobs_radar.event_log import Diagnostics, RETENTION_DAYS, MAX_RUNS, pin
 from jobs_radar.server import create_server
 from jobs_radar.store import Store
 
@@ -21,6 +21,14 @@ def packet(job=1, at=NOW):
                                 'hasValue': False, 'invalid': True, 'required': True,
                                 'status': 'validation_error', 'attempts': 1}]}],
             'events': [{'at': at, 'document': 'doc-1', 'type': 'phase', 'phase': 'complete-manually'}]}
+
+
+def fields_of(detail):
+    return [event['field'] for event in detail['events'] if event['type'] == 'field_observed']
+
+
+def actions_of(detail):
+    return [event for event in detail['events'] if event['type'] != 'field_observed']
 
 
 @pytest.fixture
@@ -46,8 +54,9 @@ def test_history_survives_closed_tabs_restart_and_merges_workday_steps(history):
     index = restarted.history()['applications']
     assert len(index) == 1
     detail = restarted.history(index[0]['id'])
-    assert [e['phase'] for e in detail['events']] == ['complete-manually', 'ai-filling']
-    assert len(detail['snapshots']) == 2
+    assert [e['phase'] for e in actions_of(detail)] == ['complete-manually', 'ai-filling']
+    assert detail['snapshots'] == []
+    assert len(fields_of(detail)) == 2
     assert detail['executable'] is False
     assert control.pages()['pages'] == []
 
@@ -62,6 +71,23 @@ def test_runs_retained_for_thirty_days_and_exact_reuploads_are_deduplicated(hist
     assert len({r['id'] for r in rows}) == 4
 
 
+def test_unresolved_corpus_failure_retains_related_events_until_resolved(history):
+    from jobs_radar.question_corpus import QuestionCorpus, encoded
+    from jobs_radar.event_log import cleanup
+    store, control, send = history
+    corpus = QuestionCorpus(store)
+    send([packet()])
+    with store.connect(True) as c:
+        c.execute('INSERT INTO corpus_failures VALUES(?,?,?,?,?,?,?,?)',
+                  ('failure-1', 'page-1', 'run-1', 'doc-1', encoded(['field-1']).decode(), 'site_error', NOW / 1000, 0))
+        cleanup(c, NOW + (RETENTION_DAYS + 1) * 86400000)
+    assert len(control.history()['applications']) == 1
+    corpus.resolve_failure('failure-1', True)
+    with store.connect(True) as c:
+        cleanup(c, NOW + (RETENTION_DAYS + 1) * 86400000)
+        assert c.execute('SELECT COUNT(*) FROM browser_diagnostic_history').fetchone()[0] == 0
+
+
 def test_history_unique_run_id_returns_the_same_redacted_archive(history):
     _, control, send = history
     data = {**packet(), 'runId': str(uuid.uuid4())}
@@ -71,7 +97,7 @@ def test_history_unique_run_id_returns_the_same_redacted_archive(history):
     detail = control.history(archive['id'])
     assert control.history(data['runId']) == detail
     assert detail['id'] == archive['id']
-    assert detail['snapshots'][0]['fields'][0]['value'].startswith('Synthetic value ')
+    assert fields_of(detail)[0]['value'].startswith('Synthetic value ')
     assert detail['valuePolicy'] == 'synthetic_values_only' and detail['executable'] is False
 
 
@@ -142,7 +168,8 @@ def test_history_bounds_accumulation_and_marks_truncation(history):
     for offset in range(65):
         send([packet(at=NOW + offset)])
     index = control.history()['applications'][0]
-    assert index['snapshots'] == 60 and index['truncated']
+    assert index['snapshots'] == 0
+    assert index['events'] <= 1500
     bad = packet(); bad['events'] *= 1501
     with pytest.raises(ValueError):
         send([bad])
@@ -168,7 +195,7 @@ def test_history_keeps_each_fields_value_decision_and_last_choice(history):
                'chosen': "Bachelor's Degree", 'method': 'exact', 'optionCount': 8, 'options': ['High School', "Bachelor's Degree"]})
     send([p])
     index = control.history()['applications']
-    field = control.history(index[0]['id'])['snapshots'][0]['fields'][0]
+    field = fields_of(control.history(index[0]['id']))[0]
     assert field['value'].startswith('Synthetic value ') and field['decision']['field'] == 'educationData.degree'
     assert field['trace']['chosen'] == field['value']
     assert field['trace']['options'][1] == field['value']
@@ -182,8 +209,9 @@ def test_history_keeps_unrecognized_questions_with_structure_only(history):
                                           'structure': 'div.question\n  label\n  div.shift-picker[tabindex=0]'}]
     send([p])
     index = control.history()['applications']
-    snapshot = control.history(index[0]['id'])['snapshots'][0]
-    assert snapshot['unrecognized'] == p['snapshots'][0]['unrecognized']
+    detail = control.history(index[0]['id'])
+    assert detail['snapshots'] == []
+    assert 'shift-picker' not in str(detail)
     extra = packet(job=2)
     extra['snapshots'][0]['unrecognized'] = [{'question': 'Q', 'reason': 'x', 'structure': 'div', 'value': 'secret'}]
     with pytest.raises(ValueError):
@@ -192,7 +220,7 @@ def test_history_keeps_unrecognized_questions_with_structure_only(history):
 
 def test_history_metrics_survive_storage_restart_and_empty_capability_probe(history):
     store, control, send = history
-    assert send([]) == {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1, 'historyAnswerUsage': 1}
+    assert send([]) == {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1, 'historyAnswerUsage': 1, 'eventLog': 1}
     assert control.history()['applications'] == []
     p = packet()
     p['events'] = [
@@ -208,7 +236,7 @@ def test_history_metrics_survive_storage_restart_and_empty_capability_probe(hist
     send([p])
     restarted = Diagnostics(store, lambda: NOW + 100_000)
     index = restarted.history()['applications']
-    assert restarted.history(index[0]['id'])['events'] == p['events']
+    assert actions_of(restarted.history(index[0]['id'])) == p['events']
 
 
 @pytest.mark.parametrize('event', [
@@ -247,13 +275,13 @@ def test_history_rich_reupload_replaces_legacy_shell_without_merging_distinct_me
     send([{**p, 'events': enriched}])
     send([p])
     row = control.history()['applications'][0]
-    assert control.history(row['id'])['events'] == enriched
+    assert actions_of(control.history(row['id'])) == enriched
 
     # A first upload can already contain both shapes after an extension update.
     first = {**packet(job=2), 'events': [shell, *enriched, enriched[0]]}
     send([first])
     row = next(row for row in control.history()['applications'] if row['url'] == first['url'])
-    assert control.history(row['id'])['events'] == enriched
+    assert actions_of(control.history(row['id'])) == enriched
 
 
 def test_causal_journal_survives_restart_redaction_and_same_millisecond_events(history):
@@ -271,6 +299,7 @@ def test_causal_journal_survives_restart_redaction_and_same_millisecond_events(h
     ]
     send([p]); send([p])
     data = Diagnostics(store, lambda: NOW + 1000).history('run-1')
+    data['events'] = actions_of(data)
     assert len(data['events']) == 4
     assert data['events'][1]['trace']['answer'] == data['events'][1]['trace']['options'][0]
     assert data['events'][2]['trace']['answer'] == data['events'][2]['trace']['chosen']
@@ -307,7 +336,7 @@ def test_client_server_evidence_categories_match():
 
 def test_history_index_migrates_existing_large_archives_without_temporary_payload_sort(tmp_path):
     import json
-    from jobs_radar.browser_history import MAX_BYTES
+    from jobs_radar.event_log import MAX_BYTES
 
     store = Store(tmp_path / 'large-history.sqlite')
     Diagnostics(store, lambda: NOW)
@@ -332,7 +361,7 @@ def test_history_index_migrates_existing_large_archives_without_temporary_payloa
     index = diagnostics.history()
     assert [row['id'] for row in index['applications']] == [row[0] for row in reversed(rows)]
     assert index['platformStats']['QV']['runs'] == len(rows)
-    assert all(row['events'] == 1100 and row['snapshots'] == 1 for row in index['applications'])
+    assert all(row['events'] == 1101 and row['snapshots'] == 0 for row in index['applications'])
     assert 'data' not in index['applications'][0]
     assert diagnostics.history(rows[0][0])['id'] == rows[0][0]
 
@@ -368,7 +397,7 @@ def test_answer_usage_round_trip_deduplicates_and_retains_unknown(history,usage)
     send([{**p,'events':[event]}]); send([{**p,'events':[event]}])
     restarted=Diagnostics(store,lambda:NOW+100_000)
     row=restarted.history()['applications'][0]
-    assert restarted.history(row['id'])['events']==[event]
+    assert actions_of(restarted.history(row['id']))==[event]
 
 
 @pytest.mark.parametrize('usage', [

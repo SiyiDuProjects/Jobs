@@ -27,7 +27,7 @@ const custom = Object.fromEntries(
     ].map(async (name) => [name, await read("src/custom/" + name + ".js")]),
   ),
 );
-const history = await read("src/custom/history-background.js");
+const history = await read("src/custom/event-log-background.js");
 
 function page(html, url) {
   const dom = new JSDOM(
@@ -226,12 +226,13 @@ test("typed answers: Ashby and Greenhouse pages keep their own history; fill rec
       },
     });
     vm.runInContext(history, c);
-    await c.JobsDiagnosticHistory.capture(h.w.JobsDiagnostics.snapshot());
-    const entry = (await c.JobsDiagnosticHistory.pending(300000)).items[0];
+    await c.JobsEventLog.capture(h.w.JobsDiagnostics.snapshot());
+    const entry = (await c.JobsEventLog.pending(300000)).items[0];
     assert.equal(entry.url, ashby);
-    const kept = entry.snapshots
-      .at(-1)
-      .fields.find((field) => field.question === "Start date");
+    const kept = entry.events
+      .filter((event) => event.type === "field_observed")
+      .map((event) => event.field)
+      .find((field) => field.question === "Start date");
     assert.equal(kept.trace.source, "rule:profile");
     assert(Number.isInteger(kept.trace.at));
   } finally {

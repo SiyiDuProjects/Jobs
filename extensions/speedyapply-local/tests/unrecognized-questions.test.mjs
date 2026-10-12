@@ -27,7 +27,7 @@ const diagnostics = await Promise.all(
   ].map(read),
 );
 const historySource = await readWithDependencies(
-  new URL("../src/custom/history-background.js", import.meta.url),
+  new URL("../src/custom/event-log-background.js", import.meta.url),
   "utf8",
 );
 
@@ -203,12 +203,10 @@ test("the diagnostics report and retained history carry unrecognized questions",
         },
       });
     vm.runInContext(historySource, context);
-    await context.JobsDiagnosticHistory.capture(report);
-    const snapshot = (await context.JobsDiagnosticHistory.pending(300000))
-      .items[0].snapshots[0];
-    assert.equal(snapshot.unrecognized[0].question, "Preferred shift");
-    assert.match(snapshot.unrecognized[0].structure, /div\.picker/);
-    assert.doesNotMatch(JSON.stringify(snapshot.unrecognized), /Night/);
+    await context.JobsEventLog.capture(report);
+    const entry = (await context.JobsEventLog.pending(300000)).items[0];
+    assert.equal(entry.snapshots.length, 0);
+    assert.doesNotMatch(JSON.stringify(entry), /div\.picker|Night/);
   } finally {
     w.JobsDiagnostics.stop();
     w.close();

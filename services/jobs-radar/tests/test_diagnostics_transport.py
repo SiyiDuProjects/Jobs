@@ -4,7 +4,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from jobs_radar.browser_control import BrowserControl, ControlConflict
-from jobs_radar.browser_history import Diagnostics
+from jobs_radar.event_log import Diagnostics
 from jobs_radar.extension_sync import ExtensionSync, EXTENSION_ID
 from jobs_radar.profiles import Profiles
 from jobs_radar.server import create_server
@@ -46,7 +46,7 @@ def test_diagnostics_upload_is_independent_of_remote_control(tmp_path, monkeypat
         body = {'protocolVersion': 1, 'history': [data]}
         assert client.post('/api/extension/diagnostics', json=body).status_code == 401
         response = client.post('/api/extension/diagnostics', json=body, headers={'authorization': 'Bearer ' + token})
-        assert response.json() == {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1, 'historyAnswerUsage': 1}
+        assert response.json() == {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1, 'historyAnswerUsage': 1, 'eventLog': 1}
     assert len(Diagnostics(store).history()['applications']) == 1
 
 
@@ -90,9 +90,9 @@ def test_separate_packets_keep_value_changes_and_exact_retries_stable(tmp_path):
         diagnostics.receive('device', {'protocolVersion': 1, 'history': [data]})
         diagnostics.receive('device', {'protocolVersion': 1, 'history': [data]})
     rows = diagnostics.history()['applications']
-    snapshots = diagnostics.history(rows[0]['id'])['snapshots']
+    snapshots = [e['field'] for e in diagnostics.history(rows[0]['id'])['events'] if e['type'] == 'field_observed']
     assert len(snapshots) == 3
-    values = [s['fields'][0]['value'] for s in snapshots]
+    values = [s['value'] for s in snapshots]
     assert values[0] == values[2] and values[0] != values[1]
 
 

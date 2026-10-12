@@ -130,12 +130,12 @@ def create_server(store, origin=None):
             require('jobs:read')
             return await control.wait_pages(device_id, session_id, target, wait_seconds)
 
-    from .browser_history import Diagnostics
+    from .event_log import Diagnostics
     diagnostics = Diagnostics(store)
 
     @operation_tool(annotations=read)
     def get_browser_history(application_id: str | None = None) -> dict[str, Any]:
-        """Read redacted run diagnostics independently of remote observation. Omit application_id for a 30-day index; pass an applications[].id (archive ID) for structure, decisions, matches and events. Archive ID takes priority; a unique runId is also accepted, but ambiguous runIds require the index id. Values are synthetic. Pinned unresolved cases remain until resolved. Historical records never execute commands or prove a submission."""
+        """Read per-question event logs independently of remote observation. Omit application_id for a 30-day index; pass an applications[].id for decisions, writes and outcomes. Page snapshots live only in the private corpus. Archive ID takes priority; a unique runId is also accepted, but ambiguous runIds require the index id. Values are synthetic. Unresolved corpus failures and pinned cases retain their events. Records never execute commands or prove a submission."""
         require('jobs:read')
         try:
             return diagnostics.history(application_id)

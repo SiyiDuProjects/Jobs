@@ -21,6 +21,33 @@ export async function corpusFingerprint(value) {
 }
 export function initializeCorpusBackground() {
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
+    if (
+      [
+        "jobs:corpus-failures",
+        "jobs:corpus-failure-page",
+        "jobs:corpus-resolve-failure",
+      ].includes(message?.type)
+    ) {
+      if (
+        sender.id !== chrome.runtime.id ||
+        sender.tab ||
+        sender.url?.split(/[?#]/)[0] !==
+          chrome.runtime.getURL("diagnostics.html")
+      ) {
+        reply({ error: "Private diagnostics page required" });
+        return;
+      }
+      const action = message.type.slice("jobs:corpus-".length);
+      void JobsSync.corpusRequest("POST", {
+        action,
+        id: message.id,
+        resolved: message.resolved,
+      }).then(
+        (data) => reply({ data }),
+        () => reply({ error: "题库暂未连接，已有记录保留" }),
+      );
+      return true;
+    }
     if (message?.type !== "jobs:corpus-page") return;
     if (
       sender.id !== chrome.runtime.id ||
@@ -41,19 +68,25 @@ export function initializeCorpusBackground() {
       const page = { ...message.value, jobIdentity };
       validateCorpus(page);
       const fingerprint = await corpusFingerprint(page);
-      const known = await JobsSync.corpusRequest("POST", {
-        action: "probe",
-        fingerprint,
-        platform: message.value.platform,
-        company: page.company,
-        jobIdentity,
-      });
+      const known = message.failure
+        ? { known: false }
+        : await JobsSync.corpusRequest("POST", {
+            action: "probe",
+            fingerprint,
+            platform: message.value.platform,
+            company: page.company,
+            jobIdentity,
+          });
+      let captured;
       if (!known.known)
-        await JobsSync.corpusRequest("POST", {
+        captured = await JobsSync.corpusRequest("POST", {
           action: "capture",
           fingerprint,
           page,
+          ...(message.failure ? { failure: message.failure } : {}),
         });
+      if (message.failure && !captured?.failureId)
+        throw Error("Server did not acknowledge the failed corpus page");
       if (
         message.correction &&
         message.value.fields.some((field) => field.id === message.correction)
@@ -64,7 +97,7 @@ export function initializeCorpusBackground() {
           fieldId: message.correction,
           id: message.correctionId,
         });
-      return { ok: true };
+      return { ok: true, ...captured };
     }
     void upload().then(
       (data) => reply({ data }),

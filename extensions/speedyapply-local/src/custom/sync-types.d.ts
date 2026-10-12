@@ -73,6 +73,7 @@ export interface HistoryEvent {
   document: string;
   type: string;
   fieldId?: string;
+  field?: HistoryField;
   phase?: string;
   build?: string;
   visibility?: "hidden" | "visible";

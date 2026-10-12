@@ -1,5 +1,5 @@
 import { JobsPrivateSession } from "./private-session.js";
-import { JobsDiagnosticHistory } from "./history-background.js";
+import { JobsEventLog } from "./event-log-background.js";
 import { icimsFormJobUrl } from "./public-job-url.js";
 export var JobsDiagnosticsBackground;
 let initialized = false;
@@ -34,6 +34,14 @@ export function initializeDiagnosticsBackground() {
     const write = (value) =>
       JobsPrivateSession.commit(stateEpochs.get(value), { [KEY]: value });
     const key = (tab, frame, session) => `${tab}:${frame}:${session}`;
+    async function withEvents(row) {
+      if (!row || !JobsEventLog?.exportRun) return row;
+      const log = await JobsEventLog.exportRun(
+        row.report.pageUrl,
+        row.report.runId,
+      );
+      return { ...row, report: { ...row.report, events: log.events } };
+    }
     function ui(sender) {
       try {
         return (
@@ -73,10 +81,19 @@ export function initializeDiagnosticsBackground() {
       const formJobUrl = icimsFormJobUrl(sender);
       if (formJobUrl) report = { ...report, pageUrl: formJobUrl };
       const id = key(sender.tab.id, sender.frameId, report.sessionId);
-      if (report.journalOnly) {
-        await JobsDiagnosticHistory.capture(report);
+      if (report.eventOnly) {
+        await JobsEventLog.capture(report);
         return { ok: true };
       }
+      // The current inspector is transient. DOM/locator evidence lives only in
+      // corpus pages; the durable log receives typed question states below.
+      report = {
+        ...report,
+        fields: report.fields.map(({ locator, ...field }) => field),
+        unansweredContainers: (report.unansweredContainers || []).map(
+          ({ structure, ...item }) => item,
+        ),
+      };
       await serial(async () => {
         const state = await read();
         JobsPrivateSession.assertCurrent(epoch);
@@ -104,7 +121,7 @@ export function initializeDiagnosticsBackground() {
           delete state.reports[oldest()];
         await write(state);
       });
-      await JobsDiagnosticHistory?.capture(report);
+      await JobsEventLog?.capture(report);
       return { ok: true };
     }
     async function refresh(id) {
@@ -145,7 +162,7 @@ export function initializeDiagnosticsBackground() {
           epoch,
           pageRevision,
         );
-        return (await serial(read)).reports[id];
+        return withEvents((await serial(read)).reports[id]);
       } finally {
         clearTimeout(timeout);
       }
@@ -158,7 +175,10 @@ export function initializeDiagnosticsBackground() {
         const response = await Promise.race([
           chrome.tabs.sendMessage(
             row.tabId,
-            { type: "jobs:repro-capture", sessionId: row.report.sessionId },
+            {
+              type: "jobs:corpus-capture-failure",
+              sessionId: row.report.sessionId,
+            },
             row.documentId
               ? { documentId: row.documentId }
               : { frameId: row.frameId },
@@ -180,7 +200,7 @@ export function initializeDiagnosticsBackground() {
       if (
         ![
           "jobs:diagnostics-push",
-          "jobs:diagnostics-journal",
+          "jobs:event-log",
           "jobs:diagnostics-list",
           "jobs:diagnostics-export",
           "jobs:diagnostics-get",
@@ -190,9 +210,7 @@ export function initializeDiagnosticsBackground() {
       )
         return;
       if (
-        !["jobs:diagnostics-push", "jobs:diagnostics-journal"].includes(
-          message.type,
-        ) &&
+        !["jobs:diagnostics-push", "jobs:event-log"].includes(message.type) &&
         !ui(sender)
       ) {
         reply({ error: "Private diagnostics page required" });
@@ -201,9 +219,7 @@ export function initializeDiagnosticsBackground() {
       const task =
         message.type === "jobs:diagnostics-capture-case"
           ? captureCase(message.id)
-          : ["jobs:diagnostics-push", "jobs:diagnostics-journal"].includes(
-                message.type,
-              )
+          : ["jobs:diagnostics-push", "jobs:event-log"].includes(message.type)
             ? accept(message.report, sender)
             : message.type === "jobs:diagnostics-refresh"
               ? refresh(message.id)
@@ -212,15 +228,12 @@ export function initializeDiagnosticsBackground() {
                   if (message.type === "jobs:diagnostics-export") {
                     const report = state.reports[message.id]?.report;
                     if (!report) throw Error("记录不存在");
-                    return JobsDiagnosticHistory.exportRun(
-                      report.pageUrl,
-                      report.runId,
-                    );
+                    return JobsEventLog.exportRun(report.pageUrl, report.runId);
                   }
                   return message.type === "jobs:diagnostics-get"
-                    ? state.reports[message.id]
+                    ? withEvents(state.reports[message.id])
                     : {
-                        sync: (await JobsDiagnosticHistory?.health?.()) || {
+                        sync: (await JobsEventLog?.health?.()) || {
                           state: "local",
                         },
                         reports: Object.values(state.reports).map(

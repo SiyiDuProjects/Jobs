@@ -1,4 +1,4 @@
-"""Bounded application diagnostics with each field's fill decision; never an execution target."""
+"""Bounded per-question event log. Page snapshots belong only to the corpus."""
 import hashlib
 import hmac
 import json
@@ -85,6 +85,12 @@ def redact(item, salt, scope=''):
             if 'options' in trace:
                 trace['options'] = [synthetic(v) for v in trace['options']]
     for event in item['events']:
+        field = event.get('field', {})
+        if 'value' in field: field['value'] = synthetic(field['value'])
+        field_trace = field.get('trace', {})
+        for key in ('answer', 'chosen', 'alias', 'readback'):
+            if key in field_trace: field_trace[key] = synthetic(field_trace[key])
+        if 'options' in field_trace: field_trace['options'] = [synthetic(v) for v in field_trace['options']]
         trace = event.get('trace', {})
         for key in ('answer', 'chosen', 'alias', 'readback'):
             if key in trace:
@@ -92,6 +98,27 @@ def redact(item, salt, scope=''):
         if 'options' in trace:
             trace['options'] = [synthetic(v) for v in trace['options']]
     return item
+
+
+
+def field_record(field, now):
+    from .validation import shape, text, integer, boolean
+    shape(field, ('id', 'question', 'kind', 'hasValue', 'invalid', 'required', 'status', 'attempts'), ('value', 'decision', 'trace'))
+    f = {k: text(field[k], 300 if k == 'question' else 80, empty=k == 'question')
+         for k in ('id', 'question', 'kind', 'status')}
+    if re.search(r'password|one.time|verification.code|security.code|验证码|密码', f['question'] + ' ' + f['kind'], re.I):
+        return None
+    f.update({k: boolean(field[k]) for k in ('hasValue', 'invalid', 'required')})
+    f['attempts'] = integer(field['attempts'], 1_000_000)
+    if 'value' in field:
+        f['value'] = text(field['value'], 120, empty=True)
+    # Why a field holds its value: the answer decision and the last
+    # write's choice among the options the page offered.
+    if 'decision' in field:
+        f['decision'] = validate_decision(field['decision'], now)
+    if 'trace' in field:
+        f['trace'] = validate_trace(field['trace'], now)
+    return f
 
 
 def validate(value, now):
@@ -119,21 +146,8 @@ def validate(value, now):
                     document=text(snapshot['document'], 128), phase=text(snapshot['phase'], 80),
                     step=text(snapshot['step'], 300, empty=True), fields=[])
         for field in sequence(snapshot['fields'], 150):
-            shape(field, ('id', 'question', 'kind', 'hasValue', 'invalid', 'required', 'status', 'attempts'), ('value', 'decision', 'trace'))
-            f = {k: text(field[k], 300 if k == 'question' else 80, empty=k == 'question')
-                 for k in ('id', 'question', 'kind', 'status')}
-            if re.search(r'password|one.time|verification.code|security.code|验证码|密码', f['question'] + ' ' + f['kind'], re.I):
-                continue
-            f.update({k: boolean(field[k]) for k in ('hasValue', 'invalid', 'required')})
-            f['attempts'] = integer(field['attempts'], 1_000_000)
-            if 'value' in field:
-                f['value'] = text(field['value'], 120, empty=True)
-            # Why a field holds its value: the answer decision and the last
-            # write's choice among the options the page offered.
-            if 'decision' in field:
-                f['decision'] = validate_decision(field['decision'], now)
-            if 'trace' in field:
-                f['trace'] = validate_trace(field['trace'], now)
+            f = field_record(field, now)
+            if f is None: continue
             item['fields'].append(f)
         # Questions the extension's reader did not turn into a field: the
         # title and the region's tag/role/class outline, never field values.
@@ -146,7 +160,7 @@ def validate(value, now):
                                                  structure=text(entry['structure'], 800, empty=True)))
         result['snapshots'].append(item)
     for event in sequence(value['events'], 1500):
-        shape(event, ('at', 'document', 'type'), ('fieldId', 'phase', 'build', 'timing', 'visibility', 'answerUsage', 'sequence', 'evidence', 'trace', 'decision'))
+        shape(event, ('at', 'document', 'type'), ('fieldId', 'phase', 'build', 'timing', 'visibility', 'answerUsage', 'sequence', 'evidence', 'trace', 'decision', 'field'))
         item = dict(at=integer(event['at'], now + 60_000), document=text(event['document'], 128),
                     type=text(event['type'], 80))
         for key in ('fieldId', 'phase', 'build'):
@@ -168,13 +182,29 @@ def validate(value, now):
             if event['type'] != 'answer_decision':
                 raise ValueError('Decision requires an answer decision event')
             item['decision'] = validate_decision(event['decision'], now)
+        if 'field' in event:
+            if event['type'] != 'field_observed': raise ValueError('Field state requires an observation event')
+            item['field'] = field_record(event['field'], now)
+            if item['field'] is None: continue
+            if item.get('fieldId') != item['field']['id']: raise ValueError('Field observation identity mismatch')
         result['events'].append(item)
     if len(encoded(result).encode()) > MAX_BYTES:
         raise ValueError('History packet is too large')
-    return result
+    return event_only(result)
 
+
+
+def event_only(item):
+    events = list(item.get('events', []))
+    for snapshot in item.get('snapshots', []):
+        for field in snapshot.get('fields', []):
+            events.append({'at': snapshot['at'], 'document': snapshot['document'], 'type': 'field_observed',
+                           'fieldId': field['id'], 'field': field, 'phase': snapshot['phase']})
+    return {**item, 'snapshots': [], 'events': events}
 
 def initialize(c):
+    # Reuse the existing table and key names so a release rollback can still
+    # read the same runs. New records contain events, never page snapshots.
     c.execute('''CREATE TABLE IF NOT EXISTS browser_diagnostic_history(
         id TEXT PRIMARY KEY, device TEXT, url TEXT, first_seen INTEGER, last_seen INTEGER, data TEXT)''')
     # Stream full archives in index order; sorting their payloads can exhaust /tmp.
@@ -190,10 +220,10 @@ def redaction_salt(c):
 
 def save(c, device, items, now=None):
     for item in items:
-        item = redact(item, redaction_salt(c), device + ':' + item['runId'])
+        item = redact(event_only(item), redaction_salt(c), device + ':' + item['runId'])
         key = hashlib.sha256(encoded([device, item['jobKey'], item['runId']]).encode()).hexdigest()[:24]
         old = c.execute('SELECT data FROM browser_diagnostic_history WHERE id=?', (key,)).fetchone()
-        previous = json.loads(old['data']) if old else {'snapshots': [], 'events': []}
+        previous = event_only(json.loads(old['data'])) if old else {'snapshots': [], 'events': []}
         if old:
             prior_retention = previous.get('caseRetention')
             incoming_retention = item.get('caseRetention')
@@ -238,10 +268,12 @@ def save(c, device, items, now=None):
 
 def cleanup(c, now=None):
     now = int(time.time() * 1000) if now is None else now
-    c.execute('''WITH ordinary AS (
+    failed = "AND NOT EXISTS (SELECT 1 FROM corpus_failures f WHERE f.run_id=json_extract(data,'$.runId') AND f.resolved=0)" if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='corpus_failures'").fetchone() else ''
+    c.execute(f'''WITH ordinary AS (
         SELECT id,last_seen FROM browser_diagnostic_history
         WHERE id NOT IN (SELECT id FROM browser_diagnostic_pins)
           AND coalesce(json_array_length(json_extract(data,'$.caseRetention.unresolvedCaseIds')),0)=0
+          {failed}
         ) DELETE FROM browser_diagnostic_history WHERE id IN (SELECT id FROM ordinary)
         AND (last_seen<? OR id NOT IN (SELECT id FROM ordinary ORDER BY last_seen DESC,id DESC LIMIT ?))''',
         (now - RETENTION_DAYS * 86400000, MAX_RUNS))
@@ -273,7 +305,7 @@ class Diagnostics:
         items = [validate(v, now) for v in sequence(payload['history'], 10)]
         with self.store.connect(True) as c:
             save(c, device, items, now)
-        return {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1, 'historyAnswerUsage': 1}
+        return {'historyAccepted': True, 'historyEventMetrics': 1, 'historyEvidence': 1, 'historyAnswerUsage': 1, 'eventLog': 1}
 
     def history(self, application_id=None):
         with self.store.connect(True) as c:
@@ -299,14 +331,14 @@ def read(c, application_id=None):
             row = matches[0] if matches else None
         if not row:
             raise ValueError('Diagnostic run is unknown or its retention period ended')
-        return dict(id=row['id'], **redact(json.loads(row['data']), redaction_salt(c), row['id']), valuePolicy='synthetic_values_only',
+        return dict(id=row['id'], **redact(event_only(json.loads(row['data'])), redaction_salt(c), row['id']), valuePolicy='synthetic_values_only',
                     coverage='partial', executable=False, **explain(json.loads(row['data'])))
     stats = {}
     for row in c.execute('SELECT data FROM browser_diagnostic_history'):
         data = json.loads(row['data'])
         platform = stats.setdefault(data['ats'], {'runs': 0, 'aiFields': 0, 'manualFields': 0, 'failedFields': 0})
         platform['runs'] += 1
-        fields = {field['id']: field for snapshot in data['snapshots'] for field in snapshot['fields']}
+        fields = {event['fieldId']: event['field'] for event in event_only(data)['events'] if 'field' in event}
         for field in fields.values():
             source = field.get('decision', {}).get('source', '')
             platform['aiFields'] += source in {'ai', 'model', 'ai-reviewed'}
@@ -318,7 +350,7 @@ def read(c, application_id=None):
              jobKey=d.get('jobKey'), schemaVersion=d.get('schemaVersion', 1),
              pinned=bool(d.get('caseRetention', {}).get('unresolvedCaseIds') or c.execute('SELECT 1 FROM browser_diagnostic_pins WHERE id=?', (r['id'],)).fetchone()),
              caseRetention=d.get('caseRetention'),
-             snapshots=len(d['snapshots']), events=len(d['events']),
+             snapshots=0, events=len(event_only(d)['events']),
              truncated=d['truncated'])
         for r in c.execute('SELECT * FROM browser_diagnostic_history ORDER BY last_seen DESC, id DESC')],
         'notice': 'Redacted partial run diagnostics. Unresolved cases may be pinned. Not proof of submission and never executable.'}

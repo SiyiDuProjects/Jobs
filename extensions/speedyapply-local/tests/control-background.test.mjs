@@ -12,7 +12,7 @@ const source = await readModule(
   "utf8",
 );
 const historySource = await readWithDependencies(
-  new URL("../src/custom/history-background.js", import.meta.url),
+  new URL("../src/custom/event-log-background.js", import.meta.url),
   "utf8",
 );
 const matchSource = await readModule(
@@ -547,7 +547,12 @@ test("independent closed-tab history retries after failure and requires explicit
   const h = harness({
     enabled: false,
     pages: [],
-    respond: () => {
+    respond: (payload) => {
+      if (!payload.history?.length)
+        return {
+          ok: true,
+          json: async () => ({ historyAccepted: true, eventLog: 1 }),
+        };
       attempt++;
       if (attempt === 1) throw Error("Offline");
       return {
@@ -560,7 +565,7 @@ test("independent closed-tab history retries after failure and requires explicit
       };
     },
   });
-  await h.context.JobsDiagnosticHistory.capture({
+  await h.context.JobsEventLog.capture({
     valuePolicy: "values_omitted",
     sessionId: "doc",
     pageUrl: "https://jobs.ashbyhq.com/test/job/application",
@@ -578,13 +583,13 @@ test("independent closed-tab history retries after failure and requires explicit
     events: [],
   });
   for (let i = 0; i < 4; i++)
-    await h.context.JobsDiagnosticHistory.sync().catch(() => {});
-  assert.equal(h.requests.length, 3);
+    await h.context.JobsEventLog.sync().catch(() => {});
+  assert.equal(h.requests.filter((r) => r.payload.history?.length).length, 3);
   assert(
     h.requests.every(
       (r) =>
         r.url.endsWith("/api/extension/diagnostics") &&
-        r.payload.history?.length === 1 &&
+        r.payload.history?.length <= 1 &&
         !Object.hasOwn(r.payload, "pages"),
     ),
   );

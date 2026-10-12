@@ -2,7 +2,7 @@ import { stableStringify } from "./stable-value.js";
 // Only redacted diagnostic runs enter this store. The index contains retention
 // metadata; each immutable payload has its own key. Publish the index last so
 // an interrupted write leaves either the old or new complete run readable.
-export function createDiagnosticHistoryStore() {
+export function createEventLogStore() {
   /** @typedef {import('./sync-types').HistoryState} HistoryState */
   /** @typedef {HistoryState['applications'][string]} Entry */
   /** @typedef {{version:2, applications:Record<string,{storageKey:string,bytes:number,summary:Omit<Entry,'data'> & {data:Omit<Entry['data'],'snapshots'|'events'>}}>, retentions?:HistoryState['retentions'], garbage?:string[], pendingAcks?:Record<string,number>}} Index */
@@ -13,6 +13,21 @@ export function createDiagnosticHistoryStore() {
   const bytes = (value) =>
     new TextEncoder().encode(JSON.stringify(value)).byteLength;
   const full = (row) => Array.isArray(row?.data?.snapshots);
+  function eventOnly(row) {
+    if (!row.data.snapshots?.length) return;
+    for (const snapshot of row.data.snapshots)
+      for (const field of snapshot.fields || [])
+        row.data.events.push({
+          at: snapshot.at,
+          document: snapshot.document,
+          type: "field_observed",
+          fieldId: field.id,
+          field,
+          phase: snapshot.phase,
+        });
+    row.data.snapshots = [];
+    row.revision++;
+  }
   /** @returns {Promise<HistoryState>} */
   async function read(only = undefined) {
     const saved = /** @type {HistoryState|Index|undefined} */ (
@@ -36,6 +51,7 @@ export function createDiagnosticHistoryStore() {
     }
     if (!saved || !("version" in saved) || saved.version !== 2) {
       const state = /** @type {HistoryState} */ (saved || { applications: {} });
+      for (const row of Object.values(state.applications)) eventOnly(row);
       contexts.set(state, { index: null, originals: {} });
       return state;
     }
@@ -73,6 +89,7 @@ export function createDiagnosticHistoryStore() {
         throw Error("诊断记录不完整，已停止覆盖，请保留本地数据");
       state.applications[key] = record;
       originals[key] = stableStringify(record);
+      eventOnly(record);
       // An interrupted acknowledgement was never confirmed for its connection.
       // Load these runs even during a partial read so the next write persists
       // their restored acknowledgements before dropping the recovery marker.

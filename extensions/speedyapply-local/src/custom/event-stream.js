@@ -1,6 +1,6 @@
 // Capture causal events before a background timer or a later field can erase them.
 // No DOM scans and no page actions. A worker acknowledgement means durable capture.
-export function createDiagnosticJournal({ context, send, defer, cancel }) {
+export function createEventStream({ context, send, defer, cancel }) {
   let queue = [],
     running = false,
     scheduled = false,
@@ -48,14 +48,14 @@ export function createDiagnosticJournal({ context, send, defer, cancel }) {
       const report = {
         ...head.metadata,
         observedAt: batch.at(-1).entry.at,
-        journalOnly: true,
+        eventOnly: true,
         fields: [],
         unansweredContainers: [],
         events: batch.map((row) => row.entry),
         droppedEvents: dropped,
       };
       const reply = await send(report);
-      if (reply?.error || reply?.ok !== true)
+      if (reply?.error || (reply?.data?.ok !== true && reply?.ok !== true))
         throw Error("capture_unacknowledged");
       if (disposed) return;
       const accepted = new Set(batch);

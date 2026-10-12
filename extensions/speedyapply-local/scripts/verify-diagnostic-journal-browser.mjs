@@ -26,7 +26,10 @@ const worker = vm.createContext({
 });
 const custom = new URL("../src/custom/", import.meta.url);
 vm.runInContext(
-  await readWithDependencies(new URL("history-background.js", custom), "utf8"),
+  await readWithDependencies(
+    new URL("event-log-background.js", custom),
+    "utf8",
+  ),
   worker,
 );
 const source = (
@@ -49,7 +52,7 @@ try {
     }),
   );
   await context.exposeFunction("captureDiagnostic", async (report) => {
-    await worker.JobsDiagnosticHistory.capture(report);
+    await worker.JobsEventLog.capture(report);
     return { ok: true };
   });
   const errors = [];
@@ -66,9 +69,7 @@ try {
           getManifest: () => ({ version: "fixture" }),
           onMessage: { addListener() {} },
           sendMessage: async (message) =>
-            ["jobs:diagnostics-push", "jobs:diagnostics-journal"].includes(
-              message.type,
-            )
+            ["jobs:diagnostics-push", "jobs:event-log"].includes(message.type)
               ? captureDiagnostic(message.report)
               : {},
         },
@@ -126,7 +127,7 @@ try {
     );
   }
   assert.deepEqual(errors, []);
-  const pending = await worker.JobsDiagnosticHistory.pending(495000);
+  const pending = await worker.JobsEventLog.pending(495000);
   assert.equal(pending.items.length, 2);
   for (const run of pending.items) {
     assert.equal(run.events.filter((e) => e.type === "fill_trace").length, 80);

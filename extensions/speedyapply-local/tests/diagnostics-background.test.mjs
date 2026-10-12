@@ -77,6 +77,36 @@ function report() {
     observedAt: Date.now(),
   };
 }
+test("inspector reads the single event log without persisting duplicate page events or DOM", async () => {
+  const h = harness();
+  const events = [
+    {
+      type: "field_observed",
+      fieldId: "field-1",
+      field: { decision: { source: "rule:profile" } },
+    },
+  ];
+  h.context.JobsEventLog = {
+    capture: async () => {},
+    exportRun: async () => ({ events }),
+  };
+  const value = {
+    ...report(),
+    fields: [{ id: "field-1", locator: "private-dom" }],
+    unansweredContainers: [
+      { question: "Unrecognized", structure: "private-dom" },
+    ],
+  };
+  await h.send(
+    { type: "jobs:diagnostics-push", report: value },
+    { id: "test", tab: { id: 1 }, frameId: 0, url: value.pageUrl },
+  );
+  const id = Object.keys(h.data.jobsDiagnosticsV1.reports)[0];
+  const row = (await h.send({ type: "jobs:diagnostics-get", id })).data;
+  assert.deepEqual(row.report.events, events);
+  assert.deepEqual(h.data.jobsDiagnosticsV1.reports[id].report.events, []);
+  assert(!JSON.stringify(h.data).includes("private-dom"));
+});
 test("IForm reports are stored under their Chrome sender's public job without form tokens", async () => {
   const h = harness(),
     value = { ...report(), pageUrl: "", ats: "icims" };
@@ -241,7 +271,7 @@ test("manual reproduction capture targets the recorded document and passes the s
   );
   const [tab, message, options] = h.calls[0];
   assert.equal(tab, 8);
-  assert.equal(message.type, "jobs:repro-capture");
+  assert.equal(message.type, "jobs:corpus-capture-failure");
   assert.equal(message.sessionId, value.sessionId);
   assert.equal(options.documentId, "doc-8");
   h.respond({ error: "页面已切换" });
