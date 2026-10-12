@@ -47,10 +47,15 @@ export async function readModule(file, encoding) {
   if (fileURL.pathname.endsWith("/diagnostics-ui.js"))
     return (
       "(async()=>{" +
-      source.replace(
-        'import { historyEventMetrics } from "./history-event-metrics.js";',
-        "const { historyEventMetrics } = globalThis;",
-      ) +
+      source
+        .replace(
+          'import { mountDiagnosticsView } from "./diagnostics-view.jsx";',
+          "const { mountDiagnosticsView } = globalThis;",
+        )
+        .replace(
+          'import { historyEventMetrics } from "./history-event-metrics.js";',
+          "const { historyEventMetrics } = globalThis;",
+        ) +
       "})()"
     );
   const compiled = await transform(source, { format: "cjs", target: "es2023" });
@@ -58,7 +63,7 @@ export async function readModule(file, encoding) {
   for (const node of ast.program.body)
     if (
       node.type === "ImportDeclaration" &&
-      /\/(stable-value|answer-vocabulary|answer-proof|run-state|automatic-flow|field-description|profile-extra|profile-contract|signature-answer|migration-maintenance|migration-context-fields|storage-migration-policy|diagnostic-evidence|corpus-observations|corpus-case|corpus-content)\.js$/.test(
+      /\/(stable-value|answer-vocabulary|answer-proof|run-state|automatic-flow|field-description|form-context|profile-extra|profile-question-types|profile-contract|signature-answer|migration-maintenance|migration-context-fields|storage-migration-policy|diagnostic-evidence|corpus-observations|corpus-case|corpus-content)\.js$/.test(
         node.source.value,
       )
     )

@@ -1,6 +1,5 @@
 import { typedAnswer } from "./helpers/typed-answer.mjs";
-// Tests below exercise retained answer functions with explicit fixture types.
-// Free-form classification is tested at the service decision boundary.
+// Raw questions exercise shared recognition, fact reading and option selection.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readModule } from "./helpers/module-source.mjs";

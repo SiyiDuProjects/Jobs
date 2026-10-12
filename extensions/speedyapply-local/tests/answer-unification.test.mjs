@@ -9,9 +9,9 @@ import {
 initializeOptionMatch();
 initializeProfileAnswers();
 initializeAnswerResolver();
-// These regressions protect the new boundary: the deleted whole-question
-// classifier and keyword memory engine must not decide compound personal facts.
-// Retained typed answer/option behavior has the frozen 1,074-case matrix.
+// Supported questions remain local; a partial fact or keyword memory must not
+// decide a compound claim. The 1,074-case matrix covers raw questions as well
+// as the retained typed answer/option functions.
 const cases = [
   "Do you require sponsorship and a security clearance?",
   "Are you authorized to work in the United States and hold a security clearance?",

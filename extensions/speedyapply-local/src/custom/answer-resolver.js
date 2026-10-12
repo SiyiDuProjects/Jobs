@@ -6,8 +6,8 @@ let initialized = false;
 export function initializeAnswerResolver() {
   if (initialized) return;
   initialized = true;
-  // Adapters and simple canonical labels share these deterministic functions.
-  // Free-form claims and saved-answer conflicts belong to the server decision.
+  // Adapters, canonical labels and supported questions share one Profile resolver.
+  // Only missing facts, unsupported claims and unmatched options need the server.
   function decide(question, profile, context = {}) {
     if (question.descriptionIncomplete)
       return {

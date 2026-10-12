@@ -226,7 +226,7 @@ test("a custom month picker commits a verified Profile month without a fabricate
       true,
     );
     assert.equal(h.reader.scan()[0].raw, "2027-05");
-    assert.equal(calls, 1);
+    assert.equal(calls, 0, "known month fills without a provider request");
   } finally {
     h.close();
   }

@@ -17,11 +17,11 @@ const profile = {
   nameData: { firstName: "Example", lastName: "Applicant" },
   employmentData: { eligibilityUS: true, sponsorship: false },
   applicationData: { sponsorshipNow: false, sponsorshipFuture: true },
-  addressData: { line1: "10 Test Street" },
+  addressData: { line1: "10 Test Street", country: "United States" },
   educationData: [{ degree: "Bachelor of Arts", endDate: "2027-05" }],
 };
 
-test("canonical facts carry their source, while missing precision and free-form answers go to the server", async () => {
+test("known facts carry their source, while missing date precision goes to the server", async () => {
   const decisions = [];
   const answers = await JobsAnswerResolver.resolve(
     [
@@ -37,11 +37,14 @@ test("canonical facts carry their source, while missing precision and free-form 
   );
   assert.deepEqual(
     answers.map((row) => [row.index, row.answer, row.source]),
-    [[0, "Example", "profile"]],
+    [
+      [0, "Example", "profile"],
+      [2, "Yes", "profile"],
+    ],
   );
   assert.deepEqual(
     decisions.map((row) => row.status),
-    ["answered", "unmatched", "unmatched"],
+    ["answered", "unmatched", "answered"],
   );
 });
 
@@ -100,7 +103,7 @@ test("exact and keyword memories cannot locally override current canonical Profi
   );
   assert.deepEqual(
     answers.map((row) => row.answer),
-    ["Example"],
+    ["Example", "Yes"],
   );
   assert.equal(JobsAnswerResolver.matchSaved, undefined);
   assert.equal(JobsAnswerResolver.countKeywords, undefined);

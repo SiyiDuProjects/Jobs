@@ -130,7 +130,12 @@ test("bindings precede one resolver visit, including newly revealed questions; o
   assert.equal(f.root.querySelector("#child").value, "Confirmed");
   assert.equal(f.root.querySelector("#optional").value, "");
   assert([...f.calls.values()].every((count) => count === 1));
-  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests.length, 1);
+  assert(
+    !f.requests[0].fields.some((field) =>
+      /authorized to work/.test(field.question),
+    ),
+  );
   for (const id of ["name", "auth", "child"])
     assert.equal(
       f.traces.filter((e) => e.node.id === id && e.result === "decided").length,

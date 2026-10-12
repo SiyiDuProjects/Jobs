@@ -146,7 +146,11 @@ function fixture(
   };
 }
 test("observed 83-option discipline is one required group and fills exact Physics through the automatic loop", async (t) => {
-  const f = fixture(t, discipline()),
+  // Extra multi-discipline instructions require the complete service decision.
+  // Supply an explicit synthetic reply rather than preclassifying the question.
+  const f = fixture(t, discipline(), {
+      saved: [{ question: "Undergrad Discipline(s) *", response: "Physics" }],
+    }),
     rows = f.reader.scan();
   assert.equal(rows.length, 1);
   assert.equal(rows[0].public.type, "select-multiple");
@@ -173,7 +177,9 @@ test("observed 83-option discipline is one required group and fills exact Physic
   assert.equal(f.submits(), 1);
 });
 test("first-pass Greenhouse adapter also fills the native discipline group", async (t) => {
-  const f = fixture(t, discipline(4) + conditional());
+  const f = fixture(t, discipline(4) + conditional(), {
+    saved: [{ question: "Undergrad Discipline(s) *", response: "Physics" }],
+  });
   await f.fill();
   assert.deepEqual(
     Array.from(

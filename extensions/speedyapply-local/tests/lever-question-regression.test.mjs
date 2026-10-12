@@ -201,7 +201,7 @@ test("the Lever run answers the current degree and source and cannot reuse Type/
     );
     assert.equal(h.root.querySelector('[name="other"]').value, "");
     assert(
-      h.requests[0].fields.some(
+      !h.requests[0].fields.some(
         (field) => field.question.replace(/✱$/, "").trim() === q.degree,
       ),
     );
@@ -225,13 +225,13 @@ test("supplement drafts required essay and export acknowledgment for review; opt
     assert.equal(h.w.JobsAIReview.pending(), true);
     assert.equal(h.requests.length, 1);
     const sent = h.requests[0].fields;
-    assert.equal(sent.length, 7);
+    assert.equal(sent.length, 6);
     assert.deepEqual(
       Array.from(
         sent.filter((f) => f.required),
         (f) => f.question.replace(/✱$/, ""),
       ).sort(),
-      [q.essay, q.ack, q.degree, q.source].sort(),
+      [q.essay, q.ack, q.source].sort(),
     );
     assert(sent.some((f) => f.question === q.survey && !f.required));
     assert.equal(

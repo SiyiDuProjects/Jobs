@@ -1,7 +1,7 @@
 import { typedAnswer } from "./typed-answer.mjs";
 import { confirmedAnswer } from "./verified-answer.mjs";
-// Synthetic provider boundary for DOM tests. The explicit frozen types exercise
-// the retained answer functions; semantic-verifier behavior has service tests.
+// Synthetic provider boundary for DOM tests; this exercises shared question
+// recognition and Profile readers, not real model comprehension.
 // Unknown questions remain unknown and no keyword matching is performed.
 export function fixtureAnswers(api, fields, profile, context = []) {
   return fields.map((field) => {

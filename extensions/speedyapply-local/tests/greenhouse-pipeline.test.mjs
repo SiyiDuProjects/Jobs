@@ -262,11 +262,7 @@ test("Greenhouse job boards fill in one pipeline run: bindings, history rows, ru
     JSON.parse(
       JSON.stringify(f.requests[0].fields.map((field) => field.question)),
     ),
-    [
-      "Are you authorized to work in the United States?*",
-      "What excites you about this role?*",
-      "Website",
-    ],
+    ["What excites you about this role?*", "Website"],
   );
   assert.equal(
     f.notes.filter((note) => note.type === "auto_step_started").length,
@@ -282,7 +278,7 @@ test("Greenhouse job boards fill in one pipeline run: bindings, history rows, ru
   assert(
     f.traces.some(
       (entry) =>
-        entry.source === "ai:profile" &&
+        entry.source === "rule:profile" &&
         entry.result === "committed" &&
         entry.chosen === "Yes",
     ),

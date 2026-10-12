@@ -1,6 +1,5 @@
 import { typedAnswer, typedResults } from "./helpers/typed-answer.mjs";
-// Tests below exercise retained answer functions with explicit fixture types.
-// Free-form classification is tested at the service decision boundary.
+// Raw questions exercise shared recognition, fact reading and option selection.
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -54,7 +53,10 @@ test("typed answers: country suffixes preserve separate sponsorship and working-
       profile,
     );
     if (suffix === "for this role")
-      assert.equal(c.JobsProfileAnswers.resolve(question, profile), null);
+      assert.equal(
+        c.JobsProfileAnswers.resolve(question, profile).answer,
+        "Yes",
+      );
     else
       assert.notEqual(
         result[0]?.answer,

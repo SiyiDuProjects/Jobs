@@ -42,6 +42,20 @@ test("the explicit synthetic matrix retains every reviewed resolution and select
 });
 
 for (const [name, profile] of Object.entries(fixture.profiles))
+  test(`original questions resolve without supplied types or a provider: ${name}`, () => {
+    for (const row of fixture.cases.filter((row) => row.profile === name)) {
+      const answer = api.resolve(row.question, profile, fixture.context);
+      assert.equal(answer?.answer ?? null, row.answer, row.question);
+      for (const choice of row.selections)
+        assert.equal(
+          api.select(answer, fixture.options[choice.options] ?? undefined),
+          choice.answer,
+          `${row.question} / ${choice.options}`,
+        );
+    }
+  });
+
+for (const [name, profile] of Object.entries(fixture.profiles))
   test(`typed Profile answers and option choices: ${name}`, (t) => {
     let resolutions = 0,
       selections = 0;

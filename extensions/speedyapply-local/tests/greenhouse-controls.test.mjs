@@ -745,7 +745,7 @@ test("the rules answer school and place searches; other gaps reach AI with real 
         "San Leandro, California, United States",
       ],
       answer: "San Leandro, California, United States",
-      rule: false,
+      rule: true,
     },
     {
       id: "school--0",
@@ -765,7 +765,7 @@ test("the rules answer school and place searches; other gaps reach AI with real 
           ? ["Berkeley College", "University of California--Berkeley (CA)"]
           : [],
       answer: "University of California--Berkeley (CA)",
-      rule: false,
+      rule: true,
     },
     {
       id: "question_12678689007",
@@ -773,7 +773,7 @@ test("the rules answer school and place searches; other gaps reach AI with real 
       question: "What is your expected graduation month & year?",
       labels: ["Already graduated", "May - Aug 2027"],
       answer: "May - Aug 2027",
-      rule: false,
+      rule: true,
     },
     {
       id: "question_12678500007",

@@ -1,6 +1,5 @@
 import { typedAnswer } from "./helpers/typed-answer.mjs";
-// Tests below exercise retained answer functions with explicit fixture types.
-// Free-form classification is tested at the service decision boundary.
+// Raw questions exercise shared recognition, fact reading and option selection.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -207,15 +206,18 @@ test("free-form saved answers cannot override either selected Profile locally", 
     ),
     c,
   );
-  for (const profile of [ng, intern])
+  for (const [profile, expected] of [
+    [ng, "Yes"],
+    [intern, "No"],
+  ])
     assert.equal(
       (
         await c.JobsAnswerResolver.resolve(
           [{ question: "Will you require sponsorship?" }],
           profile,
         )
-      ).length,
-      0,
+      )[0].answer,
+      expected,
     );
   assert.equal(
     (

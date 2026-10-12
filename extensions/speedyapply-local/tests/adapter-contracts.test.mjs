@@ -189,10 +189,12 @@ test("Seek personal details: the names, calling code and phone are written befor
   assert.equal(h.value("select[data-testid]"), "resume.pdf");
 });
 
-test("the answer stage keeps a manual selection made while verification is pending", async (t) => {
+test("the answer stage keeps a manual selection made while an unresolved answer is pending", async (t) => {
+  const question = "Can you attend the program's complete schedule?";
   const h = await adapterPage(t, {
     site: "paylocity",
-    html: '<form><label for="eligibility">Are you authorized to work in the United States?</label><select id="eligibility"><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></form>',
+    html: `<form><label for="eligibility">${question}</label><select id="eligibility"><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></form>`,
+    replies: [{ question, response: "Yes" }],
   });
   const node = h.doc.querySelector("select");
   const send = h.w.chrome.runtime.sendMessage;
@@ -202,6 +204,7 @@ test("the answer stage keeps a manual selection made while verification is pendi
     return reply;
   };
   await h.fill(() => null);
+  assert.equal(h.requests.length, 1);
   assert.equal(node.value, "N");
 });
 

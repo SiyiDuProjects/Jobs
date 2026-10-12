@@ -72,7 +72,7 @@ const profile = (eligibilityUS, sponsorship) => ({
   nameData: { firstName: "", lastName: "" },
 });
 const authorization =
-  "Are you legally authorized to work in the United States for any employer?";
+  "Are you legally authorized to work in the United States?";
 const sponsorship =
   "Will you now or will you in the future require employment visa sponsorship?";
 const referral = "How did you hear about Gecko?";
@@ -132,7 +132,7 @@ function Radios({ question, options = ["Yes", "No"] }) {
         h("label", { htmlFor: `${name}-${index}` }, answer),
       ),
     ),
-    h("output", null, value ?? "unanswered"),
+    h("output", { hidden: true }, value ?? "unanswered"),
   );
 }
 
@@ -163,7 +163,7 @@ function YesNo({ question }) {
         ),
       ),
     ),
-    h("output", null, value ?? "unanswered"),
+    h("output", { hidden: true }, value ?? "unanswered"),
   );
 }
 function Dropdown({
@@ -219,7 +219,7 @@ function Dropdown({
           ),
         ),
       ),
-    h("output", null, committed || "unanswered"),
+    h("output", { hidden: true }, committed || "unanswered"),
   );
 }
 async function fixture(element, run) {
@@ -320,7 +320,7 @@ function SearchSchool({
               : label,
           ),
       ),
-    h("output", null, committed || "unanswered"),
+    h("output", { hidden: true }, committed || "unanswered"),
   );
 }
 
@@ -424,7 +424,7 @@ test("native setter updates real React state: direct value + input reproduces th
         onChange: (e) => setValue(e.target.value),
         onBlur: () => setBlurred(true),
       }),
-      h("output", null, JSON.stringify({ value, blurred })),
+      h("output", { hidden: true }, JSON.stringify({ value, blurred })),
     );
   }
   await fixture(h(Form), async (root) => {
@@ -459,7 +459,7 @@ test("native Generate Answer button commits controlled textareas and preserves t
         "Which languages?",
         h("textarea", { value, onChange: (e) => setValue(e.target.value) }),
       ),
-      h("output", null, value),
+      h("output", { hidden: true }, value),
     );
   }
   for (const successful of [true, false])

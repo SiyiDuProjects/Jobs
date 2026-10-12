@@ -116,7 +116,7 @@ const profile = () => ({
   },
 });
 
-test("existing and new Profile answers flow through the original writer with precise dates through the verified provider boundary", async () => {
+test("existing and new Profile answers flow through the original writer with precise dates without requesting the provider", async () => {
   const h = fixture(
     '<label>First name<input id="first" required></label><label>Email<input id="email" required></label><label>Graduation date<input id="graduation" type="date" required></label><label>Earliest start date<input id="start" type="date" required></label><label>Do you currently require visa sponsorship?<select id="now" required><option value="">Choose</option><option value="yes">Yes</option><option value="no">No</option></select></label><label>Will you require visa sponsorship in the future?<select id="future" required><option value="">Choose</option><option value="yes">Yes</option><option value="no">No</option></select></label><label>Pronouns<input id="pronouns"></label><label>Preferred interview programming language<input id="language"></label>',
     profile(),
@@ -135,7 +135,7 @@ test("existing and new Profile answers flow through the original writer with pre
       true,
       JSON.stringify(h.events.map(([k, n, d]) => [k, d])),
     );
-    assert.equal(h.aiCalls(), 1);
+    assert.equal(h.aiCalls(), 0);
     assert.equal(h.clicks(), 0);
     for (const [id, value] of Object.entries({
       first: "Demo",

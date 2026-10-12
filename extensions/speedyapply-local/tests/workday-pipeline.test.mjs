@@ -277,10 +277,7 @@ test("a Workday step is one pipeline run: rule answers, AI for the gap, then one
     JSON.parse(
       JSON.stringify(requests[0].fields.map((field) => field.question)),
     ),
-    [
-      "Are you legally authorized to work in the United States?",
-      "Why this company? *",
-    ],
+    ["Why this company? *"],
   );
   assert.equal(
     notes.filter((note) => note.type === "auto_step_started").length,
@@ -291,7 +288,7 @@ test("a Workday step is one pipeline run: rule answers, AI for the gap, then one
   inspected.check(
     doc.querySelector('[data-automation-id="applyFlowPrimaryQuestionsPage"]'),
   );
-  assert.equal(inspected.claims.get(button)?.[0], "ai");
+  assert.equal(inspected.claims.get(button)?.[0], "rule");
 });
 
 test("a run without the step fill (queue resume, remote command) never swallows the adapter step fill", async (t) => {

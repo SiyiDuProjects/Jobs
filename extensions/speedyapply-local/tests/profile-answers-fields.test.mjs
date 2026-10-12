@@ -1,6 +1,5 @@
 import { typedAnswer } from "./helpers/typed-answer.mjs";
-// Tests below exercise retained answer functions with explicit fixture types.
-// Free-form classification is tested at the service decision boundary.
+// Raw questions exercise shared recognition, fact reading and option selection.
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -105,8 +104,8 @@ test("typed answers: observed disclosure wording uses explicit Profile facts wit
   );
   assert.equal(
     resolved.length,
-    0,
-    "full disclosure questions require the server evidence decision",
+    3,
+    "supported disclosure questions use the explicit Profile facts locally",
   );
   assert.deepEqual(
     questions.map((q) =>
@@ -671,7 +670,7 @@ test("typed answers: one public resolver preserves old sponsorship while explici
   );
 });
 
-test("canonical fields stay local while saved free-form answers wait for the evidence decision", async () => {
+test("supported questions use Profile facts; saved answers alone still require the service", async () => {
   const context = vm.createContext({});
   vm.runInContext(code, context);
   vm.runInContext(
@@ -694,8 +693,10 @@ test("canonical fields stay local while saved free-form answers wait for the evi
     0,
   );
   const filled = await context.JobsAnswerResolver.resolve(questions, profile());
-  assert.equal(filled.length, 1);
-  assert.equal(filled[0].answer, "Python");
+  assert.deepEqual(
+    Array.from(filled, (row) => row.answer),
+    ["Python", "2027-06-01"],
+  );
 });
 
 test("typed answers: actual shared matcher respects calendar precision and explicit employment sponsorship timing", async () => {
@@ -723,18 +724,21 @@ test("typed answers: actual shared matcher respects calendar precision and expli
   );
   const question =
     "Will your employment require sponsorship now or in the future?";
-  assert.equal(api.classify(question), null);
-  for (const current of [
-    profile({ applicationData: {} }),
-    profile({
-      applicationData: { sponsorshipNow: false, sponsorshipFuture: false },
-    }),
-    profile({ applicationData: { sponsorshipNow: false } }),
+  assert.equal(api.classify(question).topic, "sponsorship");
+  for (const [current, expected] of [
+    [profile({ applicationData: {} }), "Yes"],
+    [
+      profile({
+        applicationData: { sponsorshipNow: false, sponsorshipFuture: false },
+      }),
+      "No",
+    ],
+    [profile({ applicationData: { sponsorshipNow: false } }), undefined],
   ])
     assert.equal(
-      (await context.JobsAnswerResolver.resolve([{ question }], current))
-        .length,
-      0,
+      (await context.JobsAnswerResolver.resolve([{ question }], current))[0]
+        ?.answer,
+      expected,
     );
   for (const compound of [
     "Will your employment require sponsorship and authorization to work?",

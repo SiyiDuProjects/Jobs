@@ -1,6 +1,5 @@
 import { typedAnswer } from "./helpers/typed-answer.mjs";
-// Tests below exercise retained answer functions with explicit fixture types.
-// Free-form classification is tested at the service decision boundary.
+// Raw questions exercise shared recognition, fact reading and option selection.
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 // Regressions from the 2026-09-23 live verification (notes/archive/live-verification-2026-09-23.md).
 import test from "node:test";
@@ -101,8 +100,9 @@ test('JazzHR "No answer" (value 0) is an empty required answer, not a completed 
     // "Completed" education is its own confirmed fact, never a degree in progress.
     const answers = h.w.JobsProfileAnswers;
     assert.equal(
-      answers.classify("What's your highest level of education completed?"),
-      null,
+      answers.classify("What's your highest level of education completed?")
+        .field,
+      "applicationData.highestCompletedEducation",
     );
     const labels = [
       "Some College",

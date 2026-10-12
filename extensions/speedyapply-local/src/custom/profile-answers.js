@@ -1,5 +1,9 @@
 import { stableStringify } from "./stable-value.js";
 import { extraProfileAnswer } from "./profile-extra.js";
+import {
+  classifyProfileQuestion,
+  hasAdditionalDescription,
+} from "./profile-question-types.js";
 import { AnswerVocabulary } from "./answer-vocabulary.js";
 import { signatureAnswer } from "./signature-answer.js";
 import { JobsOptionMatch } from "./option-match.js";
@@ -911,7 +915,7 @@ export function initializeProfileAnswers() {
         .map(([code]) => code);
       return matches.length > 1 ? "MIXED" : matches[0] || null;
     }
-    // Typed answer functions remain shared by adapters and canonical field labels.
+    // Adapters and recognized questions share the same typed fact readers.
     const topicRegistry = Object.freeze({
       education: Object.freeze({
         answers: [
@@ -1042,18 +1046,20 @@ export function initializeProfileAnswers() {
       }),
     });
 
-    function classify(question, context = {}) {
-      // Only unqualified canonical labels stay local. Free-form questions and
-      // accompanying conditions go through the server's evidence decision.
-      if (context.description?.trim()) return null;
+    function classify(question, context = {}, canonicalOnly = false) {
+      // Repeated captions/options are already part of the question; additional
+      // instructions must not inherit the simpler question's answer.
       const label = questionText(question).replace(/[\s*✱?:.]+$/g, "");
-      const rule = AnswerVocabulary.localFields[label];
+      if (hasAdditionalDescription(question, context)) return null;
+      const rule =
+        (!canonicalOnly && classifyProfileQuestion(question, context)) ||
+        AnswerVocabulary.localFields[label];
       return rule ? { ...rule } : null;
     }
 
     const managed = (question) => Boolean(classify(question)?.field);
 
-    function resolve(question, profile, context = {}) {
+    function resolve(question, profile, context = {}, canonicalOnly = false) {
       const extra = extraProfileAnswer(question, profile, context);
       if (extra) return extra;
       const signed = signatureAnswer(
@@ -1067,7 +1073,7 @@ export function initializeProfileAnswers() {
         context.voluntaryVeteranSignature !== undefined &&
           questionText(question) === "signature"
           ? AnswerVocabulary.localFields.signature
-          : classify(question, context),
+          : classify(question, context, canonicalOnly),
         question,
         profile,
         context,
@@ -2352,7 +2358,9 @@ export function initializeProfileAnswers() {
     // A topic match alone is not permission to discard an existing answer with
     // finer precision (e.g. a semester or future-only sponsorship).
     function covers(record, profile, context = {}) {
-      const result = resolve(record.question, profile, context),
+      // Restoring automatic question recognition must not broaden memory
+      // deduplication: preserve full person answers and their original context.
+      const result = resolve(record.question, profile, context, true),
         value = normalize(record.response);
       if (!result?.answer) return false;
       if (

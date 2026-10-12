@@ -339,10 +339,16 @@ test("manual continuation is a transition; a transient required error must not f
     setMessage: (phase) => phases.push(phase),
     getProfile: async () => ({}),
   });
+  // Capture the continuation listener before the rendered HeroUI controls
+  // register their own document-level click observers.
+  const continuationClick = click;
   try {
     wrapped.setMessage("page-complete");
     await delay(0);
-    click({ isTrusted: true, target: w.document.querySelector("button") });
+    continuationClick({
+      isTrusted: true,
+      target: w.document.querySelector("button"),
+    });
     w.document.querySelector("input").setAttribute("aria-invalid", "true");
     await delay(90);
     w.document.querySelector("input").removeAttribute("aria-invalid");
