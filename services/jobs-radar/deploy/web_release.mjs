@@ -162,6 +162,13 @@ function remote(action, extra = [], input) {
   return JSON.parse(output);
 }
 
+export function archiveWebsite(bundle, archive) {
+  // macOS tar otherwise adds AppleDouble files for filesystem metadata.
+  run(nativeTool('tar'), ['-cf', archive, '-C', bundle, 'manifest.json', ...files],
+    {env: {...process.env, COPYFILE_DISABLE: '1'}});
+  return read(archive);
+}
+
 export function main(args) {
   const [mode, ...rest] = args;
   if (mode === '--web-status' || mode === '--rollback-web') {
@@ -184,8 +191,7 @@ export function main(args) {
   const bundle = path.join(folder, 'bundle');
   const manifest = verifyBundle(bundle, info);
   const archive = path.join(folder, 'website.tar');
-  run(nativeTool('tar'), ['-cf', archive, '-C', bundle, 'manifest.json', ...files]);
-  const data = read(archive);
+  const data = archiveWebsite(bundle, archive);
   const result = remote('activate', ['--sha256', hash(data)], data);
   if (result.active !== manifest.id) fail('Server did not activate the selected website.');
   console.log(JSON.stringify(result, null, 2));

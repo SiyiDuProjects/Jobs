@@ -3,8 +3,10 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 
 import pytest
@@ -202,3 +204,23 @@ console.log(manifest.id);
     result = subprocess.run(['node', '--input-type=module', '-e', script, str(source), str(tmp_path / 'bundle')],
                             cwd=SERVICE, capture_output=True, text=True, timeout=30, check=True)
     assert len(result.stdout.strip()) == 32
+
+
+def test_native_website_archive_excludes_filesystem_metadata(tmp_path):
+    source = tmp_path / 'bundle'
+    manifest = bundle(source)
+    if sys.platform == 'darwin':
+        subprocess.run(['xattr', '-w', 'com.apple.metadata:jobs-release-test', 'metadata',
+                        str(source / 'board.js')], check=True)
+    script = """
+import {archiveWebsite} from './deploy/web_release.mjs';
+archiveWebsite(...process.argv.slice(1));
+"""
+    target = tmp_path / 'website.tar'
+    env = dict(os.environ)
+    env.pop('COPYFILE_DISABLE', None)
+    subprocess.run(['node', '--input-type=module', '-e', script, str(source), str(target)],
+                   cwd=SERVICE, env=env, capture_output=True, text=True, timeout=30, check=True)
+    received = tmp_path / 'received'
+    assert driver.unpack(target.read_bytes(), received) == manifest
+    assert (received / 'board.js').read_bytes() == (source / 'board.js').read_bytes()
