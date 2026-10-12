@@ -50,6 +50,7 @@ class SimpleAnswers:
         except (ValueError,TypeError): stable_context=context['additionalContext']
         job['additionalContext']=stable_context
         job['formContext']=validated['formContext']
+        if validated['formDocument'] is not None: job['formDocument']=validated['formDocument']
         readable = render_profile(profile); answers = {}; pending = []
         usage = {'fieldCount':len(fields),'cacheHits':0,'modelFields':0,'modelCalls':0}
         for field in fields:
@@ -80,13 +81,13 @@ class SimpleAnswers:
                     try:
                         body = await ai_answers.generate(active,MODEL,pending,{
                             'profile':readable,'pastAnswers':{f['fieldId']:memory.candidates(f) for f in pending},
-                            'job':context,'formContext':validated['formContext'],'today':today,'fields':pending})
+                            'job':context,'formContext':validated['formContext'],'formDocument':validated['formDocument'],'today':today,'fields':pending})
                         rows = body.get('answers',[]) if isinstance(body,dict) else []
                         if isinstance(rows,list):
                             for field in pending:
                                 matches = [r for r in rows if isinstance(r,dict) and r.get('fieldId')==field['fieldId']]
                                 if len(matches)==1: generated[field['fieldId']]=matches[0]
-                        failure = 'control_failure'
+                        failure = 'answer_missing'
                     except (httpx.HTTPError,ValueError,KeyError,TypeError): pass
                 for field in pending:
                     sources = readable + '\n'.join(r['answer'] for r in memory.candidates(field))
@@ -96,7 +97,7 @@ class SimpleAnswers:
                         field,pid,version,interruptionReason=failure,reasonZh={
                             'ai_rate_limited':'AI 每小时调用额度已用完，请稍后重试',
                             'ai_unavailable':'AI 服务暂时不可用，当前填写已保留',
-                            'control_failure':'AI 未返回有效答案，请重试'}[failure])
+                            'answer_missing':'AI 没有返回这道题的有效回答，请重试'}[failure])
                     answers[field['fieldId']] = row
                     cache.put(field,job,row,memory.fingerprint(field))
             for field in fields:

@@ -1,6 +1,7 @@
 """Structured field answers. This contract contains no navigation commands."""
 from datetime import date
 import re
+from .form_context import form_document
 TYPES = {'text','textarea','email','tel','url','number','date','month','search','search-choice',
          'radio','yesno','custom-radio','select-one','select-multiple','checkbox','custom-checkbox','combobox'}
 CHOICES = {'radio','yesno','custom-radio','select-one','select-multiple','combobox'}
@@ -43,7 +44,7 @@ def fields_input(payload):
         if not isinstance(item,dict): raise ValueError('Invalid form context')
         clean.append({'question':_string(item.get('question'),2000,'context question'),
                       'answer':_string(item.get('answer',''),4000,'context answer',True)})
-    return {'fields':fields,'formContext':clean}
+    return {'fields':fields,'formContext':clean,'formDocument':form_document(payload.get('formDocument'))}
 
 def _exact_date(value):
     if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):

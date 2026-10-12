@@ -61,6 +61,8 @@ class Answers:
             if not isinstance(value,str) or len(value)>limit: raise ValueError('题目上下文过长')
             context[key]=value
         context = bindings.recognition_context(context)
+        context['formContext'] = data['formContext']
+        if data['formDocument'] is not None: context['formDocument'] = data['formDocument']
         memory=AnswerMemory(self.store,pid,fields,{**context['jobContext'],'profileVersion':version})
         cache=bindings.BindingCache(self.store); plans=cache.plans(fields,context,MODEL)
         public_plans={f['fieldId']:plan for f in fields if (plan:=bindings.public_binding(f))}
@@ -124,8 +126,8 @@ class Answers:
                 if row is None and plan and not saved: row=bindings.answer(plan,None,field,profile,pid,version)
                 if row is None and candidate: row=candidate
                 draft=bool(plan and plan['predicate'].startswith('draft.'))
-                interruption = mapping_failure if mapping_failure in {'ai_unavailable','ai_rate_limited'} else 'draft_unavailable' if draft else 'missing_fact' if plan and plan['predicate']!='unknown' else 'unrecognized_question'
-                reason = {'missing_fact':'缺少资料字段或题意未能对应，留空', 'ai_unavailable':'AI 服务暂时不可用，当前填写已保留', 'ai_rate_limited':'AI 每小时调用额度已用完，稍后重试', 'unrecognized_question':'题意未能对应，留空', 'draft_unavailable':'开放题草稿未生成，请手动作答或重试'}[interruption]
+                interruption = mapping_failure if mapping_failure in {'ai_unavailable','ai_rate_limited'} else 'answer_invalid' if fid in generated else 'draft_unavailable' if draft else 'missing_fact' if plan and plan['predicate']!='unknown' else 'answer_missing'
+                reason = {'missing_fact':'已识别题目，但资料中缺少作答所需的事实', 'ai_unavailable':'AI 服务暂时不可用，当前填写已保留', 'ai_rate_limited':'AI 每小时调用额度已用完，稍后重试', 'answer_missing':'AI 没有返回这道题的有效回答，请重试', 'answer_invalid':'AI 返回的答案无法用于这道题，请重试', 'draft_unavailable':'开放题草稿未生成，请手动作答或重试'}[interruption]
                 row=row or bindings.result(field,pid,version,reason=reason,route=plan['predicate'] if plan else 'unknown',interruption=interruption)
                 origin='saved' if row['route']=='saved_response' else 'default' if {'profilePath':'applicationData.defaultAnswers'} in row['evidence'] else 'suggestion' if row['decision']=='draft' else 'profile'
                 if candidate and row['value'] is not None and row['value']==candidate['value'] and generated[fid].get('basis')==origin:

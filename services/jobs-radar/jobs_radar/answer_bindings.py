@@ -63,6 +63,8 @@ def binding_key(field, context, model):
     # context because relative company/country references can depend on it.
     scope = {'country':context.get('jobContext',{}).get('country','')}
     raw = [BINDING_CACHE_VERSION, model, shape, scope, context.get('additionalContext','')]
+    if context.get('formDocument') is not None or context.get('formContext'):
+        raw.append([context.get('formDocument'), context.get('formContext')])
     return hashlib.sha256(json.dumps(raw,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
@@ -138,7 +140,7 @@ def checked(binding, meaning, field, context=None):
     if route in {'previous_employer','previous_employer_group','citizen_of'}:
         if not arg.strip(): return None
         if context is not None:
-            public=' '.join([field['question'],field.get('description',''),context.get('additionalContext','')])
+            public=' '.join([field['question'],field.get('description',''),context.get('additionalContext',''),(context.get('formDocument') or {}).get('text','')])
             if normalized(arg) not in normalized(public): return None
     elif arg: return None
     if not polarity and domain not in (BOOLEAN,DISCLOSURE): return None

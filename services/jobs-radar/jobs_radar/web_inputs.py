@@ -73,6 +73,7 @@ class AnswerJobRequest(RequestModel):
     prompt: str | None = None
     fields: list[dict[str, Any]] | None = None
     formContext: list[dict[str, str]] | None = None
+    formDocument: dict[str, Any] | None = None
     additionalContext: str | None = None
     jobTitle: str | None = None
     jobDescription: str | None = None
