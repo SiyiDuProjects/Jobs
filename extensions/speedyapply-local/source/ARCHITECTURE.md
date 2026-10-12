@@ -13,6 +13,8 @@ These implementation contracts are enforced by the adapter, writer, ownership an
 
 Each automatic run owns one AbortController. Its AbortSignal reaches the operation context; lifecycle changes, removal, manual navigation and source invalidation cancel the same signal. A cancelled signal cannot be reset by a later review or asynchronous response. Review pauses input listeners while the person intentionally edits, then validates the current operation before resuming.
 
+`formDocument` is a bounded snapshot for model input only. Unrelated page text changes never cancel an answer batch or reset its retry state; each pending answer is checked against its own current field shape before writing. Whole-page text and field snapshots do not enter answer or binding cache keys. Existing field, Profile, saved-answer and job scope still determine reuse.
+
 New pure policy modules are ordinary ES modules and their unit tests import their exports directly. DOM integration fixtures use an isolated browser realm with explicit dependencies; their module loader must preserve the maintained module bodies and import bindings.
 
 The reviewed answer matrix runs both original questions through shared recognition and explicit type inputs through formatters/options; neither may replace the other. Cross-platform DOM regressions verify known answers still write with the answer service offline and only unresolved fields are requested. Provider stubs do not establish model comprehension. Service tests independently verify Profile projection, deterministic precedence, citation validation, protocol and rejection behavior. Real-provider and real-ATS acceptance remain separate.

@@ -19,8 +19,7 @@ class AnswerCache:
 
     def get(self, field, job, memory_revision):
         with self.store.connect() as c:
-            contexts = [job] if job and job.get('formDocument') is not None else [job, None]
-            for key in (self.key(field, context, memory_revision) for context in contexts):
+            for key in (self.key(field, job, memory_revision), self.key(field, None, memory_revision)):
                 row = c.execute('SELECT answer FROM simple_answer_cache WHERE key=?', (key,)).fetchone()
                 if not row: continue
                 answer = json.loads(row['answer'])
@@ -46,6 +45,6 @@ class AnswerCache:
             if len(labels)!=len(values) or any(sum(o['label']==label for o in field['options'])!=1 for label in labels): return
             stored['choiceLabels'] = labels
             stored.pop('value')
-        key = self.key(field,job if answer.get('jobSpecific',True) or job and job.get('formDocument') is not None else None,memory_revision)
+        key = self.key(field,job if answer.get('jobSpecific',True) else None,memory_revision)
         with self.store.connect(True) as c:
             c.execute('INSERT OR REPLACE INTO simple_answer_cache VALUES(?,?,?)',(key,json.dumps(stored,ensure_ascii=False),time.time()))

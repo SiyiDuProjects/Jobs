@@ -985,6 +985,7 @@ export function initializeAutomaticFill() {
         }
         // Request one bounded batch and commit each answer through the shared ledger.
         async function applySupplement(submitted) {
+          // Shared page text is model input; freshness is checked per field below.
           const formDocument = captureFormDocument(root, reader, submitted);
           const formContext = formDocument.fields.map(
             ({ question, answer }) => ({ question, answer }),
@@ -1017,13 +1018,6 @@ export function initializeAutomaticFill() {
           flow.move("writing");
           setMessage("ai-filling");
           for (const answer of answers) {
-            const latestDocument = captureFormDocument(root, reader);
-            if (latestDocument.text !== formDocument.text) {
-              for (const item of submitted)
-                book.entry(item.row).aiTried = false;
-              note("auto_answer_obsolete", null, "form_context_changed");
-              return;
-            }
             const rationale =
               answer.interruptionReason ||
               (answer.kind === "draft" ? "draft" : "ai_answer");

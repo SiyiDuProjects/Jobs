@@ -44,7 +44,7 @@ def test_invalid_document_is_rejected_before_model_request(patch):
         fields_input({'fields': [field()], 'formDocument': {**document(), **patch}})
 
 
-def test_shared_prose_invalidates_both_caches_even_for_generic_answers(tmp_path):
+def test_legacy_binding_cache_ignores_shared_prose_but_retains_field_shape(tmp_path):
     a, p = setup(tmp_path)
     p = save(a, p, employmentData={'eligibilityUS': True})
     doc = document()
@@ -52,13 +52,48 @@ def test_shared_prose_invalidates_both_caches_even_for_generic_answers(tmp_path)
     run(a, p, client, formDocument=doc)
     assert run(a, p, None, formDocument=doc)['answerUsage']['modelCalls'] == 0
     changed = copy.deepcopy(doc)
-    changed['text'] += '\nA changed instruction with a different scope.'
-    assert run(a, p, client, formDocument=changed)['answerUsage']['modelCalls'] == 1
-    simple = SimpleClient([answer(jobSpecific=False)])
-    simple_run(a, p, simple)  # Old generic cache must not mask new form context.
-    assert simple_run(a, p, simple, formDocument=doc)['answerUsage']['modelCalls'] == 1
-    assert simple_run(a, p, None, formDocument=doc)['answerUsage']['modelCalls'] == 0
-    assert simple_run(a, p, simple, formDocument=changed)['answerUsage']['modelCalls'] == 1
+    changed['text'] += '\nLoading complete. 1 of 2 complete.'
+    assert run(a, p, client, formDocument=changed)['answerUsage']['modelCalls'] == 0
+    altered = field(description='A new qualification applies to this question.')
+    assert run(a, p, client, [altered], formDocument=changed)['answerUsage']['modelCalls'] == 1
+
+
+@pytest.mark.parametrize('job_specific', [False, True])
+def test_simple_cache_ignores_document_but_preserves_job_scope_and_field_shape(tmp_path, job_specific):
+    a, p = setup(tmp_path)
+    doc = document()
+    client = SimpleClient([answer(jobSpecific=job_specific)])
+    job = {'jobUrl': 'https://jobs.ashbyhq.com/example/11111111-1111-1111-1111-111111111111/application', 'jobTitle': 'Engineer'}
+    assert simple_run(a, p, client, formDocument=doc, **job)['answerUsage']['modelCalls'] == 1
+    assert json.loads(client.calls[0]['input'])['formDocument'] == doc
+    changed = copy.deepcopy(doc)
+    changed['text'] += '\nLoading complete. 1 of 2 complete.'
+    changed['title'] = 'Application survey - updated'
+    changed['fields'][0]['fieldId'] = 'new-page-id'
+    changed['fields'][0]['answer'] = 'Synthetic context only'
+    for current in [changed, None]:
+        result = simple_run(a, p, client, formDocument=current, **job)
+        assert result['answerUsage']['cacheHits'] == 1
+        assert result['answerUsage']['modelCalls'] == 0
+    other = simple_run(a, p, client, formDocument=changed,
+                       jobUrl=job['jobUrl'].replace('/example/', '/other/'), jobTitle='Engineer')
+    assert other['answerUsage']['modelCalls'] == int(job_specific)
+    assert other['answerUsage']['cacheHits'] == int(not job_specific)
+    for altered in [field(description='A new qualification applies to this question.'),
+                    field(options=[{'value': 'y', 'label': 'Yes, without restrictions'},
+                                   {'value': 'n', 'label': 'No'}])]:
+        result = simple_run(a, p, client, [altered], formDocument=changed, **job)
+        assert result['answerUsage']['cacheHits'] == 0
+        assert result['answerUsage']['modelCalls'] == 1
+
+
+def test_generic_cache_created_without_document_is_reused_with_document(tmp_path):
+    a, p = setup(tmp_path)
+    client = SimpleClient([answer(jobSpecific=False)])
+    simple_run(a, p, client)
+    result = simple_run(a, p, client, formDocument=document())
+    assert result['answerUsage']['cacheHits'] == 1
+    assert len(client.calls) == 1
 
 
 def test_missing_invalid_and_missing_fact_are_distinct(tmp_path):

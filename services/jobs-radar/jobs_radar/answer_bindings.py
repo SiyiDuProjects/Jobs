@@ -63,8 +63,8 @@ def binding_key(field, context, model):
     # context because relative company/country references can depend on it.
     scope = {'country':context.get('jobContext',{}).get('country','')}
     raw = [BINDING_CACHE_VERSION, model, shape, scope, context.get('additionalContext','')]
-    if context.get('formDocument') is not None or context.get('formContext'):
-        raw.append([context.get('formDocument'), context.get('formContext')])
+    if context.get('formContext'):
+        raw.append(context['formContext'])
     return hashlib.sha256(json.dumps(raw,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 

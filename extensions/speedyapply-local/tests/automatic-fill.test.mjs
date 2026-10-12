@@ -174,23 +174,21 @@ for (const scenario of ["complete", "changed", "oversized"])
     }
   });
 
-test("shared form prose reaches AI and a changed instruction invalidates the pending batch", async () => {
+test("shared prose reaches AI while pending status and write feedback do not cancel the batch", async () => {
   const h = setup(
     '<p id="shared">Shared instructions before all questions.</p><label>Independent choice<input type="checkbox" required></label><label>Separate signature<input type="checkbox" required></label>',
     async (message, w) => {
       assert.equal(message.fields.length, 2);
       assert.equal(message.formDocument.fields.length, 2);
-      if (h.calls() === 1) {
-        assert.match(
-          message.formDocument.text,
-          /Shared instructions before all questions/,
-        );
-        w.document.getElementById("shared").textContent =
-          "Changed shared instructions.";
-      } else {
-        assert.match(message.formDocument.text, /Changed shared instructions/);
-        assert.equal(w.document.querySelector("input").checked, false);
-      }
+      assert.equal(h.calls(), 1, "unrelated text must not request AI again");
+      assert.match(
+        message.formDocument.text,
+        /Shared instructions before all questions/,
+      );
+      w.document.getElementById("shared").textContent = "Loading complete.";
+      w.document.querySelector("input").addEventListener("change", () => {
+        w.document.getElementById("shared").textContent = "1 of 2 complete.";
+      });
       return message.fields.map((field) =>
         confirmedAnswer(field, {
           fieldId: field.fieldId,
@@ -204,15 +202,63 @@ test("shared form prose reaches AI and a changed instruction invalidates the pen
   );
   try {
     await h.run({ action: "fill" });
-    assert.equal(h.calls(), 2);
-    assert.equal(h.w.document.querySelector("input").checked, true);
+    assert.equal(h.calls(), 1);
+    assert([...h.w.document.querySelectorAll("input")].every((n) => n.checked));
+    assert.equal(
+      h.w.document.getElementById("shared").textContent,
+      "1 of 2 complete.",
+    );
     assert.equal(h.clicks(), 0);
+    assert(!h.events.some(([type]) => type === "auto_answer_obsolete"));
+  } finally {
+    h.close();
+  }
+});
+
+test("a changed field description retries only that field and keeps the rest of the batch", async () => {
+  const h = setup(
+    '<fieldset><legend>Terms and Conditions</legend><p id="terms">Application processing only.</p><label><input id="changed" type="checkbox" required>I consent to these terms.</label></fieldset><label>Independent choice<input id="stable" type="checkbox" required></label>',
+    async (message, w) => {
+      if (h.calls() === 1) {
+        assert.equal(message.fields.length, 2);
+        w.document.getElementById("terms").textContent =
+          "Different terms apply.";
+        return message.fields.map((field) =>
+          confirmedAnswer(field, {
+            fieldId: field.fieldId,
+            state: "answer",
+            value: true,
+            source: "profile",
+            needsConfirmation: false,
+          }),
+        );
+      }
+      assert.equal(h.calls(), 2);
+      assert.equal(message.fields.length, 1);
+      assert.equal(message.fields[0].description, "Different terms apply.");
+      assert.equal(w.document.getElementById("changed").checked, false);
+      assert.equal(w.document.getElementById("stable").checked, true);
+      return message.fields.map((field) => ({
+        fieldId: field.fieldId,
+        state: "needs_input",
+        value: null,
+        source: "unknown",
+        needsConfirmation: true,
+      }));
+    },
+  );
+  try {
+    await h.run({ action: "fill" });
+    assert.equal(h.calls(), 2);
+    assert.equal(h.w.document.getElementById("changed").checked, false);
+    assert.equal(h.w.document.getElementById("stable").checked, true);
     assert(
       h.events.some(
         ([type, , detail]) =>
-          type === "auto_answer_obsolete" && detail === "form_context_changed",
+          type === "auto_answer_obsolete" && detail === "control_changed",
       ),
     );
+    assert.equal(h.clicks(), 0);
   } finally {
     h.close();
   }

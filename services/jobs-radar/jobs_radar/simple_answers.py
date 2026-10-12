@@ -50,7 +50,7 @@ class SimpleAnswers:
         except (ValueError,TypeError): stable_context=context['additionalContext']
         job['additionalContext']=stable_context
         job['formContext']=validated['formContext']
-        if validated['formDocument'] is not None: job['formDocument']=validated['formDocument']
+        # Whole-page prose is model input, not stable job identity for the cache.
         readable = render_profile(profile); answers = {}; pending = []
         usage = {'fieldCount':len(fields),'cacheHits':0,'modelFields':0,'modelCalls':0}
         for field in fields:
