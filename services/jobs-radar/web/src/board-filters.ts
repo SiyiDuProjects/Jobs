@@ -46,6 +46,9 @@ export function readBoardFilters(storage: Storage, kind: Kind): Filters {
     const exclusions = [oldKind, otherKind].filter(Boolean);
     common = shared({
       ...prior,
+      // Older defaults mixed submitted jobs into the job view. Start the new
+      // view with unsubmitted jobs while retaining later explicit v9 choices.
+      status: defaults.status,
       exclude_companies: splitCompanies((exclusions.length ? exclusions : [legacy])
         .map(value => value?.exclude_companies ?? legacy.exclude_companies ?? "").join(", ")).join(", "),
     });
