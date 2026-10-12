@@ -322,6 +322,19 @@
             "cis_heterosexual",
             "undisclosed"
           ]
+        },
+        "usSecurityClearanceStatus": {
+          "type": "string",
+          "enum": [
+            "Never held",
+            "Previously held, no longer active",
+            "Currently active"
+          ],
+          "description": "US security clearance history and current status. Omitted means unknown. Past holding does not specify when it ended."
+        },
+        "canObtainUsSecurityClearance": {
+          "type": "boolean",
+          "description": "Whether the person can obtain a US security clearance. Independent of current or past holding; omitted means unknown."
         }
       },
       "additionalProperties": true

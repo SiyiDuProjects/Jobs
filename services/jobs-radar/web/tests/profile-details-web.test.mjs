@@ -7,12 +7,13 @@ const dir=fileURLToPath(new URL('..',import.meta.url));
 const bundle=(await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {Profile} from './src/manage/Profile';import {store} from './src/manage/store';import {defaultProfile,blankEducation} from './src/manage/model';globalThis.fixture={store,defaultProfile,blankEducation,render:()=>createRoot(document.getElementById('root')).render(<Profile/>)};`,resolveDir:dir,loader:'tsx'},bundle:true,write:false,format:'iife',platform:'browser',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
 const tick=()=>new Promise(r=>setTimeout(r,35));
 async function until(p){for(let i=0;i<70&&!p();i++)await tick();assert(p(),'condition did not become true');}
-async function fixture(){
+async function fixture(overrides={}){
  const errors=[],writes=[],vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));vc.on('error',e=>errors.push(String(e)));
  const dom=new JSDOM('<html><body><div id="root"></div></body></html>',{url:'https://fixture.invalid/#/profile',runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc});
  const w=dom.window;w.structuredClone=structuredClone;w.AbortSignal=AbortSignal;w.CSS={supports:()=>false,escape:v=>String(v)};w.matchMedia=()=>({matches:false,addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}});w.ResizeObserver=class{observe(){}unobserve(){}disconnect(){}};w.IntersectionObserver=class{observe(){}unobserve(){}disconnect(){}};w.HTMLElement.prototype.scrollIntoView=()=>{};w.HTMLElement.prototype.scrollTo=()=>{};w.Element.prototype.getAnimations=()=>[];
  w.eval(bundle);const {store,defaultProfile,blankEducation}=w.fixture;
  const profile=structuredClone(defaultProfile);profile.profileName='Newgrad';profile.educationData=[{...blankEducation,school:'Example University',endDate:'2027-05',currentlyAttending:true}];
+ Object.assign(profile,overrides);
  const record={id:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',last_sync:'v1',profile};let fail=false;
  store.state={...store.state,loading:false,authenticated:true,current:record,profiles:[{id:record.id,profileName:'Newgrad'}]};
  w.TextEncoder=TextEncoder;
@@ -32,3 +33,29 @@ test('new Profile fields and explicit false save without touching old fields',as
 test('education month stays imprecise unless exact day is supplied',async()=>{const h=await fixture();try{assert.equal(h.w.document.querySelector('input[aria-label="毕业日期年份"]').value,'2027');assert(!dateControl(h,'毕业日期'));assert.equal(h.store.state.current.profile.educationData[0].graduationDate,undefined);const toggle=[...h.w.document.querySelectorAll('[role="switch"]')].find(x=>x.closest('label')?.textContent.includes('只知道月份'));toggle.click();await tick();assert(dateControl(h,'毕业日期'));assert.equal(dateControl(h,'毕业日期').querySelector('[data-type="day"]').getAttribute('data-placeholder'),'true');await fillDate(h,'毕业日期','2027-05-26');await click(h,'保存更改');await until(()=>h.writes.length===1);assert.equal(h.writes[0].profile.educationData[0].endDate,'2027-05');assert.equal(h.writes[0].profile.educationData[0].graduationDate,'2027-05-26');assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
 test('default answer categories require explicit enabling',async()=>{const h=await fixture();try{await click(h,'个人');const toggle=[...h.w.document.querySelectorAll('[role="switch"]')].find(x=>x.closest('label')?.textContent.includes('政府任职'));assert(toggle);assert.equal(toggle.checked,false);toggle.click();await tick();await click(h,'保存更改');await until(()=>h.writes.length===1);assert.deepEqual(h.writes[0].profile.applicationData.defaultAnswers,['government']);assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
 test('salary stays unsaved until currency and period are provided',async()=>{const h=await fixture();try{await click(h,'偏好');await choose(h,'薪资要求','指定金额或范围');await fill(h,'金额或下限','90000');await click(h,'保存更改');await tick();assert.equal(h.writes.length,0);await fill(h,'货币代码','USD');await choose(h,'薪资口径','年基本工资');await click(h,'保存更改');await until(()=>h.writes.length===1);assert.equal(h.writes[0].profile.applicationData.salaryPeriod,'annual_base');assert.deepEqual(h.errors,[]);}finally{h.dom.window.close();}});
+
+test('clearance history replaces ambiguous default and eligibility remains independent',async()=>{
+ const h=await fixture({applicationData:{defaultAnswers:['government','clearance','terms']},employmentData:{canObtainUsSecurityClearance:false}});
+ try {
+  await click(h,'个人');
+  assert(h.w.document.body.textContent.includes('没有明确历史'));
+  assert.equal(h.store.state.current.profile.employmentData.usSecurityClearanceStatus,undefined);
+  await choose(h,'能否取得','可以取得');
+  await click(h,'保存更改');await until(()=>h.writes.length===1);
+  assert.equal(h.writes[0].profile.employmentData.usSecurityClearanceStatus,undefined);
+  assert.equal(h.writes[0].profile.employmentData.canObtainUsSecurityClearance,true);
+  assert.deepEqual(h.writes[0].profile.applicationData.defaultAnswers,['government','terms']);
+  await choose(h,'持有状态','从未持有');
+  await click(h,'保存更改');await until(()=>h.writes.length===2);
+  assert.equal(h.writes[1].profile.employmentData.usSecurityClearanceStatus,'Never held');
+  for(const status of ['曾经持有，目前已失效','当前持有有效许可','未确定']) await choose(h,'持有状态',status);
+  await choose(h,'能否取得','无法取得');
+  await click(h,'保存更改');await until(()=>h.writes.length===3);
+  assert.equal(h.writes[2].profile.employmentData.usSecurityClearanceStatus,undefined);
+  assert.equal(h.writes[2].profile.employmentData.canObtainUsSecurityClearance,false);
+  await choose(h,'能否取得','未确定');
+  await click(h,'保存更改');await until(()=>h.writes.length===4);
+  assert.equal(h.writes[3].profile.employmentData.canObtainUsSecurityClearance,undefined);
+  assert.deepEqual(h.errors,[]);
+ }finally{h.dom.window.close();}
+});

@@ -81,6 +81,8 @@ export type Profile = {
   "hispanicOrLatino"?: boolean | "undisclosed" | "";
   "citizenships"?: Array<string>;
   "identityDefaults"?: "" | "cis_heterosexual" | "undisclosed";
+  "usSecurityClearanceStatus"?: "Never held" | "Previously held, no longer active" | "Currently active";
+  "canObtainUsSecurityClearance"?: boolean;
   [key: string]: any;
 };
   "skillsData"?: Array<string>;

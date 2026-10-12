@@ -20,7 +20,15 @@ export function ProfilePersonal({
   ) => {
     const data: Record<string, any> = { ...p[group], [key]: value };
     if (value === undefined) delete data[key];
-    onChange({ ...p, [group]: data });
+    const next = { ...p, [group]: data };
+    if (group === "employmentData" && ["usSecurityClearanceStatus", "canObtainUsSecurityClearance"].includes(key)) {
+      // Editing either independent fact retires the old ambiguous default.
+      next.applicationData = {
+        ...app,
+        defaultAnswers: (app.defaultAnswers || []).filter((v) => v !== "clearance"),
+      };
+    }
+    onChange(next);
   };
   return (
     <div className="space-y-5">
@@ -81,6 +89,39 @@ export function ProfilePersonal({
         value={emp.citizenships || []}
         onChange={(v) => set("employmentData", "citizenships", v)}
       />
+      <h3 className="font-medium">美国安全许可</h3>
+      <p className="text-sm text-muted">
+        持有经历和能否取得分别填写；无法取得不代表从未持有。
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Choice
+          label="持有状态"
+          value={emp.usSecurityClearanceStatus}
+          options={{
+            "": "未确定",
+            "Never held": "从未持有",
+            "Previously held, no longer active": "曾经持有，目前已失效",
+            "Currently active": "当前持有有效许可",
+          }}
+          onChange={(v) =>
+            set("employmentData", "usSecurityClearanceStatus", v || undefined)
+          }
+        />
+        <Choice
+          label="能否取得"
+          value={emp.canObtainUsSecurityClearance === undefined
+            ? "" : String(emp.canObtainUsSecurityClearance)}
+          options={{ "": "未确定", true: "可以取得", false: "无法取得" }}
+          onChange={(v) =>
+            set("employmentData", "canObtainUsSecurityClearance", v === "" ? undefined : v === "true")
+          }
+        />
+      </div>
+      {!emp.usSecurityClearanceStatus && app.defaultAnswers?.includes("clearance") && (
+        <p className="text-sm text-muted">
+          旧设置为“安全许可：无”，没有明确历史。请选择持有状态以替换它。
+        </p>
+      )}
       <h3 className="font-medium">自愿披露</h3>
       <div className="grid gap-4 sm:grid-cols-2">
         {(
@@ -140,7 +181,7 @@ export function ProfilePersonal({
         <p className="text-sm text-muted">
           启用的类别在资料和同题旧回答都没有答案时使用，可逐类关闭。
         </p>
-        {Object.entries(schema["x-defaultAnswers"]).map(([key, label]) => (
+        {Object.entries(schema["x-defaultAnswers"]).filter(([key]) => key !== "clearance").map(([key, label]) => (
           <div key={key}>
             <Toggle
               label={label}
