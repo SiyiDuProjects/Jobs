@@ -805,6 +805,23 @@ export function initializeSync() {
           }
           if (response?.status === 503)
             await checkRecoveryPause(response, epoch);
+          // Older servers reject the optional whole-form envelope before
+          // creating an answer task. Keep their existing field/context path
+          // working during rollout, with the same durable request identity.
+          if (
+            method === "POST" &&
+            response?.status === 400 &&
+            body.formDocument
+          ) {
+            const rejected = await response
+              .clone()
+              .json()
+              .catch(() => null);
+            if (rejected?.error === "Invalid request fields") {
+              delete body.formDocument;
+              continue;
+            }
+          }
           // The same durable request ID fences provider work. Retry only transient
           // transport failures, never invalid answers or expired authentication.
           if (

@@ -2,6 +2,7 @@ import { requestAnswerBatch } from "./request-answers.js";
 import { bindCorpusPage, captureCorpusPage } from "./corpus-content.js";
 import { searchAnswerSpec } from "./search-answer.js";
 import { prepareAnswerBatch } from "./prepare-answers.js";
+import { captureFormDocument } from "./form-context.js";
 import { createDraftReview } from "./draft-review.js";
 import { JobsOperator } from "./operator-state.js";
 import { matchesAnswerRequest } from "./answer-proof.js";
@@ -984,13 +985,10 @@ export function initializeAutomaticFill() {
         }
         // Request one bounded batch and commit each answer through the shared ledger.
         async function applySupplement(submitted) {
-          const formContext = reader
-            .scan()
-            .slice(0, 150)
-            .map((row) => ({
-              question: row.public.question,
-              answer: reader.response(row)?.response || "",
-            }));
+          const formDocument = captureFormDocument(root, reader, submitted);
+          const formContext = formDocument.fields.map(
+            ({ question, answer }) => ({ question, answer }),
+          );
           const initial = new Map(
             submitted.map((item) => [item.field.fieldId, item]),
           );
@@ -1004,6 +1002,7 @@ export function initializeAutomaticFill() {
               profileStamp: stamp,
               fields: submitted.map((item) => item.field),
               formContext,
+              formDocument,
               jobTitle: (
                 document.querySelector(
                   'h1,[data-automation-id="jobTitleHeading"]',
@@ -1018,6 +1017,13 @@ export function initializeAutomaticFill() {
           flow.move("writing");
           setMessage("ai-filling");
           for (const answer of answers) {
+            const latestDocument = captureFormDocument(root, reader);
+            if (latestDocument.text !== formDocument.text) {
+              for (const item of submitted)
+                book.entry(item.row).aiTried = false;
+              note("auto_answer_obsolete", null, "form_context_changed");
+              return;
+            }
             const rationale =
               answer.interruptionReason ||
               (answer.kind === "draft" ? "draft" : "ai_answer");
@@ -1051,7 +1057,7 @@ export function initializeAutomaticFill() {
               continue;
             }
             if (!["answer", "draft"].includes(answer.kind)) {
-              leave(row, "Invalid AI answer state");
+              leave(row, "answer_invalid");
               continue;
             }
             if (
@@ -1078,7 +1084,7 @@ export function initializeAutomaticFill() {
                     ),
                 )
               ) {
-                leave(row, "AI returned an unknown option");
+                leave(row, "answer_invalid");
                 continue;
               }
             }
@@ -1087,7 +1093,7 @@ export function initializeAutomaticFill() {
                 !["text", "textarea"].includes(previous.field.type)) ||
               !matchesAnswerRequest(answer, previous.field)
             ) {
-              leave(row, "control_failure", { questionZh: answer.questionZh });
+              leave(row, "answer_invalid", { questionZh: answer.questionZh });
               continue;
             }
             const searchSpec = searchAnswerSpec(
@@ -1132,6 +1138,7 @@ export function initializeAutomaticFill() {
               leave(after, "AI answer not kept: " + outcome.reason, {
                 questionZh: answer.questionZh,
                 failure: true,
+                failureLabel: "填写失败",
                 reason: "答案已生成，但网页没有保留填写结果，请重试。",
               });
               continue;

@@ -65,7 +65,11 @@ for (const timing of ["before", "during", "provider-failure"])
       },
       JobsTabProfiles: { verify: async () => bound },
       JobsSync: {
-        generateAnswer: async () => {
+        generateAnswer: async (payload) => {
+          assert.equal(
+            payload.formDocument.text,
+            "Shared application instructions",
+          );
           calls++;
           registered = false;
           const answerUsage = {
@@ -90,6 +94,13 @@ for (const timing of ["before", "during", "provider-failure"])
           type: "jobs:auto-answers",
           profileStamp: JSON.stringify(profile),
           fields: [],
+          formDocument: {
+            version: 1,
+            title: "Application",
+            text: "Shared application instructions",
+            fields: [],
+            truncated: false,
+          },
         },
         {
           id: "jobs",

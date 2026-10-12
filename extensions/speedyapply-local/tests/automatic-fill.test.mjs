@@ -174,6 +174,50 @@ for (const scenario of ["complete", "changed", "oversized"])
     }
   });
 
+test("shared form prose reaches AI and a changed instruction invalidates the pending batch", async () => {
+  const h = setup(
+    '<p id="shared">Shared instructions before all questions.</p><label>Independent choice<input type="checkbox" required></label><label>Separate signature<input type="checkbox" required></label>',
+    async (message, w) => {
+      assert.equal(message.fields.length, 2);
+      assert.equal(message.formDocument.fields.length, 2);
+      if (h.calls() === 1) {
+        assert.match(
+          message.formDocument.text,
+          /Shared instructions before all questions/,
+        );
+        w.document.getElementById("shared").textContent =
+          "Changed shared instructions.";
+      } else {
+        assert.match(message.formDocument.text, /Changed shared instructions/);
+        assert.equal(w.document.querySelector("input").checked, false);
+      }
+      return message.fields.map((field) =>
+        confirmedAnswer(field, {
+          fieldId: field.fieldId,
+          state: "answer",
+          value: true,
+          source: "profile",
+          needsConfirmation: false,
+        }),
+      );
+    },
+  );
+  try {
+    await h.run({ action: "fill" });
+    assert.equal(h.calls(), 2);
+    assert.equal(h.w.document.querySelector("input").checked, true);
+    assert.equal(h.clicks(), 0);
+    assert(
+      h.events.some(
+        ([type, , detail]) =>
+          type === "auto_answer_obsolete" && detail === "form_context_changed",
+      ),
+    );
+  } finally {
+    h.close();
+  }
+});
+
 for (const question of [
   "Have you ever been convicted of a felony?",
   "Do you hold a security clearance?",
@@ -1143,9 +1187,13 @@ test("an AI option that does not exist or a write that fails leaves that field o
     assert(
       h.events.some(
         ([type, , detail]) =>
-          type === "auto_needs_input" && /unknown option/.test(detail),
+          type === "auto_needs_input" && detail === "answer_invalid",
       ),
     );
+    const feedback =
+      h.w.document.querySelector("#jobs-ai-review").shadowRoot.textContent;
+    assert.match(feedback, /未获得可用回答/);
+    assert.match(feedback, /填写失败/);
   } finally {
     h.close();
   }

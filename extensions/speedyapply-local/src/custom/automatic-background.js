@@ -123,6 +123,7 @@ export function initializeAutomaticBackground() {
               ]) || "",
             fields: message.fields,
             formContext: message.formContext,
+            formDocument: message.formDocument,
             // Calendar facts come from the extension, not page text or the model.
             additionalContext: JSON.stringify({
               currentLocalDate: JobsProfileAnswers.today(),

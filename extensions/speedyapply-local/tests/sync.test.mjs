@@ -819,6 +819,56 @@ test("AI task resumes after worker interruption without issuing a new model requ
   assert(!JSON.stringify(session).includes("Availability?"));
 });
 
+test("older answer servers keep field fallback when the optional form document is unsupported", async () => {
+  const initial = connected();
+  initial.jobsSyncV1.profileToken = "b".repeat(64);
+  const payload = {
+    profileId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+    profileVersion: "2026-09-20T00:00:00Z",
+    fields: [{ fieldId: "one", question: "Unresolved question", type: "text" }],
+    formContext: [{ question: "Other question", answer: "Synthetic context" }],
+    formDocument: {
+      version: 1,
+      text: "Synthetic whole-form context",
+      fields: [],
+    },
+  };
+  const bodies = [];
+  const h = harness(initial, async (_, options) => {
+    bodies.push(JSON.parse(options.body));
+    return bodies.length === 1
+      ? new Response(JSON.stringify({ error: "Invalid request fields" }), {
+          status: 400,
+        })
+      : new Response(
+          JSON.stringify({
+            state: "completed",
+            result: { text: "Fallback answer" },
+          }),
+        );
+  });
+  assert.equal((await h.api.generateAnswer(payload)).text, "Fallback answer");
+  assert.equal(bodies.length, 2);
+  assert.deepEqual(bodies[0], { ...payload, requestId: bodies[1].requestId });
+  const { formDocument, ...oldEnvelope } = bodies[0];
+  assert.deepEqual(bodies[1], oldEnvelope);
+  assert(payload.formDocument, "the caller's source context remains intact");
+
+  for (const [status, error, expectedCalls] of [
+    [400, "Invalid request data", 1],
+    [401, "Unauthorized", 1],
+    [400, "Invalid request fields", 2],
+  ]) {
+    let calls = 0;
+    const failed = harness(initial, async () => {
+      calls++;
+      return new Response(JSON.stringify({ error }), { status });
+    });
+    await assert.rejects(failed.api.generateAnswer(payload));
+    assert.equal(calls, expectedCalls, `${status} ${error}`);
+  }
+});
+
 test("failed tasks allow explicit retry, while disconnect during pending work stops polling", async () => {
   const initial = connected();
   initial.jobsSyncV1.profileToken = "b".repeat(64);

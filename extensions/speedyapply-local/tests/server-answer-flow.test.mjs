@@ -72,6 +72,9 @@ for (const flow of ["simple", "legacy"])
     await h.w.JobsAutomatic.advance({
       root: h.doc.querySelector("form"),
       profile,
+      // Force a local miss to exercise both actual service engines and the
+      // provider-to-writer boundary; known-question routing has offline tests.
+      resolveAnswers: async () => [],
       action: "next",
       selector: "#next",
       autoConfirm: true,

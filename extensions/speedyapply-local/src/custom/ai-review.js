@@ -232,7 +232,7 @@ export function initializeAiReview() {
                 ? item.omitted
                   ? "无需填写"
                   : item.failure
-                    ? "填写失败"
+                    ? item.failureLabel || "填写失败"
                     : "待补充"
                 : "控件已变化，请检查",
             source:
@@ -301,6 +301,7 @@ export function initializeAiReview() {
           evidence = [],
           reason = "",
           failure = false,
+          failureLabel = "",
           needsConfirmation = true,
         } = {},
       ) => {
@@ -317,6 +318,7 @@ export function initializeAiReview() {
           evidence,
           reason,
           failure,
+          failureLabel,
           originalResponse: reader.response(row)?.response,
           needsInput,
           omitted,
