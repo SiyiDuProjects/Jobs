@@ -4,10 +4,11 @@ from pathlib import Path
 import sqlite3
 import tempfile
 
+BACKUPS = Path('/home/ubuntu/siyi/jobs-radar/data/backups')
+
 
 def prune(directory: Path, keep: int = 3):
-    expected = Path('/home/ubuntu/siyi/jobs-radar/data/backups')
-    if directory.is_symlink() or directory.resolve() != expected or keep < 1:
+    if directory.is_symlink() or directory.resolve() != BACKUPS or keep < 1:
         raise ValueError('Unexpected backup directory or retention count')
     candidates = sorted(
         (p for p in directory.iterdir() if p.is_file() and not p.is_symlink()
@@ -32,12 +33,16 @@ def prune(directory: Path, keep: int = 3):
                     raise ValueError(f'Backup integrity failed: {path.name}')
     removed_bytes = 0
     for path in candidates[keep:]:
-        if path.parent.resolve() != expected or path.is_symlink():
+        if path.parent.resolve() != BACKUPS or path.is_symlink():
             raise ValueError('Backup path changed during cleanup')
         removed_bytes += path.stat().st_size
         path.unlink()
+        # A compressed backup keeps the sidecars of the database it came from.
+        database = path.with_name(path.name.removesuffix('.gz'))
+        if database.exists():
+            continue
         for suffix in ('-journal', '-wal', '-shm'):
-            sidecar = path.with_name(path.name + suffix)
+            sidecar = database.with_name(database.name + suffix)
             if sidecar.is_file() and not sidecar.is_symlink():
                 removed_bytes += sidecar.stat().st_size
                 sidecar.unlink()
@@ -47,4 +52,4 @@ def prune(directory: Path, keep: int = 3):
 
 
 if __name__ == '__main__':
-    prune(Path('/home/ubuntu/siyi/jobs-radar/data/backups'))
+    prune(BACKUPS)
