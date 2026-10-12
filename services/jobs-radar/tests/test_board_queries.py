@@ -18,6 +18,63 @@ def source(i=0, **changes):
             'kind':'newgrad','posted_at':time.time()-1000, **changes}
 
 
+def test_first_collection_survives_source_cleanup_and_rediscovery(tmp_path, monkeypatch):
+    now=time.time();first=now;monkeypatch.setattr(time,'time',lambda:now)
+    store=Store(tmp_path/'rediscovery.sqlite');board=Board(store)
+    row=source();store.ingest('simplify:newgrad',[row],'first')
+    jid=board.list()['jobs'][0]['id']
+    with store.connect(True) as c:
+        c.execute('DELETE FROM search_index WHERE job_id=?',(jid,))
+        c.execute('DELETE FROM observations WHERE job_id=?',(jid,))
+    now+=2*86400
+    store.ingest('simplify:newgrad',[{**row,'posted_at':now-10}],'rediscovered')
+    assert board.list()['jobs'][0]['added_at']==first
+    assert board.list(added_since=first+86400)['total']==0
+    # A full version-triggered index rebuild must retain the same timestamp.
+    with store.connect(True) as c:
+        c.execute('DELETE FROM board_index_version')
+    assert Board(Store(store.path)).list()['jobs'][0]['added_at']==first
+
+
+@pytest.mark.parametrize('stream,kind',[
+    ('simplify:newgrad','newgrad'),
+    ('simplify:internship','internship'),
+    ('jobright:newgrad:us:swe','newgrad'),
+])
+def test_first_collection_uses_all_sources_even_outside_current_kind_or_scope(tmp_path,stream,kind):
+    store=Store(tmp_path/'earliest.sqlite');board=Board(store)
+    row=source();store.ingest('simplify:newgrad',[row],'current')
+    rows=[{**row,'source_id':'older','kind':kind}]
+    if stream=='simplify:newgrad': rows.append(row)
+    store.ingest(stream,rows,'other')
+    earliest=time.time()-7*86400
+    with store.connect(True) as c:
+        c.execute("UPDATE observations SET first_seen=?,present=0 WHERE source_id='older'",(earliest,))
+    assert board.list()['jobs'][0]['added_at']==earliest
+
+
+def test_collection_order_is_identical_with_without_range_and_across_pages(tmp_path,monkeypatch):
+    now=time.time();start=now;monkeypatch.setattr(time,'time',lambda:now)
+    store=Store(tmp_path/'dates.sqlite');board=Board(store)
+    earlier=source(1,posted_at=start-10)
+    store.ingest('simplify:newgrad',[earlier],'earlier')
+    now+=86400
+    later=[source(i,posted_at=start-60*86400) for i in (2,3)]
+    store.ingest('simplify:newgrad',[earlier,*later],'later')
+    expected=board.list(status='unsubmitted')['jobs']
+    assert [r['added_at'] for r in expected]==[now,now,start]
+    assert [r['id'] for r in expected[:2]]==sorted(r['id'] for r in expected[:2])
+    for filters in ({},{'added_since':start},{'added_before':now+1},
+                    {'added_since':start,'added_before':now+1}):
+        rows=[board.list(status='unsubmitted',page=p,page_size=1,**filters)['jobs'][0] for p in (1,2,3)]
+        assert [r['id'] for r in rows]==[r['id'] for r in expected]
+    assert board.list(added_since=now,added_before=now+1)['total']==2
+    assert board.list(added_since=start,added_before=now)['total']==1
+    # Updating the publisher's date must not move a previously collected job.
+    store.ingest('simplify:newgrad',[{**earlier,'posted_at':now-1},*later],'publication-updated')
+    assert [r['id'] for r in board.list()['jobs']]==[r['id'] for r in expected]
+
+
 def test_repeated_lists_and_counts_do_not_rebuild_sources_or_query_each_progress(tmp_path, monkeypatch):
     store=Store(tmp_path/'indexed.sqlite');board=Board(store)
     sources=[source(i) for i in range(170)]

@@ -109,6 +109,8 @@ def refresh(c):
             job = jobs.get(jid)
             if not job:
                 continue
+            # The job survives source cleanup; re-discovery must not reset its age.
+            added = min([job['first_seen'], *(o['first_seen'] for o in observations)])
             for kind in ('newgrad','internship'):
                 history = [o for o in observations if o['source'].get('kind') == kind]
                 active = [o for o in observations if o['indexed_kind'] == kind and o['stream'] in STREAM_IDS
@@ -126,7 +128,6 @@ def refresh(c):
                 token = fingerprint(sources)
                 family, basis = classify(sources,None,token)
                 posted = max((s.get('posted_at') or 0 for s in sources),default=0) or None
-                added = min((o['first_seen'] for o in history if o['stream'] in STREAM_IDS),default=job['first_seen'])
                 payload = dict(id=jid,kind=kind,company=company,title=title,locations=locations,
                     categories=list(dict.fromkeys(s.get('category','') for s in sources)),
                     sources=list(dict.fromkeys(s['source'] for s in sources)),
@@ -140,6 +141,6 @@ def refresh(c):
                     non_us_only(screening_locations(sources)),
                     *(matches_region(locations,region) for region in ('ca','ca_remote','focus_remote')),
                     engineering_title(title),bool(re.search(r'\bdata[\s-]+engineer(?:ing|s)?\b',title,re.I)),
-                    family,basis,token,added,posted or job['first_seen'],json.dumps(payload,ensure_ascii=False)))
+                    family,basis,token,added,added,json.dumps(payload,ensure_ascii=False)))
                 c.executemany('INSERT INTO board_source_companies VALUES(?,?,?)',
                     [(jid,kind,name) for name in {normalize_company(s.get('company','')) for s in sources}])

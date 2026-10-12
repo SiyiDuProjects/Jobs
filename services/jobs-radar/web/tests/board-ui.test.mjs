@@ -201,6 +201,24 @@ test('simplified filters preserve exclusions and clear retired hidden criteria',
  }finally{h.dom.window.close();}
 });
 
+test('list dates always show first collection while publication stays in details',async()=>{
+ const job={added_at:new Date(2026,9,10,12).getTime()/1000,posted_at:new Date(2026,7,6,12).getTime()/1000};
+ for(const added_date of ['', '2026-10-09/2026-10-11']){
+  const h=await page(0,job,{'radar-filters-shared-v9':{added_date}});
+  try{
+   assert([...h.w.document.querySelectorAll('th')].some(n=>n.textContent==='收录日期'));
+   assert([...h.w.document.querySelectorAll('.job-date')].every(n=>n.textContent==='10/10'));
+   assert(!h.w.document.querySelector('.job-list').textContent.includes('8/6'));
+   await menuAction(h,'查看详情');
+   await until(()=>h.w.document.querySelector('[role="dialog"] dl'));
+   const dates=[...h.w.document.querySelectorAll('[role="dialog"] dt')];
+   assert.equal(dates.find(n=>n.textContent==='收录日期').nextElementSibling.textContent,'10/10');
+   assert.equal(dates.find(n=>n.textContent==='发布日期').nextElementSibling.textContent,'8/6');
+   assert.deepEqual(h.errors,[]);
+  }finally{h.dom.window.close();}
+ }
+});
+
 test('date shortcuts and same-grid cross-month selection work',async()=>{
  const h=await page(0,{}, {'radar-filters-shared-v8':{added_date:'2026-10-09/2026-10-09'}});
  try {

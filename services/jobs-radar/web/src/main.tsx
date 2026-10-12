@@ -303,7 +303,6 @@ export function JobsBoard({
               data={data}
               trash={trash}
               kind={kind}
-              filters={filters}
               saving={saving}
               restore={restore}
               submission={submission}

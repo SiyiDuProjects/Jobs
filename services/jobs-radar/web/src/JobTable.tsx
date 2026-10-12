@@ -43,7 +43,6 @@ export function JobTable({
   data: { jobs: Job[] };
   trash: boolean;
   kind: JobKind;
-  filters?: { added_date: string };
   saving: boolean;
   restore: (job: Job) => unknown;
   submission: (job: Job) => unknown;
@@ -85,7 +84,7 @@ export function JobTable({
       company: job.company,
       title: job.title,
       locations: job.locations,
-      date: date(job.posted_at),
+      date: date(job.added_at),
       source: `来源：${sources(job)}`,
       badge: trash ? undefined : <ScreeningBadge job={job} />,
       extra: trash ? (
@@ -134,7 +133,7 @@ export function JobTable({
               ? "全职岗位列表"
               : "实习岗位列表"
         }
-        dateLabel="发布日期"
+        dateLabel="收录日期"
         extraLabel={trash ? "删除原因" : undefined}
         empty={trash ? "回收站暂无岗位" : "当前筛选下没有岗位"}
       />

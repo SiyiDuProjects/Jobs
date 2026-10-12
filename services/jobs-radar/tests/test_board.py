@@ -31,7 +31,7 @@ def test_chronological_mixed_list_and_independent_faang_filter(tmp_path):
     first=board.list(kind='internship',status='recent',page_size=50)
     assert first['groups']=={'faang':19,'other':127}
     assert {r['group'] for r in first['jobs']}=={'faang','other'}
-    dates=[r['posted_at'] for r in first['jobs']]
+    dates=[r['added_at'] for r in first['jobs']]
     assert dates==sorted(dates,reverse=True)
     pages=[board.list(kind='internship',status='recent',page=p,page_size=50) for p in (1,2,3)]
     assert len({r['id'] for page in pages for r in page['jobs']})==146

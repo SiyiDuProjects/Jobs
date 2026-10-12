@@ -128,8 +128,7 @@ def listing(store, *, kind, view, status, text, location, category, group, scree
             groups[row['board_group']]+=row['n']
         result = {'total':sum(groups.values()),'application_counts':application_counts}
         if summary_only: return result
-        order = 'added_at' if added_since is not None and view!='trash' else 'sort_at'
-        selected = c.execute(BASE+'SELECT * FROM board WHERE '+where+f' ORDER BY {order} DESC,job_id LIMIT ? OFFSET ?',
+        selected = c.execute(BASE+'SELECT * FROM board WHERE '+where+' ORDER BY added_at DESC,job_id LIMIT ? OFFSET ?',
                              [*params,page_size,(page-1)*page_size]).fetchall()
         result.update(jobs=hydrate(selected,c,public=True),groups=groups,page=page,page_size=page_size)
     return result
