@@ -16,6 +16,8 @@ unknown: information is missing, conflicting or insufficient; value must be null
 Use current Profile facts and enabled declarations before past answers; within the same kind of information, newer information wins.
 Past answers scoped to a company, role, country or time apply only within that scope.
 Read every option fully, preserving negations, time windows and all compound qualifications.
+Read formDocument as shared form instructions and independent field states; use its ordered text and field markers to resolve short or missing captions.
+Answer only the requested fields, once per fieldId. Shared instructions do not merge separate questions or make a signature another radio option. Current page answers provide context, not proof of unknown personal facts; truncated context may be incomplete.
 Never invent personal facts, legal status, credentials, numbers or exact dates.
 A month does not establish a day. Today is allowed only for a current signing date.
 Ordinary employment/contracting history is complete: unlisted employers mean never employed.
@@ -28,7 +30,7 @@ Set jobSpecific true when the answer depends on the company, role, job descripti
 Set signingDate true only for entering today's date when signing the current form.
 Use exact option values, arrays for multi-select, booleans for checkboxes, strings otherwise.
 For search-choice return a factual search phrase; the browser matches actual search results.'''
-PROMPT_VERSION = 'simple-2'
+PROMPT_VERSION = 'simple-3'
 
 
 def schema(fields):
@@ -53,7 +55,7 @@ def schema(fields):
 def checked(raw, field, pid, version, date_sources, today):
     meta = {k:raw[k] for k in ('questionZh','answerZh','reasonZh','jobSpecific','signingDate') if k in raw} if isinstance(raw,dict) else {}
     def failed():
-        return result(field,pid,version,**{**meta,'reasonZh':'答案格式不符合当前题目，请重试','interruptionReason':'control_failure'})
+        return result(field,pid,version,**{**meta,'reasonZh':'AI 返回的答案无法用于这道题，请重试','interruptionReason':'answer_invalid'})
     if not isinstance(raw,dict) or raw.get('kind') not in {'answer','draft','unknown'}: return failed()
     if any(not isinstance(raw.get(k),str) or not re.search('[\u3400-\u9fff]',raw[k]) or len(raw[k])>1000 for k in ('questionZh','reasonZh')): return failed()
     kind, value = raw['kind'], raw.get('value')
