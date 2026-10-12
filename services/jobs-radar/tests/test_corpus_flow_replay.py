@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 import sys
+import pytest
 from argparse import Namespace
 from pathlib import Path
 
@@ -60,7 +61,8 @@ def test_context_joins_identity_not_company_or_step(tmp_path):
         assert external['source'] == 'posting_not_in_library'
 
 
-def test_private_comparison_runs_local_rules_then_both_actual_request_paths(tmp_path, monkeypatch):
+@pytest.mark.parametrize('reported_only', [False, True])
+def test_private_comparison_runs_local_rules_then_both_actual_request_paths(tmp_path, monkeypatch, reported_only):
     store = Store(tmp_path / 'source.sqlite')
     profiles = Profiles(store)
     Management(store)
@@ -73,6 +75,14 @@ def test_private_comparison_runs_local_rules_then_both_actual_request_paths(tmp_
     damaged = page()
     damaged['fields'][0]['question'] = 'Are you a [private]?'
     corpus.capture(digest({key: damaged[key] for key in ('trees', 'fields')}), damaged)
+    if reported_only:
+        for marked in (value, damaged):
+            saved = corpus.capture(digest({key: marked[key] for key in ('trees', 'fields')}), marked,
+                                   dict(runId='synthetic-run', documentId='synthetic-doc', fieldIds=[], reason='manual_report'))
+            corpus.resolve_failure(saved['failureId'], True)
+        unreported = page()
+        unreported['fields'][0]['question'] = 'Unreported sample'
+        corpus.capture(digest({key: unreported[key] for key in ('trees', 'fields')}), unreported)
     calls = []
 
     class Engine:
@@ -92,7 +102,7 @@ def test_private_comparison_runs_local_rules_then_both_actual_request_paths(tmp_
     output = tmp_path / 'comparison.json'
     extension = Path(__file__).resolve().parents[3] / 'extensions/speedyapply-local'
     args = Namespace(database=str(store.path), output=str(output), extension=str(extension), node='node',
-                     profile_name=None, reported_only=False, resume=None, reuse_legacy=None)
+                     profile_name=None, reported_only=reported_only, resume=None, reuse_legacy=None)
     asyncio.run(comparison.run(args))
     report = json.loads(output.read_text())
     assert len(calls) == 4
@@ -107,7 +117,7 @@ def test_private_comparison_runs_local_rules_then_both_actual_request_paths(tmp_
     assert output.stat().st_mode & 0o777 == 0o600
     with sqlite3.connect(store.path) as connection:
         assert connection.execute('SELECT count(*) FROM owner_profiles WHERE deleted=0').fetchone()[0] == 2
-        assert connection.execute('SELECT count(*) FROM corpus_pages').fetchone()[0] == 2
+        assert connection.execute('SELECT count(*) FROM corpus_pages').fetchone()[0] == (3 if reported_only else 2)
 
 
 def test_timed_out_page_worker_is_stopped_and_next_page_can_start(tmp_path):

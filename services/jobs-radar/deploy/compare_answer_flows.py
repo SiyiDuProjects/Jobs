@@ -89,6 +89,10 @@ async def run(args):
     source.row_factory = sqlite3.Row
     source.execute("BEGIN")
     captures = {ident: name for name, ident in CAPTURES.items()}
+    failed_pages = set()
+    if source.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='corpus_failures'").fetchone():
+        # Resolved failures remain regressions; markers never supply gold answers.
+        failed_pages = {row[0] for row in source.execute('SELECT DISTINCT page_id FROM corpus_failures')}
     pages = [(ident, json.loads(zlib.decompress(raw)))
              for ident, raw in source.execute('SELECT id,payload FROM corpus_pages ORDER BY created')]
     profiles = list(source.execute("SELECT id,last_sync,profile FROM owner_profiles WHERE deleted=0 AND json_extract(profile,'$.profileName') IN ('Intern','Newgrad')"))
@@ -97,7 +101,7 @@ async def run(args):
     if getattr(args, 'profile_name', None):
         profiles = [row for row in profiles if json.loads(row[2])['profileName'] == args.profile_name]
     if args.reported_only:
-        pages = [(ident, page) for ident, page in pages if ident in captures]
+        pages = [(ident, page) for ident, page in pages if ident in captures or ident in failed_pages]
     code_hash = answer_code_hash()
     replay_hash = replay_code_hash(args.extension)
     cached = {}
