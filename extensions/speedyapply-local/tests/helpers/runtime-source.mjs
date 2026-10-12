@@ -72,7 +72,6 @@ const dependencies = {
     "request-answers.js",
     "search-answer.js",
     "automatic-flow.js",
-    "autofill-preferences.js",
     "automatic-field-policy.js",
     "recover-review.js",
     "page-actions.js",
@@ -82,7 +81,6 @@ const dependencies = {
   ],
   "ai-review.js": ["operator-state.js", "page-actions.js", "form-pipeline.js"],
   "control-content.js": [
-    "autofill-preferences.js",
     "automatic-field-policy.js",
     "recover-review.js",
     "page-actions.js",

@@ -1,6 +1,5 @@
 import { stableStringify } from "./stable-value.js";
 import { JobsPlatformConfig } from "./platform-config.js";
-import { allowsAutomaticFill } from "./autofill-preferences.js";
 import { matchesAnswerRequest } from "./answer-proof.js";
 
 export function reviewFailure(code) {
@@ -34,24 +33,19 @@ export function shape(row) {
   ]);
 }
 
-export async function automaticFillPolicy(root) {
-  const rules = JobsPlatformConfig.detect(
+export function automaticFillPolicy(root, reader) {
+  const selector = JobsPlatformConfig.detect(
     root.ownerDocument || root,
-  ).automaticPreferences;
-  let preferences = {};
-  if (
-    rules?.some(
-      ({ selector }) =>
-        root.matches?.(selector) || root.querySelector(selector),
-    )
-  ) {
-    // Local storage may be restricted to trusted extension contexts after
-    // migration. Content scripts read only behavior preferences via the worker.
-    const result = await chrome.runtime.sendMessage({
-      type: "jobs:autofill-preferences",
-    });
-    if (result?.error) throw Error(result.error);
-    preferences = result?.data || {};
-  }
-  return (node) => allowsAutomaticFill(node, preferences, rules);
+  ).requiredOnlyAutofill;
+  // Bindings and supplemental answers use the same scanner's requiredness.
+  // Re-read for bindings so conditional changes are not frozen at run start.
+  return (node, field = null) =>
+    !selector ||
+    !node.closest(selector) ||
+    (
+      field ||
+      reader
+        .scan()
+        .find((row) => row.node === node || row.group?.includes(node))?.public
+    )?.required === true;
 }

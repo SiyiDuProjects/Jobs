@@ -10,7 +10,6 @@ function fixture(seed = {}) {
   let data = structuredClone(seed);
   return {
     get: async (key) => {
-      if (key === "jobsWorkdaySkillsAutofill") return {};
       assert.equal(key, "autofillAccount");
       return structuredClone(data);
     },

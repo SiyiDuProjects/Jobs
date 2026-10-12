@@ -197,7 +197,6 @@ test("a custom month picker commits a verified Profile month without a fabricate
       "request-answers",
       "search-answer",
       "automatic-flow",
-      "autofill-preferences",
       "automatic-field-policy",
       "option-match",
       "profile-answers",

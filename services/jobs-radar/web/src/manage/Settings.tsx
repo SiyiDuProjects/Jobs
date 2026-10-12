@@ -53,12 +53,6 @@ export function Settings({ route }: { route?: string }) {
             value={flags.autoSubmit === true}
             onChange={(v) => update("autoSubmit", v)}
           />
-          <Toggle
-            label="Workday 自动填写技能"
-            description="默认关闭。已有技能会保留。"
-            value={flags.workdaySkills === true}
-            onChange={(v) => update("workdaySkills", v)}
-          />
         </Card.Content>
       </Card>
       <Card>

@@ -531,7 +531,7 @@ export function initializeAutomaticFill() {
       const reader = JobsControlFields.create(document, () => root, {
         write: true,
       });
-      const canFill = await automaticFillPolicy(root);
+      const canFill = automaticFillPolicy(root, reader);
       const operation = JobsOperationContext.create({
         root,
         profile,
@@ -797,7 +797,7 @@ export function initializeAutomaticFill() {
               .some(
                 (row) =>
                   row.public.required &&
-                  canFill(row.node) &&
+                  canFill(row.node, row.public) &&
                   supplement(row) &&
                   !book.peek(row.node)?.card &&
                   !book.peek(row.node)?.aiTried,
@@ -872,7 +872,7 @@ export function initializeAutomaticFill() {
         }
         let prepared;
         const open = (row) =>
-          canFill(row.node) &&
+          canFill(row.node, row.public) &&
           !row.public.filled &&
           row.public.supported &&
           !row.public.dependencyBlocked &&
@@ -1190,7 +1190,7 @@ export function initializeAutomaticFill() {
             const pending = (row) => {
               const record = book.peek(row.node);
               return (
-                canFill(row.node) &&
+                canFill(row.node, row.public) &&
                 supplement(row) &&
                 !record?.aiTried &&
                 !record?.card &&

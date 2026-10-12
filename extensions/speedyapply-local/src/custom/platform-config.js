@@ -48,13 +48,8 @@ export function initializePlatformConfig() {
     };
     const workday = {
       descriptionBox: '[data-automation-id^="formField-"]',
-      automaticPreferences: [
-        {
-          setting: "workdaySkills",
-          selector:
-            '[data-automation-id="formField-skillsPrompt"],[data-automation-id="formField-skills"]',
-        },
-      ],
+      requiredOnlyAutofill:
+        '[data-automation-id="formField-skillsPrompt"],[data-automation-id="formField-skills"]',
       vpsFailure: true,
       readOnlySummary: (node) =>
         !!node?.closest(

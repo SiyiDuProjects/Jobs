@@ -8,7 +8,6 @@ import { JobsJobMatch } from "../src/custom/job-match.js";
 import { JobsAnswerContext } from "../src/custom/automatic-background.js";
 import { reportJobTitle } from "./job-title-background.js";
 import { recordAppliedStatus } from "./applied-status-background.js";
-import { readAutofillPreferences } from "../src/custom/autofill-preferences.js";
 import { canReadAccount } from "./account-access.js";
 const defaults = {
   saveApplications: true,
@@ -24,8 +23,6 @@ export async function handle(message, sender) {
   )
     throw Error("Application tab required");
   const id = sender.tab.id;
-  if (message.type === "jobs:autofill-preferences")
-    return readAutofillPreferences(chrome.storage.local);
   if (message.type === "jobs:applied-status-observed")
     return recordAppliedStatus(message, sender);
   if (message.type === "jobs:job-title-observed")
@@ -167,7 +164,6 @@ const types = new Set([
   "jobs:applied-status-observed",
   "jobs:job-title-observed",
   "getAutofillConfig",
-  "jobs:autofill-preferences",
   "storeJobDetails",
   "saveApplication",
   "saveResponses",
