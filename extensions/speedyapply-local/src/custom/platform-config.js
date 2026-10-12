@@ -137,6 +137,8 @@ export function initializePlatformConfig() {
       },
     };
     const icims = {
+      descriptionBox:
+        ".customFieldContainer,td:not(:has(input[type=radio])),p:not(:has(input[type=radio]))",
       // IForms are table/paragraph templates: captions precede a wrapper,
       // while aria-label often contains only an internal key (e.g. FirstName).
       // Read only the local prefix, never another control's label or value.
@@ -639,6 +641,9 @@ export function initializePlatformConfig() {
         root: "form",
         iformXPath:
           "//form[.//*[contains(@class,'iCIMS_Forms_') or contains(concat(' ',normalize-space(@class),' '),' customFieldContainer ')]]",
+        // IForm repeats the same continuation at the top and bottom.
+        iformNextXPath:
+          "(//form//input[(@type='button' or @type='submit') and normalize-space(@value)='Submit'] | //form//button[normalize-space(.)='Submit'])[last()]",
         nextXPath: "//input[@type='submit' and contains(@class,'Primary')]",
         questionsNext: "#quesp_form_submit_i",
       },

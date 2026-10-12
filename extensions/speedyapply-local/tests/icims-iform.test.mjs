@@ -37,6 +37,8 @@ function fixture(
   html,
   {
     path = "/forms",
+    autoClickNextPage = true,
+    buttons = '<button type="submit">Submit</button>',
     profile = {
       nameData: { firstName: "Example", lastName: "Applicant" },
       addressData: { city: "Home City", country: "United States" },
@@ -44,10 +46,10 @@ function fixture(
     },
   } = {},
 ) {
-  const w = new JSDOM(
-    `<form>${html}<button type="submit">Submit</button></form>`,
-    { url: "https://fixture.icims.com" + path, runScripts: "outside-only" },
-  ).window;
+  const w = new JSDOM(`<form>${html}${buttons}</form>`, {
+    url: "https://fixture.icims.com" + path,
+    runScripts: "outside-only",
+  }).window;
   t.after(() => w.close());
   const doc = w.document,
     root = doc.querySelector("form"),
@@ -116,7 +118,7 @@ function fixture(
       await w.icimsRunApplication({
         getProfile: async () => profile,
         setMessage: (p) => phases.push(p),
-        autofillSettings: { autoClickNextPage: true, autoSubmit: true },
+        autofillSettings: { autoClickNextPage, autoSubmit: false },
         accountSettings: {},
         ctx: { isInvalid: false },
       });
@@ -126,7 +128,7 @@ function fixture(
   };
 }
 
-test("IForm runs once in its own document, fills shared Profile rules, and never submits", async (t) => {
+test("IForm fills shared Profile rules and uses Submit to continue once", async (t) => {
   const f = fixture(
     t,
     section(
@@ -141,8 +143,39 @@ test("IForm runs once in its own document, fills shared Profile rules, and never
     "Example",
   );
   assert.equal(f.doc.querySelector('input[name="auth"]:checked')?.value, "Yes");
-  assert.equal(f.submits(), 0);
+  assert.equal(f.submits(), 1);
+  assert.equal(f.phases.includes("awaiting-transition"), true);
   assert.equal(f.phases.includes("complete-manually"), false);
+});
+
+test("IForm respects automatic-next off even when its Submit is available", async (t) => {
+  const f = fixture(
+    t,
+    field("First Name", '<input value="Existing" required>'),
+    {
+      autoClickNextPage: false,
+    },
+  );
+  await f.run();
+  assert.equal(f.submits(), 0);
+  assert.equal(f.phases.includes("page-complete"), true);
+});
+
+test("IForm clicks only the bottom Submit and leaves Save & Return Later alone", async (t) => {
+  const f = fixture(
+    t,
+    '<input type="button" value="Save &amp; Return Later"><input type="button" value="Submit">' +
+      field("First Name", '<input value="Existing" required>'),
+    {
+      buttons:
+        '<input type="button" value="Save &amp; Return Later"><input type="button" value="Submit">',
+    },
+  );
+  const clicked = [];
+  f.root.addEventListener("click", (event) => clicked.push(event.target));
+  await f.run();
+  assert.deepEqual(clicked, [f.root.lastElementChild]);
+  assert.equal(f.phases.includes("awaiting-transition"), true);
 });
 
 test("IForm radio questions retain their prompt instead of the first Yes caption", (t) => {

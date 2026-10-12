@@ -398,13 +398,22 @@ async function icimsRunApplication({
   });
   // Cross-origin IForms receive their own content script. Run their fields
   // in that document; the portal wrapper cannot own the inner form's answers.
-  // A template's Submit may be a step or a final signature, so filling alone
-  // does not create navigation authority.
+  // IForm uses Submit to save the current form and continue the portal flow.
   if (/^\/forms\/?$/.test(window.location.pathname)) {
     jobsWaitForXPathNodes(JobsPlatformConfig.structure.icims.iformXPath).then(
       () => {
         const root = JobsPlatformConfig.root(document, "icims");
-        return root && run(null, { root, action: "fill" });
+        return (
+          root &&
+          run(null, {
+            root,
+            action: autofillSettings.autoClickNextPage ? "next" : "fill",
+            target:
+              jobsFindXPath(
+                JobsPlatformConfig.structure.icims.iformNextXPath,
+              ) || void 0,
+          })
+        );
       },
     );
     return;
