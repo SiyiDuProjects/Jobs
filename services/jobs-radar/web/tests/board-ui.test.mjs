@@ -120,7 +120,7 @@ test('legacy preferences preserve explicit exclusions and strict regions during 
  const h=await page(0,{}, {'radar-filters-shared-v5':{region:'ca',compact:false,intern_companies:'1',exclude_companies:'Custom Employer',status:'submitted'}});
  try{
   const p=lastJobs(h);assert.equal(p.get('region'),'ca');assert.equal(p.get('exclude_companies'),'Custom Employer');
-  assert.equal(p.get('status'),'recent');assert.equal(p.get('company_newgrad'),'');assert.equal(p.get('company_internship'),'1');
+  assert.equal(p.get('status'),'unsubmitted');assert.equal(p.get('company_newgrad'),'');assert.equal(p.get('company_internship'),'1');
   assert(!p.has('compact'));assert(!p.has('intern_companies'));
   assert(!h.w.document.body.textContent.includes('仅加州，不使用公司豁免'));
   assert(!h.requests.some(p=>p.startsWith('/api/filter-counts')));
@@ -180,11 +180,11 @@ test('simplified filters preserve exclusions and clear retired hidden criteria',
  try{
   const p=lastJobs(h);assert.equal(p.get('exclude_companies'),'TikTok');assert.equal(p.get('company_newgrad'),'1');
   for(const name of ['group','screening','category','location','roles','exclude_titles'])assert(!p.has(name));
-  assert.equal(p.get('status'),'recent');
+  assert.equal(p.get('status'),'unsubmitted');
   const button=label=>[...h.w.document.querySelectorAll('button')].find(b=>b.textContent===label);
-  assert.equal(button('仅看未投递')?.getAttribute('aria-pressed'),'false');
-  button('仅看未投递').click();await until(()=>lastJobs(h).get('status')==='unsubmitted');
+  assert.equal(button('仅看未投递')?.getAttribute('aria-pressed'),'true');
   button('仅看未投递').click();await until(()=>lastJobs(h).get('status')==='recent');
+  button('仅看未投递').click();await until(()=>lastJobs(h).get('status')==='unsubmitted');
   assert(!button('筛选设置'));assert(!h.w.document.body.textContent.includes('FAANG+ 或精选公司'));
   button('排除公司').click();await until(()=>h.w.document.querySelector('[role="dialog"] input'));
   assert.equal(h.w.document.querySelector('[role="dialog"] input').value,'TikTok');

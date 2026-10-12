@@ -27,6 +27,8 @@ test('first migration follows current kind and persisted v9 choices always win o
  assert.equal(readBoardFilters(s,'internship').added_date,'last7');assert.equal(readBoardFilters(s,'newgrad').added_date,'last7');
  s.setItem(old+':internship',JSON.stringify({added_date:'today'}));
  assert.equal(readBoardFilters(s,'newgrad').added_date,'last7');
+ saveBoardFilters(s,'newgrad',{...readBoardFilters(s,'newgrad'),status:'recent'});
+ assert.equal(readBoardFilters(s,'internship').status,'recent');
 });
 test('malformed newest storage falls back to older explicit choices and ignores retired filters',()=>{
  const s=storage({'radar-filters-shared-v5':{compact:false,company_newgrad:'1',exclude_companies:'Legacy',status:'submitted',group:'hidden'}});
