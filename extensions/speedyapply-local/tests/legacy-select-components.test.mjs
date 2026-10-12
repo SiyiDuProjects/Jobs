@@ -16,6 +16,46 @@ const kinds = [
   "seek",
 ];
 
+test("Lever reads the website's retained location without fabricated ARIA selection", () => {
+  const f = fixture("lever", { initial: "Example City, CA, USA" });
+  try {
+    const backing = f.doc.querySelector('[name="selectedLocation"]');
+    backing.value = "fixture-location-id";
+    const row = f.reader.scan()[0];
+    assert.equal(row.public.question, "Current location");
+    assert.equal(row.public.filled, true);
+    assert.equal(f.reader.state().ready, true);
+    assert.equal(f.reader.response(row).response, "Example City, CA, USA");
+    assert.deepEqual(f.events, []);
+
+    // A new query cannot borrow the old selected location's ID.
+    f.input.value = "Different City";
+    f.input.dispatchEvent(new f.window.Event("input", { bubbles: true }));
+    assert.equal(f.reader.scan()[0].public.filled, false);
+    backing.value = "different-fixture-id";
+    assert.equal(f.reader.scan()[0].public.filled, true);
+    backing.value = "";
+    assert.equal(f.reader.scan()[0].public.filled, false);
+  } finally {
+    f.close();
+  }
+});
+
+test("Lever keeps a selected location readable after its result nodes are replaced", async () => {
+  const f = fixture("lever", { options: ["California"] });
+  try {
+    assert(await chooseAnswer(f.canonical, "California", { timeout: 50 }));
+    assert.equal(f.input.hasAttribute("aria-expanded"), false);
+    assert.equal(f.doc.querySelector('[aria-selected="true"]'), null);
+    f.doc.querySelector(".dropdown-results").replaceChildren();
+    assert.equal(f.reader.scan()[0].public.filled, true);
+    f.doc.querySelector('[name="selectedLocation"]').value = "";
+    assert.equal(f.reader.scan()[0].public.filled, false);
+  } finally {
+    f.close();
+  }
+});
+
 test("a preexisting collapsed flag is not commit evidence and a failed click is not refilled blindly", async () => {
   const f = fixture("rippling", { options: ["California"], committed: false });
   try {

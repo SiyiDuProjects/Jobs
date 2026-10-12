@@ -121,6 +121,7 @@ def checked(raw, field, profile, pid, version, saved):
     # A structured month cannot acquire a guessed day through prose generation.
     if field['type'] == 'date' and not quote and value not in [available[p] for p in evidence]: return None
     row = bindings.result(field,pid,version,value,evidence,draft=draft,reason=meta.get('reason','依据当前资料作答'),route='draft.'+raw['intent'] if draft else 'flexible')
+    row['source'] = basis
     if ref: row['evidence'].append({'savedResponse':ref})
     # Note quotations remain server-side; the card receives the Chinese rationale.
     if quote: row['evidence'].append({'profilePath':'applicationData.aiNotes'})

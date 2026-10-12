@@ -110,6 +110,9 @@ export function initializeLegacySelectControls() {
           kind: "lever-location",
           box: node.closest(".application-field") || node.parentElement,
           input: node,
+          backing: node.parentElement.querySelector(
+            'input[type="hidden"][name="selectedLocation"]',
+          ),
         };
       if (
         /(^|\.)seek\.com\.au$/.test(host) &&
@@ -159,6 +162,11 @@ export function initializeLegacySelectControls() {
                 .join(" "),
       );
       if (direct) return direct;
+      if (info?.kind === "lever-location") {
+        const heading = info.box.previousElementSibling;
+        if (heading?.matches(".application-label"))
+          return text(heading.textContent);
+      }
       if (info?.kind === "rippling-legacy")
         return text(doc.getElementById(node.id + "_label")?.textContent);
       const field = info?.box?.closest(
@@ -239,6 +247,19 @@ export function initializeLegacySelectControls() {
       return [...root.querySelectorAll('div[role="option"]')];
     }
     function explicitValue(node, info) {
+      if (info.backing) {
+        // Lever stores the selected location ID outside its search textbox and
+        // does not mark results with aria-selected. Preserve the ID/label pair
+        // so later typing cannot turn an unchanged old ID into a new selection.
+        const entry = record(node),
+          id = info.backing.value,
+          label = text(info.input.value);
+        if (!id || !label) return "";
+        if (entry.backing?.id === id && entry.backing.label !== label)
+          return "";
+        entry.backing = { id, label };
+        return label;
+      }
       const marker =
         info.kind === "pinpoint"
           ? info.box.querySelector(".react-select__single-value")
@@ -262,7 +283,7 @@ export function initializeLegacySelectControls() {
       if (!info) return "";
       const entry = record(node),
         explicit = explicitValue(node, info);
-      if (explicit) return explicit;
+      if (explicit || info.backing) return explicit;
       return entry.committed &&
         entry.committed.url === node.ownerDocument.location.href &&
         entry.committed.box === info.box &&

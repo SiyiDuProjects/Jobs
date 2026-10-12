@@ -154,7 +154,7 @@ def result(field, profile_id, version, value=None, paths=(), *, draft=False, rea
            'field':field_key(field),'value':value,'status':'unverified' if value is None else 'verified',
            'paths':list(paths),'id':hashlib.sha256(json.dumps([field,value,list(paths)],sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:24]}
     row={'fieldId':field['fieldId'],'state':'needs_input' if value is None else 'answer','value':value,
-         'source':'unknown' if value is None else 'suggestion' if draft else 'profile',
+         'source':'unknown' if value is None else 'suggestion' if draft else 'saved' if route=='saved_response' else 'default' if 'applicationData.defaultAnswers' in paths else 'profile',
          'decision':decision,'needsConfirmation':value is None or draft,'proof':proof,'reason':reason,
          'route':route,'evidence':[{'profilePath':p} for p in paths]}
     if value is None:

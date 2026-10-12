@@ -39,9 +39,22 @@ def test_enabled_clearance_default_can_select_unique_no_among_several_yes():
         {'value':'active','label':'Yes, current active clearance'},
         {'value':'never','label':'No, never held a clearance'}])
     plan=mapping(route='default.clearance',options=['true','true','true','false'])['binding']
-    assert answer(plan,None,f,{'applicationData':{'defaultAnswers':['clearance']}},'p','v')['value']=='never'
+    row=answer(plan,None,f,{'applicationData':{'defaultAnswers':['clearance']}},'p','v')
+    assert row['value']=='never' and row['source']=='default'
     plan['predicate']='us_work_eligible'
     assert answer(plan,None,f,{'employmentData':{'eligibilityUS':True}},'p','v') is None
+
+
+def test_flexible_answer_preserves_validated_basis():
+    f=field(question='Have you ever worked for the government?')
+    profile={'jobData':[], 'applicationData':{'defaultAnswers':['government']}}
+    for basis,patch,saved in [
+        ('profile',{},{}),
+        ('saved',{'evidencePaths':[], 'savedResponse':'remembered'}, {'remembered':{'response':'No'}}),
+        ('default',{'evidencePaths':[], 'defaultCategory':'government'},{}),
+    ]:
+        row=checked(proposed(basis=basis,**patch),f,profile,'p','v',saved)
+        assert row['value']=='n' and row['source']==basis
 
 
 def test_internal_salary_enum_is_never_written_and_completed_education_matches():

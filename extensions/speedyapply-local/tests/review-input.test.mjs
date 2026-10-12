@@ -619,60 +619,65 @@ test("a populated replacement keeps its review and ledger, rejects the old revis
   }
 });
 
-test("replacement preserves review order and a Profile answer remains eligible for automatic acknowledgment", async () => {
-  const h = setup(
-    "<label>County*<input required></label><label>Code*<input required></label>",
-  );
-  const send = h.w.chrome.runtime.sendMessage;
-  h.w.chrome.runtime.sendMessage = (message) =>
-    message.fields
-      ? Promise.resolve({
-          data: {
-            answers: message.fields.map((field) =>
-              confirmedAnswer(field, {
-                fieldId: field.fieldId,
-                state: "answer",
-                value: "Example answer",
-                source: "profile",
-                needsConfirmation: false,
-              }),
-            ),
-          },
-        })
-      : send(message);
-  try {
-    await h.run({ autoConfirm: false });
-    const root = h.w.document.querySelector("form"),
-      before = h.w.JobsAIReview.remoteState(root),
-      old = root.querySelector("input"),
-      fresh = old.cloneNode(true);
-    old.replaceWith(fresh);
-    await delay(0);
-    const state = h.w.JobsAIReview.remoteState(root);
-    assert.deepEqual(
-      Array.from(state.items, (item) => item.itemId),
-      Array.from(before.items, (item) => item.itemId),
+for (const [source, label] of [
+  ["profile", "依据档案"],
+  ["saved", "已保存回答"],
+  ["default", "默认设置"],
+])
+  test(`replacement preserves review order and ${source} provenance`, async () => {
+    const h = setup(
+      "<label>County*<input required></label><label>Code*<input required></label>",
     );
-    assert.equal(h.shadow().querySelector(".review-row").title, "County*");
-    assert.equal(h.shadow().querySelector(".source").textContent, "依据档案");
-    assert.equal(h.w.JobsAIReview.canAutoConfirm(root), true);
-    assert.equal(h.clicks(), 0);
-    const changed = fresh.cloneNode(true);
-    changed.value = "Changed by the page";
-    fresh.replaceWith(changed);
-    await delay(0);
-    assert.equal(
-      h.w.JobsAIReview.canAutoConfirm(root),
-      false,
-      "a changed replacement value must be reviewed again",
-    );
-    assert.equal(h.clicks(), 0);
-    await h.w.JobsAIReview.confirm();
-    assert.equal(h.clicks(), 1);
-  } finally {
-    h.close();
-  }
-});
+    const send = h.w.chrome.runtime.sendMessage;
+    h.w.chrome.runtime.sendMessage = (message) =>
+      message.fields
+        ? Promise.resolve({
+            data: {
+              answers: message.fields.map((field) =>
+                confirmedAnswer(field, {
+                  fieldId: field.fieldId,
+                  state: "answer",
+                  value: "Example answer",
+                  source,
+                  needsConfirmation: false,
+                }),
+              ),
+            },
+          })
+        : send(message);
+    try {
+      await h.run({ autoConfirm: false });
+      const root = h.w.document.querySelector("form"),
+        before = h.w.JobsAIReview.remoteState(root),
+        old = root.querySelector("input"),
+        fresh = old.cloneNode(true);
+      old.replaceWith(fresh);
+      await delay(0);
+      const state = h.w.JobsAIReview.remoteState(root);
+      assert.deepEqual(
+        Array.from(state.items, (item) => item.itemId),
+        Array.from(before.items, (item) => item.itemId),
+      );
+      assert.equal(h.shadow().querySelector(".review-row").title, "County*");
+      assert.equal(h.shadow().querySelector(".source").textContent, label);
+      assert.equal(h.w.JobsAIReview.canAutoConfirm(root), true);
+      assert.equal(h.clicks(), 0);
+      const changed = fresh.cloneNode(true);
+      changed.value = "Changed by the page";
+      fresh.replaceWith(changed);
+      await delay(0);
+      assert.equal(
+        h.w.JobsAIReview.canAutoConfirm(root),
+        false,
+        "a changed replacement value must be reviewed again",
+      );
+      assert.equal(h.clicks(), 0);
+      await h.w.JobsAIReview.confirm();
+      assert.equal(h.clicks(), 1);
+    } finally {
+      h.close();
+    }
+  });
 
 test("an empty replacement is editable with a fresh revision and remains blocked until answered", async () => {
   const h = setup("<label>County*<input required></label>");

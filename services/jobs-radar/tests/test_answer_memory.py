@@ -20,9 +20,18 @@ def prepare(tmp_path,rows=None):
 
 def test_person_exact_company_answer_follows_profile_but_precedes_defaults(tmp_path):
     a,p,_,_=prepare(tmp_path)
-    assert run(a,p,Client())['answers'][0]['value']=='y'
+    row=run(a,p,Client())['answers'][0]
+    assert row['value']=='y' and row['source']=='saved'
     p=save(a,p,employmentData={'eligibilityUS':False})
-    assert run(a,p,Client())['answers'][0]['value']=='n'
+    row=run(a,p,Client())['answers'][0]
+    assert row['value']=='n' and row['source']=='profile'
+
+def test_saved_provenance_survives_browser_wire_format(tmp_path):
+    from jobs_radar.answers import Answers
+    a,p,_,_=prepare(tmp_path)
+    response=asyncio.run(Answers(a.store,flow='legacy').generate({**p,'answerProtocol':3,'fields':[field()]},Client()))
+    row=response['answers'][0]
+    assert row['kind']=='answer' and row['value']=='y' and row['source']=='saved'
 
 @pytest.mark.parametrize('patch',[{'origin':'agent'},{'origin':'legacy'},{'question':'Different question'},{'context':{}},{'response':'An option not offered'}])
 def test_wrong_provenance_question_context_or_option_is_not_reused(tmp_path,patch):

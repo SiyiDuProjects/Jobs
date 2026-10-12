@@ -135,11 +135,12 @@ export function initializeAiReview() {
           if (record) filled++;
           const basis = item.needsConfirmation
             ? "待你确认"
-            : item.source === "profile"
-              ? "依据档案"
-              : item.source === "suggestion"
-                ? "AI 建议"
-                : "待核对";
+            : {
+                profile: "依据档案",
+                saved: "已保存回答",
+                default: "默认设置",
+                suggestion: "AI 建议",
+              }[item.source] || "待核对";
           const response = record?.response,
             unchanged = response === item.originalResponse;
           const signature = row && own.signature(row);

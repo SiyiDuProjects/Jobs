@@ -50,7 +50,7 @@ const markup = {
   ashby:
     '<label for="_systemfield_location">Location</label><input id="_systemfield_location" role="combobox" aria-haspopup="listbox" aria-required="true" aria-controls="location-options">',
   lever:
-    '<label>Location</label><input name="location" aria-required="true"><div><div class="dropdown-results"></div></div>',
+    '<div class="application-label">Current location</div><div class="application-field"><input name="location" aria-required="true"><input type="hidden" name="selectedLocation"><div class="dropdown-container" style="display:none"><div class="dropdown-results"></div><div style="display:none">No location found. Try entering a different location</div></div></div>',
   seek: '<label>Location</label><div id="field"><input data-automation="current-location2" aria-required="true"></div>',
 };
 
@@ -147,6 +147,12 @@ export function legacySelectFixture(
       option.addEventListener("click", () => {
         if (!committed) return;
         input.value = label;
+        if (kind === "lever") {
+          doc.querySelector('[name="selectedLocation"]').value =
+            "location-" + options.indexOf(item);
+          popup.parentElement.style.display = "none";
+          return;
+        }
         input.setAttribute("aria-expanded", "false");
         for (const other of popup.querySelectorAll('[aria-selected="true"]'))
           other.removeAttribute("aria-selected");
@@ -176,10 +182,11 @@ export function legacySelectFixture(
   }
   function open() {
     if (popup) {
+      if (kind === "lever") popup.parentElement.style.display = "block";
       popup.hidden = false;
       return;
     }
-    input.setAttribute("aria-expanded", "true");
+    if (kind !== "lever") input.setAttribute("aria-expanded", "true");
     if (kind === "lever") popup = doc.querySelector(".dropdown-results");
     else {
       popup = doc.createElement(
@@ -214,6 +221,7 @@ export function legacySelectFixture(
       } else doc.getElementById("field").append(popup);
     }
     if (!popup) return;
+    if (kind === "lever") popup.parentElement.style.display = "block";
     if (delay) {
       const timer = window.setTimeout(() => {
         timers.delete(timer);

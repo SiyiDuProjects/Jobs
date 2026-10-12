@@ -129,7 +129,7 @@ class Answers:
                 interruption = mapping_failure if mapping_failure in {'ai_unavailable','ai_rate_limited'} else 'answer_invalid' if fid in generated else 'draft_unavailable' if draft else 'missing_fact' if plan and plan['predicate']!='unknown' else 'answer_missing'
                 reason = {'missing_fact':'已识别题目，但资料中缺少作答所需的事实', 'ai_unavailable':'AI 服务暂时不可用，当前填写已保留', 'ai_rate_limited':'AI 每小时调用额度已用完，稍后重试', 'answer_missing':'AI 没有返回这道题的有效回答，请重试', 'answer_invalid':'AI 返回的答案无法用于这道题，请重试', 'draft_unavailable':'开放题草稿未生成，请手动作答或重试'}[interruption]
                 row=row or bindings.result(field,pid,version,reason=reason,route=plan['predicate'] if plan else 'unknown',interruption=interruption)
-                origin='saved' if row['route']=='saved_response' else 'default' if {'profilePath':'applicationData.defaultAnswers'} in row['evidence'] else 'suggestion' if row['decision']=='draft' else 'profile'
+                origin=row['source']
                 if candidate and row['value'] is not None and row['value']==candidate['value'] and generated[fid].get('basis')==origin:
                     row={**row,**{k:candidate[k] for k in ('questionZh','answerZh','reason') if k in candidate}}
                 answers[fid]=flexible.display(row,field,displays.get(fid))
