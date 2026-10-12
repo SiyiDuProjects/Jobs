@@ -28,7 +28,7 @@ def test_compressed_roundtrip_dedup_and_new_question(tmp_path):
     another = page('Do you need sponsorship?')
     assert corpus.capture(fingerprint(another), another)['stored']
     exported = corpus.export()
-    assert len(exported['pages']) == 2 and exported['pages'][0]['page'] == value
+    assert len(exported['pages']) == 2 and exported['pages'][0]['page'] == value | {'quality': {'excluded': False, 'reasons': []}}
     assert exported['labels'] == {}
     assert question_key(value['fields'][0]) != question_key(another['fields'][0])
 
@@ -140,3 +140,70 @@ def test_recorded_search_options_do_not_become_choice_ids_in_model_request():
     assert fields_input({'fields':[as_field(raw)]})['fields'][0]['type']=='search-choice'
     raw['type']='combobox';raw['options']=[]
     with pytest.raises(ValueError): fields_input({'fields':[as_field(raw)]})
+
+
+def test_safe_job_identity_and_redaction_metadata_roundtrip(tmp_path):
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    value = page()
+    value.update(jobIdentity='https://job-boards.greenhouse.io/embed/job_app?for=example&token=12345', redactionVersion=2)
+    corpus.capture(fingerprint(value), value)
+    exported = corpus.export()['pages'][0]['page']
+    assert exported['jobIdentity'] == value['jobIdentity']
+    assert exported['redactionVersion'] == 2
+    assert exported['quality'] == {'excluded': False, 'reasons': []}
+
+
+@pytest.mark.parametrize('url', [
+    'https://job-boards.greenhouse.io/embed/job_app?for=example&token=12345&validityToken=private',
+    'https://unknown.example/apply?token=private',
+    'https://secret:password@jobs.example/apply',
+    'file:///private/path',
+])
+def test_corpus_rejects_unredacted_or_private_posting_metadata(tmp_path, url):
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    value = page() | {'jobIdentity': url}
+    with pytest.raises(ValueError): corpus.capture(fingerprint(value), value)
+    with pytest.raises(ValueError): corpus.probe(fingerprint(value), job_identity=url)
+    assert corpus.export()['pages'] == []
+
+
+def test_known_snapshot_can_gain_identity_without_reupload_or_overwriting_other_job(tmp_path):
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    value = page(); key = fingerprint(value)
+    corpus.capture(key, value)
+    first = 'https://jobs.ashbyhq.com/example/11111111-2222-3333-4444-555555555555/application'
+    second = 'https://jobs.ashbyhq.com/example/99999999-2222-3333-4444-555555555555/application'
+    assert corpus.probe(key, job_identity=first) == {'known': True}
+    assert corpus.probe(key, job_identity=second) == {'known': True}
+    exported = corpus.export()['pages']
+    assert len(exported) == 1
+    assert exported[0]['page']['jobIdentity'] == first
+    assert 'redactionVersion' not in exported[0]['page']
+
+
+def test_old_damaged_snapshots_marked_on_export_without_reconstructing_text(tmp_path):
+    import json
+    import zlib
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    value = page('Have you worked at [private]?')
+    value['fields'][0]['options'][0]['label'] = '[private]'
+    key = fingerprint(value)
+    # Simulate existing compressed captures, including an obsolete all-clear flag.
+    value['quality'] = {'excluded': False, 'reasons': []}
+    with corpus.store.connect(True) as c:
+        c.execute('INSERT INTO corpus_pages VALUES(?,?,?)', (key, zlib.compress(json.dumps(value).encode()), 1))
+    exported = corpus.export()['pages'][0]['page']
+    assert exported['quality'] == {'excluded': True, 'reasons': ['redacted_options', 'redacted_question']}
+    assert exported['fields'] == value['fields']
+    # Export labels damage without destructively changing the archived capture.
+    with corpus.store.connect() as c:
+        original = json.loads(zlib.decompress(c.execute('SELECT payload FROM corpus_pages').fetchone()[0]))
+    assert original == value
+
+
+def test_identity_redaction_outside_questions_does_not_exclude_snapshot(tmp_path):
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    value = page()
+    value['trees'][0]['children'].append({'text': 'Hello [private], [email]'})
+    corpus.capture(fingerprint(value), value)
+    assert corpus.export()['pages'][0]['page']['quality'] == {'excluded': False, 'reasons': []}

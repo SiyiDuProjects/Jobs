@@ -1,5 +1,6 @@
 import { JobsSync } from "./sync.js";
 import { validateCorpus } from "./corpus-case.js";
+import { publicJobUrl, icimsFormJobUrl } from "./public-job-url.js";
 const canonical = (value) =>
   Array.isArray(value)
     ? value.map(canonical)
@@ -30,19 +31,28 @@ export function initializeCorpusBackground() {
       return;
     }
     async function upload() {
-      validateCorpus(message.value);
-      const fingerprint = await corpusFingerprint(message.value);
+      // Identity comes from Chrome's sender, never a URL claimed by page code.
+      let jobIdentity = "";
+      try {
+        jobIdentity = icimsFormJobUrl(sender) || publicJobUrl(sender.url);
+      } catch {
+        // Unknown token-dependent URLs remain unlinked, never guessed.
+      }
+      const page = { ...message.value, jobIdentity };
+      validateCorpus(page);
+      const fingerprint = await corpusFingerprint(page);
       const known = await JobsSync.corpusRequest("POST", {
         action: "probe",
         fingerprint,
         platform: message.value.platform,
-        company: message.value.company,
+        company: page.company,
+        jobIdentity,
       });
       if (!known.known)
         await JobsSync.corpusRequest("POST", {
           action: "capture",
           fingerprint,
-          page: message.value,
+          page,
         });
       if (
         message.correction &&

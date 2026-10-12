@@ -9,6 +9,8 @@ import re
 import time
 import zlib
 
+from .public_job_url import public_job_url
+
 TAGS = set('form div span p section fieldset legend label input textarea select option optgroup button a ul ol li table tbody tr td th h1 h2 h3 h4 article main output'.split())
 ATTRS = set('id for name role type required disabled multiple hidden inert readonly aria-labelledby aria-describedby aria-controls aria-owns aria-required aria-disabled aria-hidden aria-haspopup aria-multiselectable aria-label placeholder title data-automation-id data-uxi-widget-type data-uxi-multiselect-id data-uxi-popup-anchor data-associated-widget data-option icimsdropdown-enabled icimsdropdown-search i_required class data-jobs-corpus-field value'.split())
 
@@ -26,15 +28,57 @@ def question_key(field):
                   {'options': [option['label'] for option in field.get('options', [])]})
 
 
+INPUT_ISSUES = {'redacted_question', 'redacted_description', 'redacted_options', 'redacted_search_results'}
+
+
+def comparison_issues(page):
+    """Flag damaged benchmark input, including snapshots captured before v2.
+
+    Identity redaction in unrelated DOM text is expected. A marker in a prompt,
+    choice or search recording means the input itself is lost, not an AI error.
+    """
+    marker = re.compile(r'\[(?:private|email|attachment|token)\]', re.I)
+    issues = set()
+    for field in page.get('fields', []):
+        for name in ('question', 'description'):
+            if marker.search(field.get(name, '')): issues.add('redacted_' + name)
+        if any(marker.search(option['label']) for option in field.get('options', [])):
+            issues.add('redacted_options')
+        if any(marker.search(observation['query']) or any(marker.search(value) for value in observation['options'])
+               for observation in field.get('observations', [])):
+            issues.add('redacted_search_results')
+    return sorted(issues)
+
+
+def quality(page):
+    reasons = comparison_issues(page)
+    return {'excluded': bool(reasons), 'reasons': reasons}
+
+
+def checked_job_identity(value):
+    if not isinstance(value, str) or len(value) > 3000 or value and public_job_url(value) != value:
+        raise ValueError('Invalid corpus job identity')
+    return value
+
+
 def validate(page):
     if not isinstance(page, dict) or page.get('version') != 1 or len(encoded(page)) > 2000000:
         raise ValueError('Invalid corpus page')
-    if set(page) - {'version', 'platform', 'build', 'company', 'step', 'trees', 'fields', 'coverage'}:
+    if set(page) - {'version', 'platform', 'build', 'company', 'step', 'trees', 'fields', 'coverage', 'jobIdentity', 'redactionVersion', 'quality'}:
         raise ValueError('Invalid corpus metadata')
     if not isinstance(page.get('trees'), list) or not isinstance(page.get('fields'), list) or not 1 <= len(page['fields']) <= 300:
         raise ValueError('Invalid corpus fields')
     for key in ('platform', 'build', 'company', 'step'):
         if not isinstance(page.get(key), str) or len(page[key]) > 200: raise ValueError('Invalid corpus context')
+    checked_job_identity(page.get('jobIdentity', ''))
+    if 'redactionVersion' in page and (type(page['redactionVersion']) is not int or page['redactionVersion'] != 2):
+        raise ValueError('Invalid corpus redaction version')
+    if 'quality' in page:
+        supplied = page['quality']
+        if (not isinstance(supplied, dict) or set(supplied) != {'excluded', 'reasons'} or
+                type(supplied['excluded']) is not bool or not isinstance(supplied['reasons'], list) or
+                any(not isinstance(reason, str) or reason not in INPUT_ISSUES for reason in supplied['reasons'])):
+            raise ValueError('Invalid corpus quality')
     count = 0
 
     def tree(node, depth=0):
@@ -96,11 +140,23 @@ class QuestionCorpus:
                 CREATE TABLE IF NOT EXISTS corpus_searches(id TEXT PRIMARY KEY,page_id TEXT NOT NULL);
             ''')
 
-    def probe(self, fingerprint, company=''):
+    def probe(self, fingerprint, company='', job_identity=''):
         if not isinstance(fingerprint, str) or not re.fullmatch('[a-f0-9]{64}', fingerprint): raise ValueError('Invalid corpus fingerprint')
+        checked_job_identity(job_identity)
         with self.store.connect(True) as c:
-            known = c.execute('SELECT 1 FROM corpus_seen WHERE fingerprint=?', (fingerprint,)).fetchone()
+            known = c.execute('SELECT page_id FROM corpus_seen WHERE fingerprint=?', (fingerprint,)).fetchone()
             if known:
+                # A later visit can supply the missing public identity without
+                # uploading the same tree again. Never replace an existing link
+                # with a different posting's otherwise identical form.
+                if job_identity and known['page_id']:
+                    row = c.execute('SELECT payload FROM corpus_pages WHERE id=?', (known['page_id'],)).fetchone()
+                    if row:
+                        page = json.loads(zlib.decompress(row['payload']))
+                        if not page.get('jobIdentity'):
+                            page['jobIdentity'] = job_identity
+                            c.execute('UPDATE corpus_pages SET payload=? WHERE id=?',
+                                      (zlib.compress(encoded(page), 9), known['page_id']))
                 c.execute('UPDATE corpus_seen SET visits=visits+1 WHERE fingerprint=?', (fingerprint,))
                 for row in c.execute('SELECT DISTINCT question_id FROM corpus_page_fields WHERE fingerprint=?', (fingerprint,)).fetchall():
                     c.execute('UPDATE corpus_questions SET appearances=appearances+1 WHERE id=?', (row[0],))
@@ -120,7 +176,9 @@ class QuestionCorpus:
             # the public question and DOM skeleton already exist.
             searches = {digest([question_key(field), observation]) for field in page['fields'] for observation in field['observations']}
             stored = novel or any(not c.execute('SELECT 1 FROM corpus_searches WHERE id=?', (key,)).fetchone() for key in searches)
-            if stored: c.execute('INSERT INTO corpus_pages VALUES(?,?,?)', (fingerprint, zlib.compress(encoded(page), 9), time.time()))
+            if stored:
+                stored_page = dict(page, quality=quality(page))
+                c.execute('INSERT INTO corpus_pages VALUES(?,?,?)', (fingerprint, zlib.compress(encoded(stored_page), 9), time.time()))
             c.execute('INSERT INTO corpus_seen(fingerprint,page_id) VALUES(?,?)', (fingerprint, fingerprint if stored else None))
             for key, field in questions.items():
                 public = {k: v for k, v in field.items() if k not in {'id', 'observations'}}
@@ -165,7 +223,12 @@ class QuestionCorpus:
                 bindings = [dict(questionId=r['question_id'], country=r['country'], model=r['model'], updated=r['updated'], **json.loads(r['binding']))
                             for r in c.execute('SELECT b.*,a.binding FROM corpus_bindings b JOIN answer_bindings a ON a.key=b.cache_key ORDER BY b.updated')]
             corrections = [dict(questionId=r[0], count=r[1]) for r in c.execute('SELECT question_id,COUNT(*) FROM corpus_corrections GROUP BY question_id')]
-            return {'pages': [{'id': r['id'], 'page': json.loads(zlib.decompress(r['payload']))} for r in rows[:limit]],
+            pages = []
+            for row in rows[:limit]:
+                page = json.loads(zlib.decompress(row['payload']))
+                page['quality'] = quality(page)
+                pages.append({'id': row['id'], 'page': page})
+            return {'pages': pages,
                     'labels': labels, 'bindings': bindings, 'corrections': corrections, 'next': offset + limit if len(rows) > limit else None}
 
 
@@ -175,7 +238,7 @@ def register_corpus_routes(api, store, authorize):
     @api.route('/api/extension/corpus', ['GET', 'POST'], authorize, max_bytes=2100000)
     async def exchange(request, payload, principal):
         if request.method == 'GET': return corpus.export(int(request.query_params.get('offset', 0)))
-        if payload.get('action') == 'probe': return corpus.probe(payload.get('fingerprint'), payload.get('company', ''))
+        if payload.get('action') == 'probe': return corpus.probe(payload.get('fingerprint'), payload.get('company', ''), payload.get('jobIdentity', ''))
         if payload.get('action') == 'capture': return corpus.capture(payload.get('fingerprint'), payload.get('page'))
         if payload.get('action') == 'correction': return corpus.correction(payload.get('fingerprint'), payload.get('fieldId'), payload.get('id'))
         raise ValueError('Invalid corpus action')

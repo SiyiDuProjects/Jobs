@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { createHash } from "node:crypto";
 import { readerSource } from "./repro-runner.mjs";
-import { mountCorpus, captureCorpus } from "../src/custom/corpus-case.js";
+import {
+  mountCorpus,
+  captureCorpus,
+  corpusInputIssues,
+} from "../src/custom/corpus-case.js";
 
 export const syntheticProfiles = JSON.parse(
   readFileSync(
@@ -258,10 +262,16 @@ export function replayCorpusPage(page, profiles = syntheticProfiles) {
 }
 
 export function corpusReport(corpus, previous = null) {
-  const pages = corpus.pages.map(({ id, page }) => ({
-    id,
-    ...replayCorpusPage(page),
-  }));
+  const excludedPages = corpus.pages
+    .map(({ id, page }) => ({ id, reasons: corpusInputIssues(page) }))
+    .filter(({ reasons }) => reasons.length);
+  const excluded = new Set(excludedPages.map(({ id }) => id));
+  const pages = corpus.pages
+    .filter(({ id }) => !excluded.has(id))
+    .map(({ id, page }) => ({
+      id,
+      ...replayCorpusPage(page),
+    }));
   const results = pages.flatMap((page) => page.fields);
   const cached = cachedCorpusAnswers(corpus);
   const captured = new Map(
@@ -371,9 +381,12 @@ export function corpusReport(corpus, previous = null) {
   return {
     version: 1,
     fixtureSource: corpus.source || "private-corpus",
+    evaluationScope: "scanner_and_rule_projection",
+    excludedPages,
     createdAt: new Date().toISOString(),
     summary: {
       pages: pages.length,
+      excludedPages: excludedPages.length,
       questions: new Set(results.map((field) => field.key)).size,
       unanswered: results
         .flatMap((field) => field.answers)
@@ -402,6 +415,7 @@ export function corpusReport(corpus, previous = null) {
     identityChecks,
     pages,
     limitations: [
+      "This fast scanner/rule check does not run the pending-field pipeline; compare_answer_flows.py runs snapshot pipeline comparisons.",
       "Cached model answers are replay inputs, never gold labels.",
       "DOM replay does not verify site writes, network behavior or submission.",
     ],
