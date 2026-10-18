@@ -1,0 +1,18 @@
+[
+  ["We're Sorry… The Job You Are Trying To Apply For Has Been Filled.", "job_missing"],
+  ["We’re sorry...\nThe position you are looking for is no longer available.", "job_missing"],
+  ["Sorry, this job posting has been closed!", "job_missing"],
+  ["The job requisition which you are interested in does not exist.", "job_missing"],
+  ["This position you're applying for is no longer accepting applications.", "applications_closed"],
+  ["The page you are looking for doesn't exist.", "page_missing"],
+  ["This job has been filled.", "job_missing"],
+  ["This position has been closed.", "job_missing"],
+  ["This position is open until the job has been filled.", null],
+  ["If the job you are trying to apply for has been filled.", null],
+  ["We're sorry… The job you are trying to apply for has not been filled.", null],
+  ["The position you are looking for has been filled. Example message.", null],
+  ["Example: The job you are trying to apply for has been filled.", null],
+  ["Sorry, something went wrong.", null],
+  ["No jobs match your search.", null],
+  ["Your session has expired.", null]
+]

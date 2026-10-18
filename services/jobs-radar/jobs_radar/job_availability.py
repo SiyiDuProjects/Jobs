@@ -10,10 +10,12 @@ from .job_match import resolve, job_key
 from .application_records import can_remove_unsubmitted
 
 # Whole terminal messages, not arbitrary occurrences of 'closed' in a job description.
+APOLOGY = r"(?:(?:we(?:'re| are) )?sorry[.!…,: -]*\s*)?"
+SUBJECT = r"(?:this|the) (?:job(?: posting| requisition)?|position)(?: (?:that |which )?you(?: are|'re) (?:trying to apply for|applying for|looking for|interested in))?"
 MESSAGES = {
     "page_missing": r"the page you are looking for (?:doesn't|does not) exist[.!]?",
-    "job_missing": r"(?:this|the) (?:job|position|job posting|job requisition) (?:is no longer available|has been closed|has been filled|does not exist|was not found)[.!]?",
-    "applications_closed": r"(?:this|the) (?:job|position|job posting) is no longer accepting applications[.!]?",
+    "job_missing": APOLOGY + SUBJECT + r" (?:is no longer available|has been closed|has been filled|does not exist|was not found)[.!]?",
+    "applications_closed": APOLOGY + SUBJECT + r" is no longer accepting applications[.!]?",
 }
 
 

@@ -2,11 +2,12 @@ import json
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from jobs_radar.board import Board
 from jobs_radar.extension_sync import ExtensionSync, EXTENSION_ID
-from jobs_radar.job_availability import JobAvailability
+from jobs_radar.job_availability import JobAvailability, MESSAGES, valid_evidence
 from jobs_radar.store import Store
 from test_store import observation
 
@@ -180,6 +181,28 @@ def test_removal_uses_existing_trash_actual_reason_queue_suppression_and_restore
 def test_actual_reason(setup,quote,code,reason):
     store,sync,device,_=setup
     assert sync.receive(device,{**payload(),'code':code,'quote':quote})['removal_reason']==reason
+
+
+@pytest.mark.parametrize('quote,code', json.loads(
+    (Path(__file__).parent / 'fixtures/job-availability-messages.json').read_text()))
+def test_terminal_message_contract(quote, code):
+    assert [name for name in MESSAGES if valid_evidence(name, quote)] == ([code] if code else [])
+
+
+def test_company_hosted_filled_posting_removes_exact_job_and_preserves_quote(tmp_path):
+    url = 'https://careers.example.org/careers/us/en/job/123?gh_jid=123'
+    quote = "We're Sorry… The Job You Are Trying To Apply For Has Been Filled."
+    store = Store(tmp_path / 'company-hosted.sqlite')
+    store.ingest('simplify:newgrad', [observation(url=url)], 'availability')
+    sync = ExtensionSync(store)
+    device = str(uuid.uuid4())
+    sync.pair(device, EXTENSION_ID)
+    receipt = {**payload(), 'job_url': url, 'code': 'job_missing', 'quote': quote}
+    result = sync.receive(device, receipt)
+    assert result['state'] == 'removed' and result['removal_reason'] == 'job_closed'
+    assert Board(store).list(view='trash')['jobs'][0]['review']['detail'] == quote
+    assert sync.receive(device, receipt) == result
+    assert sync.receive(device, undo(receipt['event_id']))['state'] == 'restored'
 
 
 @pytest.mark.parametrize('quote',[
