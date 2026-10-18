@@ -72,8 +72,6 @@ class Answers:
         displays=cache.displays(fields,context,MODEL)
         pending=[f for f in fields if f['fieldId'] not in plans or bindings.answer(plans[f['fieldId']],None,f,profile,pid,version) is None or f['fieldId'] in public_plans and not displays.get(f['fieldId'])]
         rid=str(uuid.uuid4()); now=time.time()
-        with self.store.connect(True) as c:
-            limited=c.execute('SELECT count(*) FROM answer_requests WHERE created>?',(now-3600,)).fetchone()[0]>=60
 
         async def request(active, instructions, data, schema, count):
             if active is None: raise ValueError('AI 服务暂时不可用')
@@ -92,8 +90,8 @@ class Answers:
 
         async def run(active):
             generated={}
-            mapping_failure = 'ai_rate_limited' if limited else 'unrecognized_question'
-            if pending and not limited:
+            mapping_failure = 'unrecognized_question'
+            if pending:
                 schema={'type':'object','properties':{'mappings':{'type':'array','items':{'type':'object','properties':{
                     'fieldId':{'type':'string','enum':[f['fieldId'] for f in pending]},'binding':bindings.schema()},
                     'required':['fieldId','binding'],'additionalProperties':False}},
@@ -126,8 +124,8 @@ class Answers:
                 if row is None and plan and not saved: row=bindings.answer(plan,None,field,profile,pid,version)
                 if row is None and candidate: row=candidate
                 draft=bool(plan and plan['predicate'].startswith('draft.'))
-                interruption = mapping_failure if mapping_failure in {'ai_unavailable','ai_rate_limited'} else 'answer_invalid' if fid in generated else 'draft_unavailable' if draft else 'missing_fact' if plan and plan['predicate']!='unknown' else 'answer_missing'
-                reason = {'missing_fact':'已识别题目，但资料中缺少作答所需的事实', 'ai_unavailable':'AI 服务暂时不可用，当前填写已保留', 'ai_rate_limited':'AI 每小时调用额度已用完，稍后重试', 'answer_missing':'AI 没有返回这道题的有效回答，请重试', 'answer_invalid':'AI 返回的答案无法用于这道题，请重试', 'draft_unavailable':'开放题草稿未生成，请手动作答或重试'}[interruption]
+                interruption = mapping_failure if mapping_failure == 'ai_unavailable' else 'answer_invalid' if fid in generated else 'draft_unavailable' if draft else 'missing_fact' if plan and plan['predicate']!='unknown' else 'answer_missing'
+                reason = {'missing_fact':'已识别题目，但资料中缺少作答所需的事实', 'ai_unavailable':'AI 服务暂时不可用，当前填写已保留', 'answer_missing':'AI 没有返回这道题的有效回答，请重试', 'answer_invalid':'AI 返回的答案无法用于这道题，请重试', 'draft_unavailable':'开放题草稿未生成，请手动作答或重试'}[interruption]
                 row=row or bindings.result(field,pid,version,reason=reason,route=plan['predicate'] if plan else 'unknown',interruption=interruption)
                 origin=row['source']
                 if candidate and row['value'] is not None and row['value']==candidate['value'] and generated[fid].get('basis')==origin:

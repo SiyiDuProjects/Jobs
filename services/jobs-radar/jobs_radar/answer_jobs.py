@@ -2,19 +2,22 @@
 import asyncio
 import hashlib
 import json
+import os
 import time
 import uuid
 
 ANSWER_TIMEOUT_SECONDS = 120
 QUEUE_TIMEOUT_SECONDS = 480
-TOTAL_BATCHES_PER_HOUR = 600
-CONCURRENT_BATCHES = 4
+DEFAULT_CONCURRENT_BATCHES = 16
 
 
 class AnswerJobs:
     def __init__(self, store, answers):
         self.store, self.answers, self.tasks = store, answers, {}
-        self.slots = asyncio.Semaphore(CONCURRENT_BATCHES)
+        concurrency = int(os.environ.get('JOBS_ANSWER_CONCURRENCY', DEFAULT_CONCURRENT_BATCHES))
+        if concurrency < 1:
+            raise ValueError('JOBS_ANSWER_CONCURRENCY must be a positive integer')
+        self.slots = asyncio.Semaphore(concurrency)
         with store.connect(True) as c:
             c.execute('CREATE TABLE IF NOT EXISTS answer_jobs(id TEXT PRIMARY KEY,digest TEXT NOT NULL,created REAL NOT NULL,state TEXT NOT NULL,result TEXT)')
 
@@ -48,8 +51,6 @@ class AnswerJobs:
                 if row['digest'] != digest:
                     raise ValueError('回答任务标识已被其他题目使用')
             else:
-                if c.execute('SELECT count(*) FROM answer_jobs WHERE created>?', (time.time()-3600,)).fetchone()[0] >= TOTAL_BATCHES_PER_HOUR:
-                    raise ValueError('本小时回答任务较多，请稍后再试')
                 c.execute('INSERT INTO answer_jobs VALUES(?,?,?,?,NULL)', (request_id,digest,time.time(),'pending'))
         if not row:
             task = asyncio.create_task(self._run(request_id, payload))

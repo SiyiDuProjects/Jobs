@@ -161,7 +161,10 @@ def test_async_routes_require_profile_auth_version_and_csrf_and_remove_sync_rout
         assert len(calls) == 1
 
 
-def test_ten_requests_queue_and_complete_with_four_executing_at_most(tmp_path):
+@pytest.mark.parametrize('configured,concurrency', [(None,16), ('4',4), ('24',24)])
+def test_requests_queue_at_configured_concurrency(tmp_path, monkeypatch, configured, concurrency):
+    if configured is None: monkeypatch.delenv('JOBS_ANSWER_CONCURRENCY', raising=False)
+    else: monkeypatch.setenv('JOBS_ANSWER_CONCURRENCY', configured)
     async def run():
         class Counted:
             active = maximum = calls = 0
@@ -173,28 +176,52 @@ def test_ten_requests_queue_and_complete_with_four_executing_at_most(tmp_path):
                     return {'text':'fixture'}
                 finally: self.active -= 1
         provider = Counted(); jobs = AnswerJobs(Store(tmp_path/'queue.sqlite'),provider)
-        ids = [str(uuid.uuid4()) for _ in range(10)]
+        ids = [str(uuid.uuid4()) for _ in range(40)]
         for request_id in ids: assert jobs.start({'requestId':request_id,'prompt':'fixture'})['state']=='pending'
         for _ in range(10): await asyncio.sleep(0)
-        assert provider.calls == 4 and provider.active == 4
+        assert provider.calls == concurrency and provider.active == concurrency
         assert all(jobs.status(request_id)['state']=='pending' for request_id in ids)
         provider.release.set(); await asyncio.gather(*list(jobs.tasks.values()))
-        assert provider.calls == 10 and provider.maximum == 4 and provider.active == 0
+        assert provider.calls == 40 and provider.maximum == concurrency and provider.active == 0
         assert all(jobs.status(request_id)['state']=='completed' for request_id in ids)
     asyncio.run(run())
 
 
-def test_outer_quota_allows_cache_batches_beyond_sixty_but_stops_at_six_hundred(tmp_path):
+@pytest.mark.parametrize('configured', ['0','-1','not-a-number'])
+def test_invalid_concurrency_fails_at_startup(tmp_path, monkeypatch, configured):
+    monkeypatch.setenv('JOBS_ANSWER_CONCURRENCY', configured)
+    with pytest.raises(ValueError):
+        AnswerJobs(Store(tmp_path/'invalid.sqlite'), Provider())
+
+
+def test_timed_out_request_releases_its_slot_for_the_next_request(tmp_path, monkeypatch):
+    monkeypatch.setenv('JOBS_ANSWER_CONCURRENCY', '1')
+    monkeypatch.setattr('jobs_radar.answer_jobs.ANSWER_TIMEOUT_SECONDS', 0.01)
+    async def run():
+        class OneStalled:
+            async def generate(self, payload):
+                if payload['prompt'] == 'stalled': await asyncio.Event().wait()
+                return {'text':'next completed'}
+        jobs = AnswerJobs(Store(tmp_path/'stalled.sqlite'), OneStalled())
+        first, second = str(uuid.uuid4()), str(uuid.uuid4())
+        jobs.start({'requestId':first, 'prompt':'stalled'})
+        jobs.start({'requestId':second, 'prompt':'next'})
+        await asyncio.gather(*list(jobs.tasks.values()))
+        assert jobs.status(first)['state'] == 'failed'
+        assert jobs.status(second)['result']['text'] == 'next completed'
+    asyncio.run(run())
+
+
+def test_hourly_volume_does_not_reject_new_or_replay_existing_batches(tmp_path):
     async def run():
         store = Store(tmp_path/'quota.sqlite'); provider = Provider(); provider.release.set()
         jobs = AnswerJobs(store,provider)
         with store.connect(True) as c:
             c.executemany('INSERT INTO answer_jobs VALUES(?,?,?,?,NULL)',
-                          [(str(uuid.uuid4()),'fixture',time.time(),'completed') for _ in range(599)])
+                          [(str(uuid.uuid4()),'fixture',time.time(),'completed') for _ in range(600)])
         payload = {'requestId':str(uuid.uuid4()),'prompt':'fixture'}
         assert jobs.start(payload)['state']=='pending'
-        with pytest.raises(ValueError,match='本小时回答任务'):
-            jobs.start({'requestId':str(uuid.uuid4()),'prompt':'fixture'})
+        assert jobs.start({'requestId':str(uuid.uuid4()),'prompt':'fixture'})['state']=='pending'
         await asyncio.gather(*list(jobs.tasks.values()))
-        assert jobs.start(payload)['state']=='completed' and provider.calls==1
+        assert jobs.start(payload)['state']=='completed' and provider.calls==2
     asyncio.run(run())

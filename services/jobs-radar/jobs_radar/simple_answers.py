@@ -73,10 +73,9 @@ class SimpleAnswers:
         async def run(active):
             if pending:
                 with self.store.connect(True) as c:
-                    limited = c.execute('SELECT count(*) FROM answer_requests WHERE created>?',(time.time()-3600,)).fetchone()[0] >= 60
-                    if active and not limited: c.execute('INSERT INTO answer_requests VALUES(?,?,?)',(rid,time.time(),'started'))
-                failure = 'ai_rate_limited' if limited else 'ai_unavailable'; generated = {}
-                if active and not limited:
+                    if active: c.execute('INSERT INTO answer_requests VALUES(?,?,?)',(rid,time.time(),'started'))
+                failure = 'ai_unavailable'; generated = {}
+                if active:
                     usage.update(modelCalls=1,modelFields=len(pending))
                     try:
                         body = await ai_answers.generate(active,MODEL,pending,{
@@ -95,7 +94,6 @@ class SimpleAnswers:
                     raw = generated.get(field['fieldId'])
                     row = ai_answers.checked(raw,field,pid,version,dates,today) if raw else result(
                         field,pid,version,interruptionReason=failure,reasonZh={
-                            'ai_rate_limited':'AI 每小时调用额度已用完，请稍后重试',
                             'ai_unavailable':'AI 服务暂时不可用，当前填写已保留',
                             'answer_missing':'AI 没有返回这道题的有效回答，请重试'}[failure])
                     answers[field['fieldId']] = row

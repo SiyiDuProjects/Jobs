@@ -51,14 +51,15 @@ def test_provider_failure_is_not_a_profile_gap(tmp_path):
     assert 'missingField' not in row and gap_count(a) == 0
 
 
-def test_quota_is_not_a_profile_gap(tmp_path):
+def test_hourly_volume_does_not_block_legacy_answers(tmp_path):
     a, p = setup(tmp_path)
+    p = save(a, p, employmentData={'eligibilityUS': True})
     with a.store.connect(True) as c:
         c.executemany('INSERT INTO answer_requests VALUES(?,?,?)', [(str(i), time.time(), 'started') for i in range(60)])
     client = Client()
     row = run(a, p, client)['answers'][0]
-    assert row['interruptionReason'] == 'ai_rate_limited'
-    assert client.calls == [] and gap_count(a) == 0
+    assert row['value'] == 'y' and row['decision'] == 'write'
+    assert len(client.calls) == 1 and gap_count(a) == 0
 
 
 def test_actual_missing_profile_value_remains_a_profile_gap(tmp_path):

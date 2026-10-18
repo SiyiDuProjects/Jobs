@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import time
 from datetime import datetime, timezone, timedelta
 import httpx
 import pytest
@@ -88,6 +89,14 @@ def test_exact_dates_do_not_use_answer_capture_timestamp(tmp_path):
 def test_provider_failure_distinct_from_missing_profile(tmp_path):
     a,p=setup(tmp_path);row=run(a,p,Client([],fail=True))['answers'][0]
     assert row['kind']=='unknown' and row['interruptionReason']=='ai_unavailable'
+
+def test_hourly_volume_does_not_block_simple_answers(tmp_path):
+    a,p=setup(tmp_path)
+    with a.store.connect(True) as c:
+        c.executemany('INSERT INTO answer_requests VALUES(?,?,?)', [(str(i),time.time(),'started') for i in range(60)])
+    client=Client([answer()]);result=run(a,p,client)
+    assert result['answers'][0]['value']=='y' and result['answers'][0]['kind']=='answer'
+    assert len(client.calls)==1 and result['answerUsage']['modelCalls']==1
 
 def test_legacy_returns_same_wire_contract(tmp_path):
     from test_answers import Client as LegacyClient

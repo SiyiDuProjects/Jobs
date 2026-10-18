@@ -22,6 +22,16 @@ MCP discovery is authoritative. Tools cover job search/status, application reads
 
 Redacted diagnostics upload independently from remote observation. Ordinary history has a 30-day retention and 2,000-run capacity; unresolved cases remain pinned until verified resolution. Migration evidence and recovery points are outside ordinary cleanup.
 
+## Answer throughput
+
+Answer requests run concurrently with `JOBS_ANSWER_CONCURRENCY` (positive integer,
+default `16`). Extra requests wait in the existing background queue; this setting
+does not cap open application tabs. Jobs imposes no hourly answer quota on either
+answer engine or the task queue. Provider rate and spend limits still apply.
+The 480-second queue wait, 120-second generation timeout and request-ID replay
+protection remain in force. Raising concurrency increases peak load; it is not a
+verified real-ATS throughput guarantee.
+
 ## Authentication
 
 OAuth supports dynamic client registration, authorization code with PKCE S256, resource-bound tokens, refresh rotation and revocation. Tools independently enforce `jobs:read` and `applications:write`. New clients require approval of the exact pending request, redirect and scopes. Never print credentials or tokens or place them in source, Profiles or diagnostics.

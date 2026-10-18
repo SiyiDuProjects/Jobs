@@ -30,6 +30,7 @@ services:
       JOBS_BROWSER_CONTROL_ENABLED: "1"
       JOBS_WEB_ROOT: /web
       JOBS_ANSWER_FLOW: ${JOBS_ANSWER_FLOW:-legacy}
+      JOBS_ANSWER_CONCURRENCY: ${JOBS_ANSWER_CONCURRENCY:-16}
       # Cloudflare Tunnel is the ingress; the published port stays loopback-only.
       JOBS_TRUST_SESSION_PROXY: "1"
     volumes:
