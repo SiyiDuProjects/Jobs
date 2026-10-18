@@ -223,7 +223,14 @@ export async function startPage(existingContext, recovery = false) {
     return false;
   }
   const present = statusPresenter(context);
-  JobsAvailability?.attach(present.availability);
+  JobsAvailability?.attach(
+    present.availability,
+    () =>
+      !!(
+        route?.pattern?.test(location.href) ||
+        (route?.selector && document.querySelector(route.selector))
+      ),
+  );
   JobsAppliedStatus?.attach(present);
   try {
     // A title lookup must not hold up account entry or autofill if the server

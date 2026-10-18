@@ -25,7 +25,7 @@ const quote = "The page you are looking for doesn't exist.";
 const id = "ccohapahbamkcbgkpegidkpknoeikiko";
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-function page(html, href = url) {
+function page(html, href = url, supported = () => false) {
   const dom = new JSDOM(html, {
     url: href,
     runScripts: "outside-only",
@@ -56,7 +56,10 @@ function page(html, href = url) {
     },
   };
   for (const source of [rules, matchRules, match, content]) w.eval(source);
-  w.JobsAvailability?.attach((data) => views.push(data));
+  w.JobsAvailability?.attach(
+    (data) => views.push(data),
+    () => supported(w),
+  );
   return {
     dom,
     w,
@@ -75,6 +78,65 @@ function page(html, href = url) {
     },
   };
 }
+
+test("client and service terminal-message contract covers posting references without matching prose", async () => {
+  const cases = JSON.parse(
+    await fs.readFile(
+      new URL(
+        "../../../services/jobs-radar/tests/fixtures/job-availability-messages.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const h = page("<body/>");
+  try {
+    for (const [text, expected] of cases)
+      assert.equal(
+        h.w.JobsAvailabilityRules.code(text) || null,
+        expected,
+        text,
+      );
+  } finally {
+    h.dom.window.close();
+  }
+});
+
+test("company-hosted terminal pages use a live adapter marker, not a generic job ID", async () => {
+  const href = "https://careers.example.org/careers/us/en/job/123?gh_jid=123";
+  const text =
+    "We're Sorry… The Job You Are Trying To Apply For Has Been Filled.";
+  const supported = (w) => !!w.document.querySelector("head[data-ph-id]");
+  for (const [head, body, expected] of [
+    ['<head data-ph-id="page">', `<h1>${text}</h1>`, true],
+    ["<head>", `<h1>${text}</h1>`, false],
+    [
+      '<head data-ph-id="page">',
+      `<h1 hidden="until-found">${text}</h1>`,
+      false,
+    ],
+    [
+      '<head data-ph-id="page">',
+      `<div data-jobs-owner><h1>${text}</h1></div>`,
+      false,
+    ],
+  ]) {
+    const h = page(`${head}</head><body>${body}</body>`, href, supported);
+    try {
+      await h.advance(1600);
+      assert.equal(h.sent.length, expected ? 1 : 0);
+      if (expected) {
+        assert.equal(h.sent[0].code, "job_missing");
+        assert.equal(h.sent[0].quote, text);
+        assert.match(h.views.at(-1).message, /岗位已失效/);
+        h.w.document.head.removeAttribute("data-ph-id");
+        assert.equal(h.w.JobsAvailability.detect(), null);
+      }
+    } finally {
+      h.dom.window.close();
+    }
+  }
+});
 
 test("visible stable terminal page reports once; hidden text, network and login errors do not", async () => {
   for (const html of [

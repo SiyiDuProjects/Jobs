@@ -10,6 +10,7 @@ export function initializeJobAvailability() {
   (() => {
     if (window !== window.top) return;
     let show,
+      matchesPage = () => false,
       last,
       seen,
       stable,
@@ -75,13 +76,15 @@ export function initializeJobAvailability() {
       });
     }
     function detect() {
-      // Only a known ATS host: a generic identifier rule (gh_jid on any site) does
-      // not make an arbitrary page an application page.
+      // Reuse the active adapter's route for company-hosted ATS pages too.
+      // A generic identifier (gh_jid on any site) alone is not posting proof.
       if (
-        !JobsMatchRules?.some(
-          (rule) =>
-            !rule.fallthrough && new RegExp(rule.host).test(location.hostname),
-        ) ||
+        (!matchesPage() &&
+          !JobsMatchRules?.some(
+            (rule) =>
+              !rule.fallthrough &&
+              new RegExp(rule.host).test(location.hostname),
+          )) ||
         !JobsJobMatch.key(location.href)
       )
         return null;
@@ -154,9 +157,11 @@ export function initializeJobAvailability() {
       }
     }
     JobsAvailability = Object.freeze({
-      attach(presenter) {
+      attach(presenter, supported = () => false) {
         show = presenter;
+        matchesPage = supported;
         if (last) present(last);
+        void scan();
       },
       detect,
     });
