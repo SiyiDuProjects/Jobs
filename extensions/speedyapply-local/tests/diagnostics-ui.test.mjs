@@ -68,7 +68,10 @@ test("diagnostics viewer renders records as text and refreshes without requestin
               ? []
               : message.type === "jobs:diagnostics-list"
                 ? {
-                    sync: { state: "synced" },
+                    sync: {
+                      state: "synced",
+                      lastFailure: { httpStatus: 400, reason: "invalid_list" },
+                    },
                     reports: [
                       {
                         id: "test",
@@ -88,6 +91,10 @@ test("diagnostics viewer renders records as text and refreshes without requestin
   try {
     await w.eval(code);
     assert.match(w.document.getElementById("overview").textContent, /Intern/);
+    assert.match(
+      w.document.getElementById("sync").textContent,
+      /最近失败：记录列表不符合服务限制（HTTP 400）/,
+    );
     assert.match(w.document.getElementById("fields").textContent, /<img/);
     assert.equal(w.document.querySelectorAll("tbody img").length, 0);
     assert.match(

@@ -654,7 +654,7 @@ test("the next step gets a new flow while the previous step cannot publish a del
   }
 });
 
-test("leaving the AI step at the same URL clears its abandoned busy banner without filling or navigation", async () => {
+test("leaving the AI step retains its stop cause without filling or navigation", async () => {
   for (const remove of [true, false]) {
     const h = setup();
     try {
@@ -672,13 +672,49 @@ test("leaving the AI step at the same URL clears its abandoned busy banner witho
         );
       h.reply();
       assert.equal(await task, false);
-      assert.equal(h.phases.at(-1), null);
+      assert.equal(h.phases.at(-1), "stopped-form_hidden");
+      h.wrapped.setMessage(null);
+      h.wrapped.setMessage("complete-manually");
+      assert.equal(h.phases.at(-1), "stopped-form_hidden");
       assert.equal(h.clicks(), 0);
       assert.equal(h.requests.length, 1);
       assert.equal(h.w.document.querySelector("section input").value, "Keep");
     } finally {
       h.close();
     }
+  }
+});
+
+test("profile cancellation keeps its original cause after a late AI reply", async () => {
+  const h = setup(),
+    evidence = [];
+  h.w.JobsDiagnostics = {
+    note() {},
+    evidence: (_, value) => evidence.push(value),
+  };
+  try {
+    await h.wrapped.getProfile();
+    const task = h.run();
+    await until(() => h.requests.length === 1);
+    h.changeProfile();
+    h.reply();
+    assert.equal(await task, false);
+    assert.equal(h.phases.at(-1), "stopped-profile_changed");
+    assert(
+      evidence.some(
+        (e) => e.stage === "lifecycle" && e.reason === "profile_changed",
+      ),
+    );
+    h.wrapped.setMessage(null);
+    assert.equal(h.phases.at(-1), "stopped-profile_changed");
+    const next = h.run({ retry: true });
+    await until(() => h.requests.length === 2);
+    assert.equal(h.phases.at(-1), "ai-thinking");
+    h.reply(1);
+    await next;
+    assert.equal(h.clicks(), 1);
+  } finally {
+    h.close();
   }
 });
 

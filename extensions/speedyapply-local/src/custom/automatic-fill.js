@@ -9,6 +9,11 @@ import { matchesAnswerRequest } from "./answer-proof.js";
 import { createRunState } from "./run-state.js";
 import { createFlow } from "./automatic-flow.js";
 import { diagnosticGuard } from "./diagnostic-evidence.js";
+import {
+  canReportProfileFailure,
+  reportRunStop,
+  retainRunStop,
+} from "./run-stop.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsControlFields } from "./control-fields.js";
@@ -117,20 +122,21 @@ export function initializeAutomaticFill() {
         end(record) {
           if (ownedRun === record) {
             ownedRun = null;
-            // A step can disappear while AI is pending (including Back at the
-            // same URL). Clear only this owner's abandoned busy status. Never
-            // overwrite a newer run, a manual navigation, or an invalidated page.
+            // Keep this owner's cause until another run or site confirmation.
             if (
               active &&
               lastRun === record &&
               !record.current() &&
               record.controller.signal.reason !== "manual_navigation" &&
-              ["in-progress", "ai-thinking", "ai-filling", "checking"].includes(
-                page.phase,
-              )
+              [
+                "in-progress",
+                "ai-thinking",
+                "ai-filling",
+                "checking",
+                "profile-unavailable",
+              ].includes(page.phase)
             ) {
-              record.phase = "cancelled";
-              publish(null);
+              publish(retainRunStop(record));
               return;
             }
             if (
@@ -281,7 +287,13 @@ export function initializeAutomaticFill() {
         ...options,
         async getProfile(...args) {
           if (checkFailure()) throw Error("Workday 页面出错，停止自动填写");
-          if (active && !ownedRun && !needsReview()) publish("in-progress");
+          if (
+            active &&
+            !ownedRun &&
+            !needsReview() &&
+            !page.phase?.startsWith("stopped-")
+          )
+            publish("in-progress");
           const profile = await options.getProfile(...args);
           if (checkFailure()) throw Error("Workday 页面出错，停止自动填写");
           return profile;
@@ -297,6 +309,11 @@ export function initializeAutomaticFill() {
               publish(null);
             return;
           }
+          if (
+            page.phase?.startsWith("stopped-") &&
+            !["confirmed", "already-applied"].includes(message)
+          )
+            return;
           if (needsReview()) {
             publish("ai-review");
             return;
@@ -311,15 +328,6 @@ export function initializeAutomaticFill() {
       owner.publish = publish;
       owners.set(wrapped.setMessage, owner);
       return wrapped;
-    }
-    function canReportProfileFailure(record) {
-      const { controller, root, url, owner } = record;
-      return (
-        controller.signal.aborted &&
-        root.isConnected &&
-        location.href === url &&
-        (!owner || (owner.current() && owner.owns(record)))
-      );
     }
     function advance(options) {
       if (JobsPlatformConfig.appliedStatus(document)) {
@@ -432,7 +440,7 @@ export function initializeAutomaticFill() {
             ],
             ["caller_invalid", canProceed],
           ],
-          (value) => JobsDiagnostics?.evidence?.(null, value),
+          (value) => reportRunStop(record, value),
         ),
       };
       const setMessage = (message) => {

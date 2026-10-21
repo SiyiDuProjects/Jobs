@@ -1,8 +1,11 @@
 import { stableStringify } from "./stable-value.js";
+import { diagnosticEvidence } from "./diagnostic-evidence.js";
+import { boundEventLog } from "./event-log-limits.js";
 import {
-  diagnosticEvidence,
-  evictDiagnosticEvent,
-} from "./diagnostic-evidence.js";
+  DiagnosticUploadError,
+  diagnosticRejection,
+  transportFailure,
+} from "./event-log-transport.js";
 import { JobsPrivateSession } from "./private-session.js";
 import { checkRecoveryPause } from "./recovery-pause.js";
 import { publicJobUrl } from "./public-job-url.js";
@@ -18,8 +21,7 @@ export function initializeEventLogBackground() {
   if (initialized) return;
   initialized = true;
   (() => {
-    const MAX_BYTES = 150000,
-      MAX_ARCHIVE_BYTES = 25000000,
+    const MAX_ARCHIVE_BYTES = 25000000,
       MAX_RUNS = 1000,
       RETENTION_MS = 30 * 86400000;
     let queue = Promise.resolve();
@@ -298,17 +300,9 @@ export function initializeEventLogBackground() {
         data.firstSeen = Math.min(data.firstSeen, report.startedAt || at);
         data.lastSeen = Math.max(data.lastSeen, at);
         data.events.sort((a, b) => a.at - b.at);
-        if (data.events.length > 1500) {
-          while (data.events.length > 1500) evictDiagnosticEvent(data.events);
-          data.truncated = true;
-        }
         if ((report.fields?.length || 0) > 150 || report.droppedEvents > 0)
           data.truncated = true;
-        while (bytes(data) > MAX_BYTES) {
-          data.truncated = true;
-          if (data.events.length) evictDiagnosticEvent(data.events);
-          else throw Error("Diagnostic metadata exceeds the storage budget");
-        }
+        boundEventLog(data);
         entry.revision++;
         state.applications[storageKey] = entry;
         // Unacknowledged diagnostics and unresolved cases survive disconnection.
@@ -418,13 +412,26 @@ export function initializeEventLogBackground() {
       });
     }
     async function setHealth(value, epoch) {
-      const previous = /** @type {{lastAckAt?: number} | undefined} */ (
-        (await chrome.storage.local.get(HEALTH))[HEALTH]
-      );
+      const previous =
+        /** @type {{lastAckAt?: number, lastFailure?: object} | undefined} */ (
+          (await chrome.storage.local.get(HEALTH))[HEALTH]
+        );
       JobsPrivateSession.assertCurrent(epoch);
       await chrome.storage.local.set({
         [HEALTH]: {
           ...(previous?.lastAckAt ? { lastAckAt: previous.lastAckAt } : {}),
+          ...(previous?.lastFailure
+            ? { lastFailure: previous.lastFailure }
+            : {}),
+          ...(value.reason
+            ? {
+                lastFailure: {
+                  reason: value.reason,
+                  httpStatus: value.httpStatus,
+                  at: value.checkedAt,
+                },
+              }
+            : {}),
           ...value,
         },
       });
@@ -471,11 +478,11 @@ export function initializeEventLogBackground() {
         });
         await checkRecoveryPause(response, epoch);
         JobsPrivateSession.assertCurrent(epoch);
-        if (!response.ok) return { status: response.status };
+        if (!response.ok) return diagnosticRejection(response);
         const data = await response.json();
         JobsPrivateSession.assertCurrent(epoch);
         if (data.historyAccepted !== true)
-          throw Error("Diagnostics were not acknowledged");
+          throw new DiagnosticUploadError(0, "not_acknowledged");
         return {
           status: 0,
           metrics: data.historyEventMetrics === 1,
@@ -486,7 +493,7 @@ export function initializeEventLogBackground() {
       };
       const accepted = (response) => {
         if (response.status)
-          throw Error("Diagnostics upload failed (" + response.status + ")");
+          throw new DiagnosticUploadError(response.status, response.reason);
         return response;
       };
       const hasFields = batch.items.some((item) =>
@@ -536,13 +543,15 @@ export function initializeEventLogBackground() {
       );
       // The service can roll back between the probe and packet. Retry only a
       // rejected rich shape, once; auth/pause/network failures keep it pending.
-      async function rejectRun(index) {
+      async function rejectRun(index, response) {
         const key = "jobsDiagnosticRejectedV1";
         const saved = (await chrome.storage.local.get(key))[key] || {};
         const row = batch.ack[index];
         saved[row.url] = {
           revision: row.revision,
           retryAt: Date.now() + 60000,
+          httpStatus: response.status,
+          reason: response.reason,
         };
         // Keep transport metadata bounded independently of retained evidence.
         const records = Object.entries(saved)
@@ -556,12 +565,14 @@ export function initializeEventLogBackground() {
           : response;
       // One malformed run must not prevent the other runs in this batch arriving.
       if (finalResponse.status === 400 && batch.items.length > 1) {
-        let rejected = 0;
+        let rejected = 0,
+          lastFailure;
         for (let i = 0; i < batch.items.length; i++) {
           const item = await post([batch.items[i]]);
           if (item.status === 400) {
             rejected++;
-            await rejectRun(i);
+            await rejectRun(i, item);
+            lastFailure = { httpStatus: item.status, reason: item.reason };
             continue;
           }
           accepted(item);
@@ -579,13 +590,14 @@ export function initializeEventLogBackground() {
           {
             state: rejected ? "rejected" : "synced",
             rejected,
+            ...lastFailure,
             checkedAt: Date.now(),
           },
           epoch,
         );
         return;
       }
-      if (finalResponse.status === 400) await rejectRun(0);
+      if (finalResponse.status === 400) await rejectRun(0, finalResponse);
       accepted(finalResponse);
       JobsPrivateSession.assertCurrent(epoch);
       await acknowledge(batch.ack, epoch);
@@ -602,9 +614,13 @@ export function initializeEventLogBackground() {
           .catch(async (error) => {
             // Preserve the error category only. Exception strings can contain URLs/tokens.
             const state = {
-              state: "error",
+              state:
+                error instanceof DiagnosticUploadError &&
+                error.httpStatus === 400
+                  ? "rejected"
+                  : "error",
               checkedAt: Date.now(),
-              reason: "upload_failed",
+              ...transportFailure(error),
             };
             if (JobsPrivateSession.epoch === epoch)
               await setHealth(state, epoch).catch(() => {});

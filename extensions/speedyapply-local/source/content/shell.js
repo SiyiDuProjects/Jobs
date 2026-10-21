@@ -6,6 +6,7 @@ import { jobsAdapterRoutes, jobsRunAdapter } from "./routing.js";
 import { jobsGetProfile } from "./shared/profiles.js";
 import { jobsJobTitle, jobsReportJobTitle } from "./shared/runtime-messages.js";
 import { JobsJobMatch } from "../../src/custom/job-match.js";
+import { stoppedMessage } from "../../src/custom/run-stop.js";
 
 const postingHeading =
   '[data-automation-id="jobPostingHeader"],[data-automation-id="jobTitleHeading"]';
@@ -123,7 +124,8 @@ export function statusPresenter(context) {
     active = false;
     chrome.runtime.onMessage.removeListener(listener);
   });
-  const present = (value) => publish(phases[value] || value || "就绪");
+  const present = (value) =>
+    publish(stoppedMessage(value) || phases[value] || value || "就绪");
   present.availability = (data) => {
     available = data;
     publish(data.message, { canRestore: data.canRestore, dismissible: true });

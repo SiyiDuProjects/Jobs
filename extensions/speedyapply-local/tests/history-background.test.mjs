@@ -515,6 +515,103 @@ function connectedHistory() {
   return h;
 }
 
+for (const mode of ["event-count", "bytes"]) {
+  test(`legacy snapshot migration stays uploadable after ${mode} expansion`, async () => {
+    const h = connectedHistory();
+    await h.api.capture(report());
+    const legacy = archive(h.local);
+    const row = Object.values(legacy.applications)[0];
+    const observed = row.data.events.find((e) => e.field);
+    row.data.events = Array.from(
+      { length: mode === "event-count" ? 1499 : 1 },
+      (_, i) => ({
+        at: row.data.firstSeen + i,
+        document: "doc-1",
+        type: "phase",
+        phase: "in-progress",
+      }),
+    );
+    row.data.events.push({
+      at: row.data.firstSeen + 1,
+      document: "doc-1",
+      type: "causal_evidence",
+      evidence: { stage: "lifecycle", reason: "user_input", result: "blocked" },
+    });
+    row.data.snapshots = Array.from(
+      { length: mode === "event-count" ? 1 : 60 },
+      (_, i) => ({
+        at: row.data.firstSeen + i,
+        document: "doc-1",
+        phase: "in-progress",
+        step: "education",
+        fields: Array.from(
+          { length: mode === "event-count" ? 3 : 9 },
+          (_, f) => ({ ...observed.field, id: `f${f}` }),
+        ),
+      }),
+    );
+    assert(
+      Buffer.byteLength(JSON.stringify(row.data)) < 160000,
+      "valid legacy packet before migration",
+    );
+    h.local.jobsDiagnosticHistoryV1 = legacy;
+    const requests = [];
+    h.context.fetch = async (_, options) => {
+      const payload = JSON.parse(options.body);
+      requests.push(payload);
+      for (const run of payload.history) {
+        assert(run.events.length <= 1500);
+        assert(Buffer.byteLength(JSON.stringify(run)) <= 150000);
+        assert.equal(run.snapshots.length, 0);
+        assert.equal(run.truncated, true);
+        assert(run.events.some((e) => e.evidence?.reason === "user_input"));
+      }
+      return Response.json({
+        historyAccepted: true,
+        eventLog: 1,
+        historyEvidence: 1,
+      });
+    };
+    await h.api.sync();
+    assert(requests.some((r) => r.history.length));
+    const restarted = setup(h.local, h.session);
+    assert.equal((await restarted.api.health()).pending, 0);
+    assert.equal((await restarted.api.health()).state, "synced");
+  });
+}
+
+test("single-run rejection retains HTTP status and a safe cause across retry cooldown", async () => {
+  const h = connectedHistory();
+  await h.api.capture(report());
+  h.context.fetch = async (_, options) =>
+    JSON.parse(options.body).history.length
+      ? Response.json(
+          { error: "Invalid browser control list" },
+          { status: 400 },
+        )
+      : Response.json({ historyAccepted: true, eventLog: 1 });
+  await assert.rejects(h.api.sync());
+  await h.api.sync();
+  const health = await h.api.health();
+  assert.equal(health.state, "rejected");
+  assert.equal(health.httpStatus, 400);
+  assert.equal(health.reason, "invalid_list");
+  assert.equal(health.pending, 1);
+  assert.equal(health.lastAckAt, undefined);
+  const rejected = Object.values(h.local.jobsDiagnosticRejectedV1)[0];
+  assert.equal(rejected.reason, "invalid_list");
+  h.context.fetch = async () =>
+    Response.json({ error: "PRIVATE_TOKEN_AND_URL" }, { status: 403 });
+  await h.api.capture({
+    ...report(),
+    observedAt: Date.now() + 100,
+    events: [{ at: Date.now() + 100, type: "new_event" }],
+  });
+  await assert.rejects(h.api.sync());
+  assert.equal((await h.api.health()).httpStatus, 403);
+  assert(!JSON.stringify(h.local).includes("PRIVATE_TOKEN_AND_URL"));
+});
+
 function timedReport() {
   const value = report();
   value.events.push(

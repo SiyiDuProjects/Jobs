@@ -59,9 +59,11 @@ const dependencies = {
   "manual-answer.js": ["form-pipeline.js"],
   "event-log-background.js": [
     "event-log-store.js",
+    "event-log-transport.js",
     "history-event-metrics.js",
     "diagnostic-evidence.js",
   ],
+  "event-log-store.js": ["event-log-limits.js"],
   "diagnostics.js": [
     "history-event-metrics.js",
     "diagnostic-evidence.js",

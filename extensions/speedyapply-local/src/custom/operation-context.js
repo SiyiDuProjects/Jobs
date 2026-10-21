@@ -43,9 +43,15 @@ export function initializeOperationContext() {
       // Profile checks and their time (timing diagnostics).
       const checks = { count: 0, fresh: 0, ms: 0, reused: 0 };
       let verified, pending;
-      const cancel = (reason) => {
+      const cancel = (reason, cause = "unknown") => {
+        if (signal.aborted) return;
         failure = reason || "页面或用户输入已变化，停止继续";
-        controller.abort(failure);
+        JobsDiagnostics?.evidence?.(null, {
+          stage: "lifecycle",
+          reason: cause,
+          result: "blocked",
+        });
+        controller.abort(cause);
       };
       const current = diagnosticGuard(
         [
@@ -58,7 +64,7 @@ export function initializeOperationContext() {
           ],
           ["url_changed", () => doc.location.href === url],
           ["caller_invalid", canProceed],
-          ["page_removed", () => JobsPageActions.allowed()],
+          ["removed", () => JobsPageActions.allowed()],
         ],
         (value) => JobsDiagnostics?.evidence?.(null, value),
       );
@@ -80,7 +86,7 @@ export function initializeOperationContext() {
           ) ||
             JobsControlFields?.component(target))
         )
-          cancel("填写时用户输入已变化，停止继续");
+          cancel("填写时用户输入已变化，停止继续", "user_input");
       };
       const listen = (enabled) => {
         if (watching === enabled) return;
@@ -98,7 +104,7 @@ export function initializeOperationContext() {
             true,
           );
       };
-      const hidden = () => cancel("页面已离开，停止继续");
+      const hidden = () => cancel("页面已离开，停止继续", "page_left");
       const storageChanged = (changes, area) => {
         const change =
           area === "session" &&
@@ -114,7 +120,7 @@ export function initializeOperationContext() {
               signature(record.profile) !== signature(withoutResume(profile))
             : signature(record.profile) !== stamp)
         )
-          cancel("本页 Profile 已改变");
+          cancel("本页 Profile 已改变", "profile_changed");
       };
       win.addEventListener("pagehide", hidden);
       globalThis.chrome?.storage?.onChanged?.addListener(storageChanged);
@@ -164,7 +170,7 @@ export function initializeOperationContext() {
           (boundId && boundId !== state.data.id) ||
           signature(state.data.profile) !== stamp
         ) {
-          cancel("本页 Profile 已改变");
+          cancel("本页 Profile 已改变", "profile_changed");
           throw Error(failure);
         }
         boundId = state.data.id;

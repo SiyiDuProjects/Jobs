@@ -1,4 +1,5 @@
 import { stableStringify } from "./stable-value.js";
+import { boundEventLog } from "./event-log-limits.js";
 // Only redacted diagnostic runs enter this store. The index contains retention
 // metadata; each immutable payload has its own key. Publish the index last so
 // an interrupted write leaves either the old or new complete run readable.
@@ -14,7 +15,7 @@ export function createEventLogStore() {
     new TextEncoder().encode(JSON.stringify(value)).byteLength;
   const full = (row) => Array.isArray(row?.data?.snapshots);
   function eventOnly(row) {
-    if (!row.data.snapshots?.length) return;
+    const migrated = !!row.data.snapshots?.length;
     for (const snapshot of row.data.snapshots)
       for (const field of snapshot.fields || [])
         row.data.events.push({
@@ -26,7 +27,9 @@ export function createEventLogStore() {
           phase: snapshot.phase,
         });
     row.data.snapshots = [];
-    row.revision++;
+    row.data.events.sort((a, b) => a.at - b.at);
+    const bounded = boundEventLog(row.data);
+    if (migrated || bounded) row.revision++;
   }
   /** @returns {Promise<HistoryState>} */
   async function read(only = undefined) {

@@ -113,6 +113,21 @@ async function load() {
   if ([...select("pages").options].some((option) => option.value === selected))
     select("pages").value = selected;
   const sync = state.sync;
+  const failure = sync.lastFailure;
+  const failureLabels = {
+    packet_too_large: "记录超过上传大小限制",
+    invalid_list: "记录列表不符合服务限制",
+    invalid_shape: "记录格式不符合服务要求",
+    invalid_text: "记录文本不符合服务要求",
+    invalid_integer: "记录数值不符合服务要求",
+    invalid_boolean: "记录状态不符合服务要求",
+    credential_data: "服务检测到不应上传的数据",
+    invalid_url: "记录地址不符合服务要求",
+    not_acknowledged: "服务未确认接收",
+    timeout: "上传超时",
+    upload_failed: "上传连接或本地处理失败",
+    http_error: "服务拒收",
+  };
   const labels = {
     local: "仅本地记录",
     disconnected: "诊断同步未连接",
@@ -129,6 +144,9 @@ async function load() {
       : " · 尚无上传确认") +
     (sync.newestLocalAt
       ? ` · 本地最新 ${new Date(sync.newestLocalAt).toLocaleString()}`
+      : "") +
+    (failure
+      ? ` · 最近失败：${failureLabels[failure.reason] || "原因未分类"}${failure.httpStatus ? `（HTTP ${failure.httpStatus}）` : ""}`
       : "");
   if (select("pages").value)
     render(

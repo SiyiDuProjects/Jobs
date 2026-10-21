@@ -214,6 +214,32 @@ async function setup(entry, { complete = false } = {}) {
   };
 }
 
+test("the first hardware cancellation remains typed after profile and page changes", async () => {
+  const h = await setup("automatic"),
+    evidence = [];
+  h.w.JobsDiagnostics = { evidence: (_, value) => evidence.push(value) };
+  const operation = h.w.JobsOperationContext.create({
+    root: h.root,
+    profile: h.profile,
+  });
+  try {
+    await operation.verify();
+    h.edit();
+    h.storageChange(1, { id: "different", profile: h.profile });
+    h.w.dispatchEvent(new h.w.Event("pagehide"));
+    assert.equal(operation.signal.reason, "user_input");
+    assert.deepEqual(
+      evidence.filter((e) => e.stage === "lifecycle").map((e) => e.reason),
+      ["user_input"],
+    );
+    assert.throws(() => operation.assertCurrent(), /用户输入已变化/);
+    assert(!JSON.stringify(evidence).includes("User answer"));
+  } finally {
+    operation.release();
+    h.close();
+  }
+});
+
 test("shared resume references preserve unchanged runs and still invalidate changed attachments", async () => {
   const h = await setup("automatic");
   let operation;
