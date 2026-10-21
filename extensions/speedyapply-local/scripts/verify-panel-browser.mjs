@@ -97,6 +97,11 @@ try {
                               id: "0",
                               question: "你希望参与哪类项目？",
                               answer: value || "待补充",
+                              reason:
+                                "This detailed rationale is retained for AI review only.",
+                              evidence: [
+                                { profilePath: "synthetic.profile.path" },
+                              ],
                               source: value ? "你的回答" : "待核对",
                               editor: {
                                 kind: "textarea",
@@ -133,7 +138,8 @@ try {
   });
   await page.goto(pathToFileURL(path.join(stage.stage, "popup.html")).href);
   await page.getByRole("textbox", { name: "你希望参与哪类项目？" }).waitFor();
-  await page.getByRole("radio", { name: "全职 Newgrad" }).click();
+  assert.equal(await page.locator(".evidence").count(), 0);
+  await page.getByRole("button", { name: "改为全职" }).click();
   await page
     .getByRole("textbox", { name: "你希望参与哪类项目？" })
     .fill("I would like to work on developer tools.");

@@ -30,12 +30,23 @@ export function answerNeedsReview(answer, row, record, field) {
   );
 }
 
+const identity = (row) => [
+  row.public.question,
+  row.public.type,
+  row.public.options,
+  row.public.conditional,
+];
+
+// A reviewed field can lose placeholder/help text when the person answers it.
+// Its current value and website validation determine completion, not that text.
+export function reviewShape(row) {
+  return stableStringify(identity(row));
+}
+
+// Pending automatic answers still expire when their instructions change.
 export function shape(row) {
   return stableStringify([
-    row.public.question,
-    row.public.type,
-    row.public.options,
-    row.public.conditional,
+    ...identity(row),
     row.description,
     row.descriptionIncomplete,
   ]);

@@ -76,6 +76,8 @@ test("HeroUI side panel places status and review together and clears the previou
                     id: "0",
                     question: "Synthetic question",
                     answer: "待补充",
+                    reason: "Synthetic AI rationale for reviewers only",
+                    evidence: [{ profilePath: "synthetic.profile.path" }],
                     editor: { kind: "text", value: "", version: 1 },
                   },
                 ],
@@ -103,6 +105,15 @@ test("HeroUI side panel places status and review together and clears the previou
     assert.equal(host.style.position, "");
     assert(host.shadowRoot.querySelector(".button--primary"));
     assert(host.shadowRoot.querySelector('link[href="custom/popup.css"]'));
+    assert.equal(host.shadowRoot.querySelector(".evidence"), null);
+    assert.equal(
+      host.shadowRoot.textContent.includes("Synthetic AI rationale"),
+      false,
+    );
+    assert.equal(
+      host.shadowRoot.textContent.includes("synthetic.profile.path"),
+      false,
+    );
     h.activate({
       id: 13,
       title: "Another role",

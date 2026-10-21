@@ -45,6 +45,7 @@ test("page and panel share one editor; reads never claim control and writes cann
         question: "Synthetic preference",
         answer: "Draft",
         source: "AI",
+        reason: "Synthetic AI rationale retained for review",
         reviewState: "ready",
       },
     ],
@@ -68,6 +69,10 @@ test("page and panel share one editor; reads never claim control and writes cann
     assert.equal(operator.read().mode, "page-tool");
     assert.equal(operator.canLearn(), false);
     const review = host.shadowRoot.querySelector("#jobs-ai-review").shadowRoot;
+    assert.equal(
+      review.querySelector(".evidence").textContent,
+      data.items[0].reason,
+    );
     assert.equal(
       review.querySelector("link").getAttribute("href"),
       "chrome-extension://fixture/custom/popup.css",

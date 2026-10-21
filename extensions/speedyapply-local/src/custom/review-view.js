@@ -6,7 +6,10 @@ import { stableStringify } from "./stable-value.js";
 import { calendarDate } from "./calendar-date.js";
 // Shared by the side panel and the in-page AI surface. The editor keeps the existing
 // versioned write/confirm contract around the shared HeroUI React controls.
-export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
+export function createReviewView({
+  stylesheetHref = "custom/popup.css",
+  showReasons = false,
+} = {}) {
   let slot, view, last;
   function removeView() {
     if (!view) return;
@@ -337,7 +340,8 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
         button.type = "button";
         button.classList.add("item");
         button.innerHTML =
-          '<span class="question"></span><span class="answer"></span><span class="source"></span><span class="evidence"></span>';
+          '<span class="question"></span><span class="answer"></span><span class="source"></span>' +
+          (showReasons ? '<span class="evidence"></span>' : "");
         button.onclick = () => void view.act("locate", row.id);
 
         const error = document.createElement("span");
@@ -351,17 +355,19 @@ export function createReviewView({ stylesheetHref = "custom/popup.css" } = {}) {
       item.title = row.originalQuestion || row.question;
       item.querySelector(".source").textContent = row.source;
       const evidence = item.querySelector(".evidence");
-      evidence.textContent =
-        row.reason ||
-        (row.evidence || [])
-          .map(
-            (item) =>
-              item.profilePath ||
-              item.noteQuote ||
-              (item.savedResponse ? "本人已存回答（原题与范围匹配）" : ""),
-          )
-          .join(" · ");
-      evidence.hidden = !evidence.textContent;
+      if (evidence) {
+        evidence.textContent =
+          row.reason ||
+          (row.evidence || [])
+            .map(
+              (item) =>
+                item.profilePath ||
+                item.noteQuote ||
+                (item.savedResponse ? "本人已存回答（原题与范围匹配）" : ""),
+            )
+            .join(" · ");
+        evidence.hidden = !evidence.textContent;
+      }
       item.querySelector(".error").textContent = row.error || "";
       editorFor(item, row);
     }

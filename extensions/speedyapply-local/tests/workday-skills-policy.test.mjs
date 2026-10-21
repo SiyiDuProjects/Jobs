@@ -280,7 +280,8 @@ for (const scenario of ["filled", "no-profile-skills", "no-matching-options"]) {
       );
       assert.equal(batches[0].fields[0].required, true);
       const card = doc.querySelector("#jobs-ai-review").shadowRoot;
-      assert.match(card.textContent, /未找到可以确认的技能/);
+      assert.equal(card.textContent.includes("未找到可以确认的技能"), false);
+      assert.equal(card.querySelector(".answer").textContent, "待补充");
       assert.match(
         card.textContent,
         /确认这些答案/,

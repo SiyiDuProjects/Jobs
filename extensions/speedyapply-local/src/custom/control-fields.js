@@ -1471,10 +1471,10 @@ export function initializeControlFields() {
           ) || []),
         ].some(visible);
         const unsupported = rows.some(
-          (row) => !complete(row.public) && !invalid.includes(row),
+          (row) => blocksCompletion(row.public) && !invalid.includes(row),
         );
         const blockers = rows
-          .filter((row) => !complete(row.public))
+          .filter((row) => blocksCompletion(row.public))
           .map((row) => ({
             fieldId: row.public.id,
             component: row.public.component,
@@ -1608,7 +1608,7 @@ export function initializeControlFields() {
           );
         }
         if (JobsPageActions.live(canProceed) && root() && visible(root())) {
-          const blocked = state({ review });
+          const blocked = state({ review, next });
           JobsDiagnostics?.note(
             "auto_readiness_timeout",
             null,
@@ -1619,7 +1619,9 @@ export function initializeControlFields() {
               buttons: buttonsNow().length,
             }),
           );
-          for (const row of blocked.rows.filter((row) => !complete(row.public)))
+          for (const row of blocked.rows.filter((row) =>
+            blocksCompletion(row.public),
+          ))
             JobsDiagnostics?.note(
               "auto_readiness_field",
               row.node,
@@ -2459,6 +2461,11 @@ export function initializeControlFields() {
     }
     const complete = (field) =>
       ["filled", "optional-empty"].includes(completion(field));
+    // An uncertain read is still diagnostic evidence, not a required answer.
+    // Declared optional controls only hold navigation for actual validation.
+    const blocksCompletion = (field) =>
+      !complete(field) &&
+      (field.invalid || field.required || field.requiredKnown === false);
     const needsAnswer = (field) =>
       (field.required === true || field.optionalSurvey === true) &&
       !field.filled &&

@@ -44,7 +44,7 @@ export function initializeFormPipeline() {
     //   ruled    the rules were asked         aiTried  sent to AI and not obsolete
     //   hint     the rules' decision, for reading the field's options later
     //   confirm  a missing explicit fact requires review of an AI proposal
-    //   card     {shape, allowEmpty} while the field is on the review card
+    //   card     {shape} while the field is on the review card
     function ledger(root) {
       const records = new Map();
       const scan = () =>

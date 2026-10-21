@@ -179,7 +179,7 @@ test("iCIMS search text is not completion, optional blanks do not block, and pop
   }
 });
 
-test("a component descriptor cannot turn unknown read or requiredness into proof of completion", async () => {
+test("an optional unreadable value stays uncertified without blocking, while unknown requiredness blocks completion", async () => {
   const dom = new JSDOM('<form><input id="outer"><input id="second"></form>', {
     url: "https://fixture.example/apply",
     runScripts: "outside-only",
@@ -216,7 +216,9 @@ test("a component descriptor cannot turn unknown read or requiredness into proof
     );
     assert.equal(reader.scan()[0].public.capabilities.read, false);
     assert.equal(reader.scan()[0].public.completion, "unreadable");
-    assert.equal(reader.state().ready, false);
+    assert.equal(reader.state().ready, true);
+    assert.equal(reader.state().blockers.length, 0);
+    assert.equal(reader.response(reader.scan()[0]), null);
     readable = true;
     requiredKnown = false;
     assert.equal(reader.scan()[0].public.completion, "unknown-requiredness");

@@ -107,6 +107,7 @@ function fixture({
   multi = false,
   question,
   display = (label) => label,
+  placeholderDescription = false,
 } = {}) {
   const root = createRoot(w.document.getElementById("root")),
     queries = [],
@@ -204,11 +205,22 @@ function fixture({
                 { className: "select__single-value" },
                 display(selected),
               ),
+        placeholderDescription &&
+          !hasValue &&
+          React.createElement(
+            "div",
+            { id: id + "-placeholder", className: "select__placeholder" },
+            "Select...",
+          ),
         React.createElement("input", {
           id,
           className: "select__input",
           role: "combobox",
           value: query,
+          "aria-describedby":
+            placeholderDescription && !hasValue
+              ? id + "-placeholder"
+              : undefined,
           "aria-labelledby": id + "-label",
           "aria-controls": open ? id + "-list" : undefined,
           "aria-expanded": open,
@@ -1160,6 +1172,89 @@ test("a phone country picker longer than the option limit is filtered by the ans
     );
     assert.deepEqual(f.clicks, ["United States +1"]);
   } finally {
+    f.close();
+  }
+});
+
+test("answering a reviewed Greenhouse placeholder completes without a false question-change blocker", async () => {
+  w.chrome = { runtime: {} };
+  for (const name of [
+    "review-presenter",
+    "ai-review",
+    "operation-context",
+    "automatic-fill",
+  ])
+    w.eval(
+      await readWithDependencies(
+        new URL("../src/custom/" + name + ".js", import.meta.url),
+        "utf8",
+      ),
+    );
+  const f = fixture({
+    id: "question_fixture",
+    finite: true,
+    question: "Synthetic experience?",
+    labels: ["Yes", "No"],
+    placeholderDescription: true,
+  });
+  const events = [],
+    phases = [],
+    profile = { profileName: "Intern" };
+  let requests = 0;
+  w.JobsDiagnostics = { note: (...args) => events.push(args) };
+  w.chrome = {
+    runtime: {
+      sendMessage: async (message) => {
+        if (message.type === "jobs:tab-profile")
+          return { data: { id: "fixture", profile } };
+        assert.equal(message.type, "jobs:auto-answers");
+        requests++;
+        return {
+          data: {
+            answers: message.fields.map((field) => ({
+              fieldId: field.fieldId,
+              state: "needs_input",
+              value: null,
+              source: "unknown",
+              needsConfirmation: true,
+            })),
+          },
+        };
+      },
+    },
+  };
+  const root = w.document.getElementById("root");
+  try {
+    await w.JobsAutomatic.advance({
+      root,
+      profile,
+      action: "fill",
+      autoConfirm: false,
+      setMessage: (phase) => phases.push(phase),
+    });
+    assert.equal(phases.at(-1), "ai-review");
+    const state = w.JobsAIReview.remoteState(root),
+      item = state.items[0];
+    const result = await w.JobsAIReview.remoteAnswer(
+      root,
+      state.id,
+      item.itemId,
+      { value: "No", version: item.version },
+      () => true,
+    );
+    assert.equal(result.ok, true);
+    assert.equal(f.reader.state().ready, true);
+    await w.JobsAIReview.confirm();
+    assert.equal(phases.at(-1), "page-complete");
+    assert.equal(
+      events.some(([type]) => type === "auto_blocked"),
+      false,
+    );
+    assert.equal(requests, 1);
+    assert.deepEqual(f.clicks, ["No"]);
+    assert.equal(f.reader.response(f.reader.scan()[0]).response, "No");
+  } finally {
+    w.JobsAIReview.release(root);
     f.close();
   }
 });

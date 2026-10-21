@@ -26,6 +26,7 @@ import { recoverReview, finishRecovery } from "./recover-review.js";
 import {
   automaticFillPolicy,
   shape,
+  reviewShape,
   answerNeedsReview,
   reviewFailure,
 } from "./automatic-field-policy.js";
@@ -568,8 +569,7 @@ export function initializeAutomaticFill() {
       // The review card shows AI answers to confirm and fields left to the person.
       function toCard(row, options = {}) {
         book.entry(row).card = {
-          shape: shape(row),
-          allowEmpty: !!(options.needsInput || options.omitted),
+          shape: reviewShape(row),
         };
         JobsAIReview.add(root, reader, row, { ...options, defer: autoConfirm });
       }
@@ -751,7 +751,7 @@ export function initializeAutomaticFill() {
             return (
               row &&
               card &&
-              shape(row) === card.shape &&
+              reviewShape(row) === card.shape &&
               !row.public.invalid &&
               reader.response(row)
             );
@@ -764,10 +764,10 @@ export function initializeAutomaticFill() {
               return (
                 !row ||
                 !card ||
-                shape(row) !== card.shape ||
+                reviewShape(row) !== card.shape ||
                 row.public.invalid ||
                 (!reader.response(row) &&
-                  (!card.allowEmpty || row.public.required))
+                  (row.public.required || row.public.requiredKnown === false))
               );
             });
           };

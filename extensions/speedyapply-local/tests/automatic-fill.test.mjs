@@ -851,7 +851,7 @@ test("review card shows human choice labels, locates fields, learns corrected an
     );
     assert.equal(shadow.querySelector(".answer").textContent, "AI 草稿");
     assert.equal(shadow.querySelector(".reason"), null);
-    assert(shadow.textContent.includes("依据当前资料作答。"));
+    assert.equal(shadow.textContent.includes("依据当前资料作答。"), false);
     assert.match(shadow.querySelector("h2").textContent, /AI 补填 · 2/);
     shadow.querySelectorAll(".item")[1].click();
     assert.equal(h.w.document.activeElement.tagName, "SELECT");
@@ -994,7 +994,7 @@ test("cleared or rerendered education search fields cannot deadlock review or be
   }
 });
 
-test("TRC replay: optional salary is skipped, missing employment fact is visibly explained and remains blank until the user supplies it", async () => {
+test("TRC replay: optional salary is skipped, missing employment fact stays actionable without rationale and remains blank until the user supplies it", async () => {
   const reason = "资料中的任职记录不完整，请确认是否曾在这家公司工作。";
   const h = setup(
     '<label>Are you currently or have you previously been employed by TRC Companies?*<select role="combobox"><option value="">— Make a Selection —</option><option value="Yes">Yes</option><option value="No">No</option></select></label><label>What are your salary expectations?<input></label>',
@@ -1024,7 +1024,7 @@ test("TRC replay: optional salary is skipped, missing employment fact is visibly
     assert.equal(select.value, "");
     assert.equal(shadow.querySelectorAll(".item").length, 1);
     assert.match(shadow.querySelector("h2").textContent, /需要你补充/);
-    assert(shadow.textContent.includes(reason));
+    assert.equal(shadow.textContent.includes(reason), false);
     assert.equal(shadow.querySelector(".answer").textContent, "待补充");
     assert.equal(shadow.querySelector("#confirm").disabled, false);
     assert.match(shadow.querySelector("#status").textContent, /待补/);
@@ -1240,6 +1240,74 @@ test("an AI option that does not exist or a write that fails leaves that field o
       h.w.document.querySelector("#jobs-ai-review").shadowRoot.textContent;
     assert.match(feedback, /未获得可用回答/);
     assert.match(feedback, /填写失败/);
+  } finally {
+    h.close();
+  }
+});
+
+for (const scenario of ["unconfirmed", "unreadable", "required", "invalid"])
+  test(`navigation distinguishes optional readback uncertainty from real blockers: ${scenario}`, async () => {
+    const h = setup(
+      '<label>Name<input required value="Kept"></label><input id="widget">',
+      async () =>
+        assert.fail("An unconfirmed control must not be filled again"),
+    );
+    try {
+      const node = h.w.document.querySelector("#widget");
+      h.w.JobsMenuControls = {
+        find: () => [node],
+        isControl: (other) => other === node,
+        describe: () => ({
+          type: "combobox",
+          question: "Synthetic optional widget",
+          value: scenario === "unreadable" ? "Existing site value" : "",
+          required: scenario === "required",
+          requiredKnown: true,
+          supported: true,
+          readable: false,
+          invalid: scenario === "invalid",
+          ...(scenario === "unreadable" ? {} : { commitState: "unconfirmed" }),
+          group: [node],
+        }),
+      };
+      const blocked = ["required", "invalid"].includes(scenario);
+      assert.equal(await h.run({ autoConfirm: true }), !blocked);
+      assert.equal(h.clicks(), blocked ? 0 : 1);
+      assert.equal(h.w.JobsAIReview.pending(), false);
+      const reader = h.w.JobsControlFields.create(h.w.document);
+      const row = reader.scan().find((row) => row.node === node);
+      assert.equal(
+        reader.response(row),
+        null,
+        "continuation does not certify the answer",
+      );
+      assert.equal(row.public.capabilities.read, false);
+      assert.equal(
+        reader
+          .state()
+          .blockers.some((row) => row.fieldId === reader.identify(node)),
+        blocked,
+      );
+    } finally {
+      h.close();
+    }
+  });
+
+test("a person can clear an optional reviewed answer and confirm without a second completion gate", async () => {
+  const h = setup(
+    '<label>Preferences<select><option value="">Choose</option><option value="a">A</option></select></label><label>Name<input required value="Kept"></label>',
+    async (message) => message.fields.map((field) => reply(field, "a")),
+  );
+  try {
+    await h.run();
+    assert.equal(h.w.JobsAIReview.pending(), true);
+    const select = h.w.document.querySelector("select");
+    select.value = "";
+    select.dispatchEvent(new h.w.Event("change", { bubbles: true }));
+    await Promise.resolve();
+    assert.equal(await h.w.JobsAIReview.confirm(), true);
+    assert.equal(h.clicks(), 1);
+    assert.equal(select.value, "");
   } finally {
     h.close();
   }
@@ -1624,3 +1692,76 @@ test("AI-owned verified drafts stay on the shared self-review card", async () =>
     h.close();
   }
 });
+
+for (const scenario of [
+  "answered",
+  "optional-cleared",
+  "required-empty",
+  "invalid",
+  "question-changed",
+  "options-changed",
+  "type-changed",
+])
+  test(`review confirmation uses current field state after help text changes: ${scenario}`, async () => {
+    const optional = scenario === "optional-cleared";
+    const h = setup(
+      `<label for="review-choice">Synthetic choice</label><select id="review-choice" ${optional ? "" : 'required aria-describedby="placeholder"'}><option value="">Choose</option><option value="a">A</option></select><div id="placeholder">Choose</div>`,
+      async (message) =>
+        message.fields.map((field) =>
+          optional
+            ? reply(field, "a")
+            : {
+                fieldId: field.fieldId,
+                state: "needs_input",
+                value: null,
+                source: "unknown",
+                needsConfirmation: true,
+              },
+        ),
+    );
+    try {
+      const phases = [];
+      const wrapped = h.w.JobsAutomatic.observe({
+        setMessage: (phase) => phases.push(phase),
+        getProfile: async () => h.profile,
+      });
+      await h.run({ action: "fill", setMessage: wrapped.setMessage });
+      assert.equal(h.w.JobsAIReview.pending(), true);
+      const select = h.w.document.querySelector("select");
+      select.value = optional || scenario === "required-empty" ? "" : "a";
+      if (optional) select.setAttribute("aria-describedby", "placeholder");
+      else {
+        select.removeAttribute("aria-describedby");
+        h.w.document.getElementById("placeholder").remove();
+      }
+      if (scenario === "invalid") select.setAttribute("aria-invalid", "true");
+      if (scenario === "question-changed")
+        h.w.document.querySelector("label").textContent = "Different question";
+      if (scenario === "options-changed") select.add(new h.w.Option("B", "b"));
+      if (scenario === "type-changed") select.multiple = true;
+      select.dispatchEvent(new h.w.Event("change", { bubbles: true }));
+      await Promise.resolve();
+      await h.w.JobsAIReview.confirm();
+      const complete = ["answered", "optional-cleared"].includes(scenario);
+      assert.equal(
+        phases.at(-1),
+        complete ? "page-complete" : "complete-required",
+      );
+      // Trigger the passive owner after confirmation; it must not revive the stale warning.
+      h.w.document
+        .querySelector("form")
+        .append(h.w.document.createElement("span"));
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      assert.equal(
+        phases.at(-1),
+        complete ? "page-complete" : "complete-required",
+      );
+      assert.equal(h.clicks(), 0);
+      assert.equal(
+        select.value,
+        optional || scenario === "required-empty" ? "" : "a",
+      );
+    } finally {
+      h.close();
+    }
+  });

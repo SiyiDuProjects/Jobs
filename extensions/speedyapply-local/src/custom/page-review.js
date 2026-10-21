@@ -22,6 +22,7 @@ export function createPageReview({ operator, claim }) {
     disposed = false;
   const view = createReviewView({
     stylesheetHref: chrome.runtime.getURL("custom/popup.css"),
+    showReasons: true,
   });
   function mount() {
     if (host || disposed || !document.body) return;
