@@ -28,6 +28,9 @@ function render(row) {
   current = row;
   const report = row?.report;
   if (!report) return;
+  $("message").textContent = row.historyUnavailable
+    ? "已读取当前控件；历史记录保存或读取失败，时间线可能不完整。原有记录保留。"
+    : "";
   $("overview").textContent =
     `${report.pageUrl}\n资料：${report.profileName || "尚未读取"} · ${report.ats} · ${report.version}\n观察时间：${new Date(report.observedAt).toLocaleString()} · 阶段：${report.phase}\n控件 ${report.counts.controls} · 空白 ${report.counts.empty} · 校验错误 ${report.counts.invalid}\n复用已有控件读取器：${report.coverage.scope}，不是完整检测。其他 frame ${report.coverage.iframeCount}，可能仍有未识别控件；敏感字段不记录。${report.coverage.scanLimited ? "扫描已达上限。" : ""}${report.droppedEvents ? "较早事件已裁剪。" : ""}`;
   $("fields").replaceChildren(
@@ -210,7 +213,8 @@ $("inspect").onclick = action(async () => {
   render(
     await request("jobs:diagnostics-refresh", { id: select("pages").value }),
   );
-  $("message").textContent = "已读取，未填写或点击投递页面。";
+  if (!current?.historyUnavailable)
+    $("message").textContent = "已读取，未填写或点击投递页面。";
 });
 $("export").onclick = action(async () => {
   if (!current) return;

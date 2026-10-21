@@ -111,6 +111,19 @@ test("diagnostics viewer renders records as text and refreshes without requestin
       /缓存命中 2 题 \/ 送模型 1 题 \/ 模型请求 2 次/,
     );
     assert.match(w.document.getElementById("events").textContent, /计数不可用/);
+    row.historyUnavailable = true;
+    await w.document.getElementById("inspect").onclick();
+    assert.match(
+      w.document.getElementById("message").textContent,
+      /历史记录.*失败/,
+    );
+    assert.match(w.document.getElementById("fields").textContent, /<img/);
+    row.historyUnavailable = false;
+    await w.document.getElementById("inspect").onclick();
+    assert.match(
+      w.document.getElementById("message").textContent,
+      /已读取，未填写/,
+    );
   } finally {
     dom.window.close();
   }

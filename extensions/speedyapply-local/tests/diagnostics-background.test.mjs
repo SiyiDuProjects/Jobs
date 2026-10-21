@@ -311,6 +311,75 @@ test("read-only refresh rejects replacement documents and retains the previous t
   );
 });
 
+test("a full event archive cannot hide the current inspector or acknowledge journal writes", async () => {
+  const h = harness(),
+    value = report(),
+    sender = {
+      id: "test",
+      tab: { id: 8 },
+      frameId: 0,
+      documentId: "doc-8",
+      url: value.pageUrl,
+    };
+  h.context.JobsEventLog = {
+    capture: async () => {
+      throw Error("诊断存储已满");
+    },
+    exportRun: async () => {
+      throw Error("尚无持久诊断记录");
+    },
+  };
+  await h.send({ type: "jobs:diagnostics-push", report: value }, sender);
+  const id = Object.keys(h.data.jobsDiagnosticsV1.reports)[0];
+  const field = { id: "field-1", required: true, hasValue: true };
+  h.respond({
+    data: {
+      ...value,
+      fields: [field],
+      events: [{ type: "fill_trace", trace: { answer: "PRIVATE_TRANSIENT" } }],
+    },
+  });
+  const fresh = await h.send({ type: "jobs:diagnostics-refresh", id });
+  assert.equal(fresh.error, undefined);
+  assert.deepEqual(fresh.data.report.fields, [field]);
+  assert.equal(fresh.data.historyUnavailable, true);
+  assert.equal(fresh.data.report.events.length, 0);
+  assert(!JSON.stringify(fresh).includes("PRIVATE_TRANSIENT"));
+  const cached = await h.send({ type: "jobs:diagnostics-get", id });
+  assert.deepEqual(cached.data.report.fields, [field]);
+  assert.equal(cached.data.historyUnavailable, true);
+  const journal = await h.send(
+    { type: "jobs:event-log", report: { ...value, eventOnly: true } },
+    sender,
+  );
+  assert.match(journal.error, /诊断存储已满/);
+  const exported = await h.send({ type: "jobs:diagnostics-export", id });
+  assert.match(exported.error, /尚无持久诊断记录/);
+});
+
+test("refresh keeps persisted events and warns when current capture fails", async () => {
+  const h = harness(),
+    value = report();
+  await h.send(
+    { type: "jobs:diagnostics-push", report: value },
+    { id: "test", tab: { id: 8 }, frameId: 0, url: value.pageUrl },
+  );
+  const id = Object.keys(h.data.jobsDiagnosticsV1.reports)[0];
+  const events = [{ type: "field_observed", fieldId: "field-1" }];
+  h.context.JobsEventLog = {
+    capture: async () => {
+      throw Error("诊断存储已满");
+    },
+    exportRun: async () => ({ events }),
+  };
+  h.respond({ data: { ...value, phase: "complete-required" } });
+  const result = await h.send({ type: "jobs:diagnostics-refresh", id });
+  assert.equal(result.error, undefined);
+  assert.equal(result.data.report.phase, "complete-required");
+  assert.equal(result.data.historyUnavailable, true);
+  assert.deepEqual(result.data.report.events, events);
+});
+
 test("connection change during refresh cannot restore a private report", async () => {
   const h = harness(),
     value = report();

@@ -34,13 +34,23 @@ export function initializeDiagnosticsBackground() {
     const write = (value) =>
       JobsPrivateSession.commit(stateEpochs.get(value), { [KEY]: value });
     const key = (tab, frame, session) => `${tab}:${frame}:${session}`;
-    async function withEvents(row) {
+    async function withEvents(row, historyUnavailable = false) {
       if (!row || !JobsEventLog?.exportRun) return row;
-      const log = await JobsEventLog.exportRun(
-        row.report.pageUrl,
-        row.report.runId,
-      );
-      return { ...row, report: { ...row.report, events: log.events } };
+      const epoch = JobsPrivateSession.epoch;
+      let events = [];
+      try {
+        const log = await JobsEventLog.exportRun(
+          row.report.pageUrl,
+          row.report.runId,
+        );
+        events = log.events;
+      } catch {
+        // A missing/full archive must not hide the transient field inspector.
+        // Never substitute its raw events for the durable redacted journal.
+        historyUnavailable = true;
+      }
+      JobsPrivateSession.assertCurrent(epoch);
+      return { ...row, historyUnavailable, report: { ...row.report, events } };
     }
     function ui(sender) {
       try {
@@ -83,7 +93,7 @@ export function initializeDiagnosticsBackground() {
       const id = key(sender.tab.id, sender.frameId, report.sessionId);
       if (report.eventOnly) {
         await JobsEventLog.capture(report);
-        return { ok: true };
+        return { ok: true, historyUnavailable: false };
       }
       // The current inspector is transient. DOM/locator evidence lives only in
       // corpus pages; the durable log receives typed question states below.
@@ -121,8 +131,15 @@ export function initializeDiagnosticsBackground() {
           delete state.reports[oldest()];
         await write(state);
       });
-      await JobsEventLog?.capture(report);
-      return { ok: true };
+      try {
+        await JobsEventLog?.capture(report);
+      } catch {
+        JobsPrivateSession.assertCurrent(epoch);
+        // The current report was stored above. Journal writes still require a
+        // durable acknowledgement in the eventOnly branch; this is not one.
+        return { ok: false, historyUnavailable: true };
+      }
+      return { ok: true, historyUnavailable: false };
     }
     async function refresh(id) {
       const epoch = JobsPrivateSession.epoch;
@@ -150,7 +167,7 @@ export function initializeDiagnosticsBackground() {
         if (!reply?.data || reply.data.sessionId !== row.report.sessionId)
           throw Error("页面已切换，保留旧记录");
         JobsPrivateSession.assertCurrent(epoch);
-        await accept(
+        const accepted = await accept(
           reply.data,
           {
             id: chrome.runtime.id,
@@ -162,7 +179,10 @@ export function initializeDiagnosticsBackground() {
           epoch,
           pageRevision,
         );
-        return withEvents((await serial(read)).reports[id]);
+        return withEvents(
+          (await serial(read)).reports[id],
+          accepted.historyUnavailable,
+        );
       } finally {
         clearTimeout(timeout);
       }
