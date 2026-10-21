@@ -411,6 +411,7 @@ export function initializePlatformConfig() {
     const ashbyFieldset =
       "fieldset.ashby-application-form-input-checkbox-group";
     const ashbyEducation = ".ashby-application-form-input-education-entry";
+    const ashbyConsent = ".ashby-application-form-texting-consent-description";
     // Some Ashby labels target a wrapper (or a missing input id). Stop at
     // the nearest child caption so Education History never labels every child.
     const ashbyTitle = (node) => {
@@ -430,7 +431,11 @@ export function initializePlatformConfig() {
           ":scope > .ashby-application-form-question-title",
         );
         if (title) return title;
-        if (owner.matches("fieldset,.ashby-application-form-field-entry"))
+        if (
+          owner.matches(
+            "fieldset,.ashby-application-form-field-entry," + ashbyConsent,
+          )
+        )
           return null;
       }
       return null;
@@ -450,6 +455,13 @@ export function initializePlatformConfig() {
             ? { yesno: true }
             : null,
       question(node, grouped, ctx) {
+        const consent = node.closest(ashbyConsent);
+        if (consent) {
+          // This nested question owns its prompt, not the phone title above it.
+          const prompt = consent.cloneNode(true);
+          prompt.querySelectorAll("label").forEach((label) => label.remove());
+          return ctx.textOnly(prompt).slice(0, 700);
+        }
         if (!node.closest(ashbyEducation)) return;
         const title = ashbyTitle(node);
         if (!title) return "";

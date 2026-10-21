@@ -336,7 +336,7 @@ export function initializeControlFields() {
         const copy = node.cloneNode(true);
         copy
           .querySelectorAll?.(
-            "input,textarea,select,[contenteditable],script,style",
+            'input,textarea,select,[contenteditable]:not([contenteditable="false" i]),script,style',
           )
           .forEach((child) => child.remove());
         return text(copy.textContent);
