@@ -798,14 +798,14 @@ async function greenhouseRunApplication({
   };
   (jobsWaitForCssNodes(JobsPlatformConfig.structure.greenhouse.olderRoot).then(
     async () => {
-      const form =
+      const form = () =>
         document.querySelector(
           JobsPlatformConfig.structure.greenhouse.olderForm,
         ) ||
         document.querySelector(
           JobsPlatformConfig.structure.greenhouse.olderRoot,
         );
-      await ready(form);
+      await ready(form());
       let i = await getProfile();
       await jobsMountManualAnswerControls(context, [
         [`//div[@id='custom_fields']//textarea`, `parent::label`],
@@ -824,7 +824,9 @@ async function greenhouseRunApplication({
         Boolean(autofillSettings.saveApplications),
       );
       await JobsAutomatic.advance({
-        root: form,
+        // Read the live root after the async startup work. Hydration can replace
+        // the original form while the Profile is being fetched.
+        root: form(),
         profile: i,
         setMessage,
         action: autofillSettings.autoSubmit ? `submit` : `fill`,
@@ -840,10 +842,9 @@ async function greenhouseRunApplication({
   ),
     jobsWaitForCssNodes(JobsPlatformConfig.structure.greenhouse.root).then(
       async () => {
-        const form = document.querySelector(
-          JobsPlatformConfig.structure.greenhouse.root,
-        );
-        await ready(form);
+        const form = () =>
+          document.querySelector(JobsPlatformConfig.structure.greenhouse.root);
+        await ready(form());
         let i = await getProfile();
         await jobsMountManualAnswerControls(context, [
           [
@@ -866,7 +867,7 @@ async function greenhouseRunApplication({
           Boolean(autofillSettings.saveApplications),
         );
         await JobsAutomatic.advance({
-          root: form,
+          root: form(),
           profile: i,
           setMessage,
           action: autofillSettings.autoSubmit ? `submit` : `fill`,
