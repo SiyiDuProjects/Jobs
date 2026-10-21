@@ -686,7 +686,9 @@ export function initializeControlContent() {
             action: next ? "next" : submit ? "submit" : "fill",
             target: next || submit,
             canProceed: live,
-            setMessage,
+            // Recovery owns a run too, so its stopped state must keep observing
+            // later edits and validation changes without restarting autofill.
+            setMessage: pipelineOptions.setMessage,
           });
         })();
       }

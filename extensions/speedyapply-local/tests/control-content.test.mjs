@@ -719,6 +719,50 @@ test("enabled script registers only after the matched upstream adapter starts an
   }
 });
 
+test("extension recovery keeps observing corrected validation without filling or navigating", async () => {
+  const h = harness(
+    '<form id="application-form"><label>Required answer<input required value="Kept answer"></label><p class="error-message">Please correct this answer</p><button type="submit">Submit application</button></form>',
+    { url: "https://job-boards.greenhouse.io/fixture/jobs/123" },
+  );
+  let clicks = 0;
+  try {
+    h.doc.querySelector("button").onclick = () => clicks++;
+    await h.w.JobsPageSession.run(
+      function greenhouse() {
+        assert.fail("Recovery must not restart the adapter");
+      },
+      {
+        jobsRecovery: true,
+        getProfile: async () => ({ profileName: "Newgrad" }),
+        setMessage: (phase) => h.messages.push(phase),
+        autofillSettings: { autoSubmit: true, autoClickNextPage: true },
+      },
+    );
+    assert.equal((await h.inspect()).phase, "complete-required");
+    h.doc.querySelector(".error-message").remove();
+    await h.w.JobsDOMWait.until(() => h.messages.at(-1) === "page-complete", {
+      timeout: 1000,
+    });
+    assert.equal((await h.inspect()).phase, "page-complete");
+    const input = h.doc.querySelector("input");
+    input.setAttribute("aria-invalid", "true");
+    await h.w.JobsDOMWait.until(
+      () => h.messages.at(-1) === "complete-required",
+      { timeout: 1000 },
+    );
+    assert.equal((await h.inspect()).phase, "complete-required");
+    assert.equal(input.value, "Kept answer");
+    assert.equal(clicks, 0);
+    assert.equal(
+      h.sent.filter((message) => message.type === "jobs:auto-answers").length,
+      0,
+    );
+  } finally {
+    h.w.dispatchEvent(new h.w.Event("pagehide"));
+    h.close();
+  }
+});
+
 test("remote connection and inspection preserve normal settings; explicit field fill never clicks Next or Submit", async () => {
   const h = harness(ashby(textbox + submit));
   let options,
