@@ -19,6 +19,61 @@ const answers = {
   found: "找到答案",
   missing: "没有答案",
 };
+// The run's own ledger outcome: who decided the field and why it was left.
+const deciders = {
+  binding: "平台适配",
+  rule: "本地规则",
+  saved: "保存答案",
+  ai: "AI",
+  remote: "远程命令",
+  user: "你",
+  agent: "AI 操作者",
+  "page-tool": "页面工具",
+  unknown: "未知操作者",
+  other: "其他",
+};
+const outcomeStates = {
+  open: "未处理",
+  claimed: "写入中",
+  decided: "已定",
+  abstained: "未写成",
+  omitted: "未作答",
+  unrecognized: "未识别",
+};
+const outcomeReasons = {
+  unrecognized: "题目未识别",
+  unsupported_control: "控件类型待适配",
+  missing_fact: "资料缺少所需事实",
+  answer_unknown: "AI 不知道答案",
+  answer_missing: "AI 没有返回答案",
+  answer_invalid: "AI 答案不可用",
+  unrecognized_question: "题目未被理解",
+  ai_unavailable: "AI 暂不可用",
+  ai_rate_limited: "AI 额度暂用完",
+  draft_unavailable: "草稿未生成",
+  saved_answer_changed: "保存的答案已变化",
+  optional_skipped: "选填题跳过",
+  readiness_timeout: "表单就绪超时",
+  control_failure: "写入或回读失败",
+  not_committed: "控件没有接受",
+  value_lost: "写入后值丢失",
+  page_unconfirmed: "页面更新未确认",
+  field_changed: "写入前控件已变化",
+  out_of_scope: "不在当前表单",
+  taken: "已由操作者接手",
+  context_changed: "上下文已变化",
+  write_error: "写入出错",
+  other: "其他原因",
+};
+const outcomeText = (outcome = { state: "open" }) =>
+  (outcome.by ? deciders[outcome.by] || outcome.by : "") +
+  (outcomeStates[outcome.state] || outcome.state) +
+  (outcome.taken ? "（网页上直接改）" : "") +
+  (outcome.from ? "，替换" + (deciders[outcome.from] || outcome.from) : "") +
+  (outcome.reason
+    ? "：" + (outcomeReasons[outcome.reason] || outcome.reason)
+    : "") +
+  (outcome.review ? " · 在审核卡" : "");
 async function request(type, extra = {}) {
   const result = await chrome.runtime.sendMessage({ type, ...extra });
   if (result?.error) throw Error(result.error);
@@ -42,6 +97,7 @@ function render(row) {
         field.question + (field.required ? " *" : ""),
         field.kind,
         status[field.status] || field.status,
+        outcomeText(field.outcome),
         answers[field.answer] || field.answer,
         `${field.attempts} / ${field.observedEvents.join(", ")}`,
       ]) {
@@ -60,7 +116,7 @@ function render(row) {
   for (const item of report.unansweredContainers) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 6;
+    td.colSpan = 7;
     td.textContent = `未识别：${item.question}（${unrecognized[item.reason] || item.reason || "题目存在，但未检测到控件"}）`;
     if (item.structure) {
       const pre = document.createElement("pre");

@@ -4,6 +4,9 @@ import { JobsProfileAnswers } from "./profile-answers.js";
 import { JobsPageActions } from "./page-actions.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsSubmissionGuard } from "./submission-guard.js";
+import { JobsFormPipeline } from "./form-pipeline.js";
+import { JobsOperator } from "./operator-state.js";
+import { operatorDecider } from "./field-outcome.js";
 export var JobsOperationContext;
 let initialized = false;
 export function initializeOperationContext() {
@@ -72,21 +75,38 @@ export function initializeOperationContext() {
         if (!current())
           throw Error(failure || "页面或用户输入已变化，停止继续");
       };
+      // Keys that move focus or only modify another key edit nothing.
+      const passive = new Set(["Tab", "Shift", "Control", "Alt", "Meta"]);
+      const pressable =
+        'button,[role="button"],input[type="submit"],input[type="button"],input[type="reset"],input[type="image"]';
+      // A trusted edit of one listed field hands that field to the page's
+      // operator (person, agent, page tool or unknown, never guessed from
+      // isTrusted); the run continues with the other fields. Pressing a button,
+      // or any edit on a page whose run keeps no field ledger, stops the run.
       const changed = (event) => {
         const target = event.composedPath?.()[0] || event.target;
         // Native radio/checkbox .click() also emits trusted input/change events.
-        // Hardware interaction still cancels during an asynchronous writer.
+        // Hardware interaction still counts during an asynchronous writer.
         if (
-          event.isTrusted &&
-          (!writing ||
-            ["pointerdown", "keydown", "paste"].includes(event.type)) &&
-          root.contains(target) &&
-          (target.closest?.(
-            'input,textarea,select,button,[contenteditable="true"],[role="combobox"],[role="radio"],[role="checkbox"]',
-          ) ||
-            JobsControlFields?.component(target))
+          !event.isTrusted ||
+          (writing &&
+            !["pointerdown", "keydown", "paste"].includes(event.type)) ||
+          !root.contains(target) ||
+          (event.type === "keydown" && passive.has(event.key))
         )
-          cancel("填写时用户输入已变化，停止继续", "user_input");
+          return;
+        const control =
+          target.closest?.(
+            'input,textarea,select,button,[contenteditable="true"],[role="combobox"],[role="radio"],[role="checkbox"]',
+          ) || (JobsControlFields?.component(target) ? target : null);
+        if (!control) return;
+        const book = JobsFormPipeline?.ledgerFor(root);
+        if (book?.take(control, operatorDecider(JobsOperator?.read().mode)))
+          return;
+        // No listed field holds it: a button press acts on the page; another
+        // control the run never writes does not concern it.
+        if (book && !control.closest(pressable)) return;
+        cancel("填写时用户输入已变化，停止继续", "user_input");
       };
       const listen = (enabled) => {
         if (watching === enabled) return;

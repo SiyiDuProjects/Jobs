@@ -52,19 +52,21 @@ export function shape(row) {
   ]);
 }
 
-export function automaticFillPolicy(root, reader) {
+export function automaticFillPolicy(root, reader, book = null) {
   const selector = JobsPlatformConfig.detect(
     root.ownerDocument || root,
   ).requiredOnlyAutofill;
   // Bindings and supplemental answers use the same scanner's requiredness.
   // Re-read for bindings so conditional changes are not frozen at run start.
+  // A field the page's operator took over is theirs for the rest of the run.
   return (node, field = null) =>
-    !selector ||
-    !node.closest(selector) ||
-    (
-      field ||
-      reader
-        .scan()
-        .find((row) => row.node === node || row.group?.includes(node))?.public
-    )?.required === true;
+    !book?.taken(node) &&
+    (!selector ||
+      !node.closest(selector) ||
+      (
+        field ||
+        reader
+          .scan()
+          .find((row) => row.node === node || row.group?.includes(node))?.public
+      )?.required === true);
 }

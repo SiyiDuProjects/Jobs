@@ -212,6 +212,8 @@ export function initializeControlContent() {
             return {
               ...field,
               ...(row.public.type === "file" ? {} : { value: row.raw }),
+              // Who decided this field and why it was left, from the run's ledger.
+              outcome: JobsFormPipeline.outcome(row.node),
             };
           })
           .slice(0, 150),

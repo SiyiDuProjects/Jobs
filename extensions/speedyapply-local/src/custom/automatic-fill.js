@@ -541,7 +541,9 @@ export function initializeAutomaticFill() {
       const reader = JobsControlFields.create(document, () => root, {
         write: true,
       });
-      const canFill = automaticFillPolicy(root, reader);
+      // Every field's progress lives in this one ledger (JobsFormPipeline.ledger).
+      const book = JobsFormPipeline.ledger(root);
+      const canFill = automaticFillPolicy(root, reader, book);
       const operation = JobsOperationContext.create({
         root,
         profile,
@@ -565,8 +567,6 @@ export function initializeAutomaticFill() {
         structuralScans = JobsControlFields.structuralScans?.() || 0;
       // The adapter already fetched the Profile; reuse this step's bound snapshot.
       const binding = () => operation.verify({ fresh: false });
-      // Every field's progress lives in this one ledger (JobsFormPipeline.ledger).
-      const book = JobsFormPipeline.ledger(root);
       const literal = (answer) =>
         JobsProfileAnswers.literalSpec("known-answer", answer);
       const isCheckbox = (row) =>
@@ -582,7 +582,7 @@ export function initializeAutomaticFill() {
         JobsAIReview.add(root, reader, row, { ...options, defer: autoConfirm });
       }
       const leave = (row, reason, options = {}) => {
-        note("auto_needs_input", row.node, reason);
+        if (!book.leave(row, reason)) return;
         toCard(row, {
           needsInput: true,
           source: "unknown",
@@ -591,8 +591,7 @@ export function initializeAutomaticFill() {
         });
       };
       function omit(row, answer) {
-        note("auto_field_omitted", row.node, answer.reason);
-        book.entry(row).state = "omitted";
+        if (!book.omit(row, answer.reason, answer.interruptionReason)) return;
         toCard(row, {
           omitted: true,
           source: answer.source,
@@ -694,9 +693,10 @@ export function initializeAutomaticFill() {
         // settle includes navigation authorization and revalidates its snapshot.
         // Keep the accepted barrier and click in one synchronous continuation.
         if (!ready()) throw Error("仍有必填、校验错误或不支持的控件");
-        if (hold) {
+        // A field its operator took over hands the page back to them as well.
+        if (hold || book.handedOver()) {
           flow.block();
-          note("auto_navigation_held", null, hold);
+          note("auto_navigation_held", null, hold || "operator_took_field");
           setMessage("complete-manually");
           return false;
         }
@@ -1051,7 +1051,7 @@ export function initializeAutomaticFill() {
               continue;
             }
             if (answer.kind === "unknown") {
-              leave(row, rationale, {
+              leave(row, answer.interruptionReason || "answer_unknown", {
                 source: undefined,
                 questionZh: answer.questionZh,
                 reason: answer.reasonZh,

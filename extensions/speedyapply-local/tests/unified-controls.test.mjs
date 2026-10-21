@@ -274,12 +274,14 @@ for (const entry of ["binding", "reader", "ai", "remote"])
         const page = h.inspect();
         assert(page.actions.includes("fill_answers"));
         // Public protocol remains exact; component details travel in diagnostics.
+        // The ledger outcome says who decided the field and why it was left.
         assert.deepEqual(
           Object.keys(page.fields[0]).sort(),
           [
             "filled",
             "id",
             "invalid",
+            "outcome",
             "question",
             "required",
             "supported",

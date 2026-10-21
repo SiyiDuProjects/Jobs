@@ -19,6 +19,18 @@ export async function generateContracts() {
       JSON.stringify(rules) +
       ";}\n",
   );
+  const outcome = JSON.parse(
+    await fs.readFile(
+      new URL("jobs_radar/field_outcome.json", service),
+      "utf8",
+    ),
+  );
+  await fs.writeFile(
+    new URL("src/custom/field-outcome-vocabulary.js", root),
+    "// Generated from jobs_radar/field_outcome.json. Do not edit.\nexport const JobsFieldOutcomeVocabulary=" +
+      JSON.stringify(outcome) +
+      ";\n",
+  );
   const brand = JSON.parse(
     await fs.readFile(new URL("config/brand.json", service), "utf8"),
   );

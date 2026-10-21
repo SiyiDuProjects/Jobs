@@ -930,3 +930,52 @@ test("answer usage is journaled as bounded counters without personal text", asyn
     h.close();
   }
 });
+
+test("a page outcome carries each field's ledger outcome and keeps updating until the page ends", async () => {
+  const h = harness(
+    "<label>Major<input required></label><label>Minor<input required></label>",
+  );
+  try {
+    await h.start();
+    const form = h.doc.querySelector("form");
+    h.w.bindCorpusPage(
+      form,
+      { profileName: "Synthetic" },
+      h.w.JobsControlFields.create(h.doc),
+      () => false,
+    );
+    const [major, minor] = h.doc.querySelectorAll("input");
+    const book = h.w.JobsFormPipeline.ledger(form);
+    book.take(major, "user");
+    major.value = "Typed by the person";
+    h.actual().setMessage("complete-required");
+    await new Promise((r) => setTimeout(r, 260));
+    const pages = () =>
+      h.sent.filter((m) => m.type === "jobs:corpus-page" && m.failure);
+    const first = pages().at(-1).failure;
+    assert.equal(typeof first.observedAt, "number");
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(Object.values(first.outcomes))),
+      [{ state: "decided", by: "user", taken: true }, { state: "open" }],
+    );
+    assert(!JSON.stringify(pages()).includes("Typed by the person"));
+    // The page is complete now, but its outcome entry still follows it.
+    const before = pages().length;
+    book.take(minor, "agent");
+    minor.value = "Typed by the agent";
+    h.actual().setMessage("page-complete");
+    await new Promise((r) => setTimeout(r, 260));
+    assert(pages().length > before);
+    const last = pages().at(-1).failure;
+    assert.equal(last.runId, first.runId);
+    assert.equal(last.documentId, first.documentId);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(Object.values(last.outcomes))).map(
+        (item) => item.by,
+      ),
+      ["user", "agent"],
+    );
+  } finally {
+    h.close();
+  }
+});

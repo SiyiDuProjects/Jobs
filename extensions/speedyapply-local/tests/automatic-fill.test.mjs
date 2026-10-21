@@ -1765,3 +1765,181 @@ for (const scenario of [
       h.close();
     }
   });
+
+// The operator's trusted edits, delivered the way the page delivers them: to
+// the run's own document listener (JSDOM cannot dispatch trusted events).
+function operatorInput(h) {
+  const handlers = [];
+  const add = h.w.document.addEventListener.bind(h.w.document);
+  h.w.document.addEventListener = (type, handler, ...rest) => {
+    if (handler.name === "changed") handlers.push([type, handler]);
+    return add(type, handler, ...rest);
+  };
+  return (target, type = "pointerdown", trusted = true) => {
+    for (const [kind, handler] of handlers)
+      if (kind === type)
+        handler({ isTrusted: trusted, type, target, key: "y" });
+  };
+}
+// Ledger outcomes come from the page realm; compare their values.
+const outcomeOf = (h, node) =>
+  JSON.parse(JSON.stringify(h.w.JobsFormPipeline.outcome(node)));
+const choice = (name) =>
+  `<label>${name}*<select required><option value="">Select</option><option value="x">X</option><option value="y">Y</option></select></label>`;
+const profileAnswers = (message) =>
+  message.fields.map((field) =>
+    confirmedAnswer(field, { ...reply(field, "x"), source: "profile" }),
+  );
+
+for (const [mode, by] of [
+  ["person", "user"],
+  ["agent", "agent"],
+  ["page-tool", "page-tool"],
+])
+  test(`a ${mode} edit of one field keeps it, fills the others and hands the page back`, async () => {
+    let edit;
+    const h = setup(
+      choice("Major") + choice("Minor") + choice("School"),
+      async (message, w) => {
+        const minor = w.document.querySelectorAll("select")[1];
+        edit(minor);
+        minor.value = "y";
+        return profileAnswers(message);
+      },
+    );
+    h.w.JobsOperator.update({ mode, epoch: "operator-" + mode, since: 2 });
+    edit = operatorInput(h);
+    try {
+      // Answers confirm automatically, so only the takeover holds navigation.
+      assert.equal(await h.run({ autoConfirm: true }), false);
+      const [major, minor, school] = h.w.document.querySelectorAll("select");
+      assert.deepEqual(
+        [major.value, minor.value, school.value],
+        ["x", "y", "x"],
+      );
+      assert.equal(h.clicks(), 0);
+      assert.deepEqual(outcomeOf(h, minor), {
+        state: "decided",
+        by,
+        taken: true,
+      });
+      const answered = outcomeOf(h, major);
+      assert.equal(answered.by, "ai");
+      assert.equal(answered.taken, undefined);
+      assert(
+        h.events.some(
+          ([type, , detail]) =>
+            type === "auto_navigation_held" && detail === "operator_took_field",
+        ),
+      );
+    } finally {
+      h.close();
+    }
+  });
+
+test("an edit of the field being written stops only that writer and keeps the edit", async () => {
+  let edit;
+  const h = setup(choice("Major") + choice("Minor"), async (message) =>
+    profileAnswers(message),
+  );
+  edit = operatorInput(h);
+  const [major, minor] = h.w.document.querySelectorAll("select");
+  let interrupted = false;
+  major.addEventListener("change", () => {
+    if (interrupted || major.value !== "x") return;
+    interrupted = true;
+    edit(major);
+    major.value = "y";
+  });
+  try {
+    assert.equal(await h.run(), false);
+    assert(interrupted);
+    assert.deepEqual([major.value, minor.value], ["y", "x"]);
+    assert.deepEqual(outcomeOf(h, major), {
+      state: "decided",
+      by: "user",
+      from: "ai",
+      taken: true,
+    });
+    assert(h.events.some(([type]) => type === "auto_write_superseded"));
+    assert.equal(h.clicks(), 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("a field cleared while AI is pending stays empty; an untrusted input changes nothing", async () => {
+  let edit;
+  const h = setup(choice("Major") + choice("Minor"), async (message, w) => {
+    const [major, minor] = w.document.querySelectorAll("select");
+    edit(major, "pointerdown", false);
+    edit(minor, "keydown");
+    minor.value = "";
+    return profileAnswers(message);
+  });
+  edit = operatorInput(h);
+  try {
+    assert.equal(await h.run(), false);
+    const [major, minor] = h.w.document.querySelectorAll("select");
+    assert.deepEqual([major.value, minor.value], ["x", ""]);
+    assert.equal(outcomeOf(h, major).taken, undefined);
+    assert.equal(outcomeOf(h, minor).taken, true);
+    assert.equal(h.clicks(), 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("pressing a form button still stops the whole run before any answer is written", async () => {
+  let edit;
+  const h = setup(
+    choice("Major") + '<button type="button" id="add">Add another</button>',
+    async (message, w) => {
+      edit(w.document.getElementById("add"));
+      return profileAnswers(message);
+    },
+  );
+  edit = operatorInput(h);
+  try {
+    assert.equal(await h.run(), false);
+    assert.equal(h.w.document.querySelector("select").value, "");
+    assert.equal(h.clicks(), 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("navigation keys and a radio member edit act on the canonical field only", async () => {
+  let edit;
+  const h = setup(
+    choice("Major") +
+      '<fieldset><legend>Language*</legend><label>Python<input name="lang" type="radio" value="python" required></label><label>Java<input name="lang" type="radio" value="java"></label></fieldset>',
+    async (message, w) => {
+      const [, java] = w.document.querySelectorAll("input[type=radio]");
+      edit(w.document.querySelector("select"), "keydown");
+      java.checked = true;
+      edit(java);
+      return message.fields.map((field) =>
+        confirmedAnswer(field, {
+          ...reply(field, field.type === "radio" ? "python" : "x"),
+          source: "profile",
+        }),
+      );
+    },
+  );
+  edit = (() => {
+    const deliver = operatorInput(h);
+    return (target, type) =>
+      type === "keydown"
+        ? deliver(target, type) // key "y" edits; Tab would not
+        : deliver(target);
+  })();
+  try {
+    await h.run();
+    const [python, java] = h.w.document.querySelectorAll("input[type=radio]");
+    assert.equal(java.checked, true);
+    assert.equal(python.checked, false);
+  } finally {
+    h.close();
+  }
+});

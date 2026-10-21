@@ -35,6 +35,7 @@ test("diagnostics viewer renders records as text and refreshes without requestin
           answer: "found",
           attempts: 1,
           observedEvents: ["input"],
+          outcome: { state: "decided", by: "user", from: "ai", taken: true },
         },
       ],
       unansweredContainers: [],
@@ -96,6 +97,10 @@ test("diagnostics viewer renders records as text and refreshes without requestin
       /最近失败：记录列表不符合服务限制（HTTP 400）/,
     );
     assert.match(w.document.getElementById("fields").textContent, /<img/);
+    assert.match(
+      w.document.getElementById("fields").textContent,
+      /你已定（网页上直接改），替换AI/,
+    );
     assert.equal(w.document.querySelectorAll("tbody img").length, 0);
     assert.match(
       w.document.getElementById("events").textContent,

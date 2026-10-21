@@ -102,6 +102,7 @@ export function mountDiagnosticsView() {
                       "题目",
                       "类型",
                       "状态",
+                      "填写结局",
                       "答案匹配",
                       "动作 / 事件",
                     ].map((label) => (

@@ -106,6 +106,27 @@ export function captureCorpusPage(correctionNode = null, failure = null) {
                         : [],
                     ),
                   ),
+                  // One outcome per page of a run: the service keeps the latest.
+                  ...(failure.outcomes
+                    ? {
+                        observedAt: failure.observedAt,
+                        outcomes: Object.fromEntries(
+                          rows.flatMap((row, index) =>
+                            Object.hasOwn(failure.outcomes, row.public.id) &&
+                            value.fields.some(
+                              (field) => field.id === "field-" + (index + 1),
+                            )
+                              ? [
+                                  [
+                                    "field-" + (index + 1),
+                                    failure.outcomes[row.public.id],
+                                  ],
+                                ]
+                              : [],
+                          ),
+                        ),
+                      }
+                    : {}),
                 },
               }
             : {}),

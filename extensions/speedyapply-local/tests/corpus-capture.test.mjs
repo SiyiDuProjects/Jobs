@@ -251,3 +251,88 @@ test("failure pages require a server failure acknowledgement and private UI acce
     dom.window.close();
   }
 });
+
+test("an unacknowledged page outcome is kept per page, retried, and replaced by a newer state", async () => {
+  const dom = readerWindow();
+  try {
+    const w = dom.window;
+    let listener, alarm;
+    let accepted = false;
+    const requests = [],
+      stored = {},
+      alarms = new Set();
+    Object.defineProperty(w, "crypto", { value: webcrypto });
+    w.chrome = {
+      runtime: {
+        id: "extension",
+        getURL: (path) => "chrome-extension://extension/" + path,
+        onMessage: { addListener: (fn) => (listener = fn) },
+      },
+      storage: {
+        local: {
+          get: async (key) => (key in stored ? { [key]: stored[key] } : {}),
+          set: async (value) => Object.assign(stored, structuredClone(value)),
+          remove: async (key) => delete stored[key],
+        },
+      },
+      alarms: {
+        create: (name) => alarms.add(name),
+        clear: (name) => alarms.delete(name),
+        onAlarm: { addListener: (fn) => (alarm = fn) },
+      },
+    };
+    w.JobsSync = {
+      corpusRequest: async (_method, body) => {
+        requests.push(body);
+        if (!accepted) throw Error("offline");
+        return { stored: true, failureId: "outcome-1" };
+      },
+    };
+    w.eval(
+      await readModule(
+        new URL("../src/custom/corpus-background.js", import.meta.url),
+        "utf8",
+      ),
+    );
+    w.initializeCorpusBackground();
+    const sender = {
+      id: "extension",
+      tab: { id: 8 },
+      url: "https://jobs.ashbyhq.com/example/job",
+    };
+    const outcome = (observedAt, by) => ({
+      type: "jobs:corpus-page",
+      value: seedCorpus()[0].page,
+      failure: {
+        runId: "run-1",
+        documentId: "doc-1",
+        fieldIds: ["field-1"],
+        reason: "incomplete",
+        outcomes: { "field-1": { state: "decided", by, taken: true } },
+        observedAt,
+      },
+    });
+    const send = (msg) =>
+      new Promise((resolve) => listener(msg, sender, resolve));
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+    const pending = () => stored.jobsCorpusOutcomeRetryV1 || {};
+    assert((await send(outcome(1, "user"))).error);
+    assert.deepEqual(Object.keys(pending()), ["run-1|doc-1"]);
+    assert(alarms.has("jobs-corpus-outcomes"));
+    accepted = true;
+    alarm({ name: "jobs-corpus-outcomes" });
+    await settle();
+    assert.deepEqual(pending(), {});
+    assert(!alarms.has("jobs-corpus-outcomes"));
+    assert.equal(requests.at(-1).failure.observedAt, 1);
+    accepted = false;
+    assert((await send(outcome(2, "user"))).error);
+    accepted = true;
+    assert.equal((await send(outcome(3, "agent"))).data.failureId, "outcome-1");
+    await settle();
+    assert.deepEqual(pending(), {});
+    assert.equal(requests.at(-1).failure.observedAt, 3);
+  } finally {
+    dom.window.close();
+  }
+});

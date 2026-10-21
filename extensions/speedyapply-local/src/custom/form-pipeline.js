@@ -4,6 +4,7 @@ import { JobsPageActions } from "./page-actions.js";
 import { JobsControlFields } from "./control-fields.js";
 import { JobsDOMWait } from "./dom-wait.js";
 import { JobsPageCommit } from "./page-commit.js";
+import { fieldOutcome, outcomeReason, takenBy } from "./field-outcome.js";
 export var JobsFormPipeline;
 let initialized = false;
 export function initializeFormPipeline() {
@@ -16,7 +17,8 @@ export function initializeFormPipeline() {
     let diagnosticOperation = 0;
     let active = null,
       fillTail = Promise.resolve(undefined);
-    const ledgers = new WeakMap();
+    const ledgers = new WeakMap(),
+      roots = new Set();
     // A field outlives its element; the scanner owns that rule (JobsControlFields.follow).
     const fieldKey = (row) => JobsControlFields.fieldKey(row);
     const follow = (rows, node, key) =>
@@ -40,13 +42,19 @@ export function initializeFormPipeline() {
     // that cannot match or keep its value abstains and the next layer (AI, then
     // the person) decides instead.
     //   state    open | claimed | decided | abstained | omitted
-    //   decider  binding:<name> | rule | saved | ai | user
+    //   decider  binding:<name> | rule | saved | ai | remote | user | agent
+    //   reason   why the field was left (field-outcome.js code), or null
+    //   from     the automatic decider the person or AI operator replaced
+    //   revision changes on every claim or takeover; a writer lands its result
+    //            only on the claim it started with
+    //   taken    the page's operator edited the field on the page itself
     //   ruled    the rules were asked         aiTried  sent to AI and not obsolete
     //   hint     the rules' decision, for reading the field's options later
     //   confirm  a missing explicit fact requires review of an AI proposal
     //   card     {shape} while the field is on the review card
     function ledger(root) {
-      const records = new Map();
+      const records = new Map(),
+        takenNodes = new WeakMap();
       const scan = () =>
         JobsControlFields.create(root.ownerDocument || root, () => root).scan();
       const create = (node, key = null) => {
@@ -61,6 +69,10 @@ export function initializeFormPipeline() {
           aiTried: false,
           confirm: false,
           card: null,
+          reason: null,
+          from: null,
+          revision: 0,
+          taken: false,
         };
         records.set(node, record);
         return record;
@@ -142,12 +154,14 @@ export function initializeFormPipeline() {
           }
           record.state = "claimed";
           record.decider = decider;
+          record.revision++;
           return record;
         },
         decide(node, decider) {
           const record = book.get(node);
           record.state = "decided";
           record.decider = decider;
+          record.reason = null;
           JobsDiagnostics?.trace?.(record.node, {
             decider,
             source: decider,
@@ -158,6 +172,7 @@ export function initializeFormPipeline() {
           const record = book.get(node);
           record.state = "abstained";
           record.decider = decider;
+          record.reason = outcomeReason(reason) || "other";
           // A failed write does not make a later answer uncertain. The next
           // writer must still keep its value; AI and missing-fact review decide
           // confirmation independently of this past failure.
@@ -167,6 +182,61 @@ export function initializeFormPipeline() {
             decider + ": " + String(reason || "").slice(0, 120),
           );
         },
+        // The page's operator (the person or an AI operator) is editing this
+        // field on the page itself. The field is theirs for the rest of the
+        // run: a pending writer stops on it and later automatic answers skip
+        // it. A replaced automatic decision stays as `from`. A node inside a
+        // field (a widget's inner input or option) belongs to that field; a
+        // control no reader lists is not a field and is ignored.
+        take(node, by) {
+          let record = known(node) || takenNodes.get(node);
+          if (!record?.node.isConnected) {
+            const rows = scan();
+            followAll(rows);
+            let row = null;
+            for (let current = node; current && !row;) {
+              row = rows.find((item) => holds(item, current)) || null;
+              current = current.parentNode || current.host || null;
+            }
+            if (!row) return null;
+            record = known(row.node) || create(row.node, fieldKey(row));
+            takenNodes.set(node, record);
+          }
+          if (record.taken && record.decider === by) return record;
+          if (
+            ["claimed", "decided"].includes(record.state) &&
+            !takenBy(record.decider)
+          )
+            record.from = record.decider;
+          record.state = "decided";
+          record.decider = by;
+          record.reason = null;
+          record.revision++;
+          record.taken = true;
+          note("auto_field_taken", record.node, by);
+          return record;
+        },
+        // The field is left to the person for this reason, unless its
+        // operator already took it over.
+        leave(row, reason) {
+          const record = book.entry(row);
+          if (record.taken) return false;
+          record.reason = outcomeReason(reason) || "other";
+          note("auto_needs_input", record.node, reason);
+          return true;
+        },
+        // An answer layer chose not to answer the field.
+        omit(row, detail, reason) {
+          const record = book.entry(row);
+          if (record.taken) return false;
+          note("auto_field_omitted", record.node, detail);
+          record.state = "omitted";
+          record.reason = outcomeReason(reason);
+          return true;
+        },
+        taken: (node) => book.peek(node)?.taken === true,
+        handedOver: () => [...records.values()].some((record) => record.taken),
+        outcome: (node) => fieldOutcome(book.peek(node)),
         // Automatic and agent answers are not saved again as the person's own
         // answers, including a field whose element the page has since replaced.
         answered() {
@@ -185,9 +255,22 @@ export function initializeFormPipeline() {
         },
       };
       ledgers.set(root, book);
+      roots.add(root);
       return book;
     }
     const ledgerFor = (root) => ledgers.get(root) || null;
+    // The outcome of the field holding this node, from the ledger of the live
+    // form that contains it. A field no run has touched is open.
+    function outcome(node) {
+      for (const root of roots) {
+        if (!root.isConnected || !ledgers.has(root)) {
+          roots.delete(root);
+          continue;
+        }
+        if (inScope(root, node)) return ledgers.get(root).outcome(node);
+      }
+      return fieldOutcome(null);
+    }
     function answered(root) {
       return ledgerFor(root)?.answered() || new Set();
     }
@@ -251,14 +334,21 @@ export function initializeFormPipeline() {
         result: "started",
         total: answer.specs?.length || 1,
       });
+      let claim;
       try {
-        book?.claim(node, decider, { replace });
+        claim = book?.claim(node, decider, { replace });
       } catch (error) {
         if (!act().live(canProceed)) throw error;
         // Refuse the second writer without replacing the first field's ledger
         // entry or aborting unrelated bindings in this page.
         return { ok: false, reason: String(error.message || error) };
       }
+      // The page's operator can take this field while it is being written:
+      // this writer then stops on the field only, and the run goes on.
+      const revision = claim?.revision,
+        owned = () => !claim || claim.revision === revision,
+        run = canProceed;
+      canProceed = () => owned() && run();
       const started = Date.now(),
         scans = JobsControlFields.scans?.() || 0;
       let written = null,
@@ -393,7 +483,7 @@ export function initializeFormPipeline() {
         heldMs = Date.now() - holding;
       } catch (error) {
         evidence({ stage: "write", result: "failed", reason: "exception" });
-        if (!act().live(canProceed)) throw error;
+        if (!act().live(run)) throw error;
         written = null;
         why = String(error?.message || error);
       }
@@ -409,6 +499,11 @@ export function initializeFormPipeline() {
         book.stats.ms += cost.ms;
         book.stats.heldMs += cost.heldMs;
         book.stats.scans += cost.scans;
+      }
+      // Its result belongs to the operator who took the field, not this writer.
+      if (!owned()) {
+        note("auto_write_superseded", node, String(decider));
+        return { ok: false, reason: "taken" };
       }
       evidence({
         stage: "write",
@@ -732,7 +827,11 @@ export function initializeFormPipeline() {
       live,
       ledger,
       ledgerFor,
-      release: (root) => ledgers.delete(root),
+      outcome,
+      release: (root) => {
+        roots.delete(root);
+        return ledgers.delete(root);
+      },
       answered,
     });
   })();

@@ -8,6 +8,8 @@ import { captureCorpusFailure } from "./corpus-content.js";
 import { JobsControlConfig } from "./control-config.js";
 import { JobsPlatformConfig } from "./platform-config.js";
 import { historyEventMetrics } from "./history-event-metrics.js";
+import { JobsFormPipeline } from "./form-pipeline.js";
+import { handedOver } from "./field-outcome.js";
 export var JobsDiagnostics;
 let initialized = false;
 export function initializeDiagnostics() {
@@ -61,6 +63,9 @@ export function initializeDiagnostics() {
       lastUnrecognized = [],
       lastCaseSignature = "",
       lastCaseAttempt = null,
+      // The page outcome this document already reported in this run. It keeps
+      // updating the same service entry until the page ends.
+      trackedCase = "",
       profileEvent = null;
     // Job paths are public identifiers (Greenhouse job numbers, Ashby/Lever UUIDs).
     // Mask only an email or a long opaque segment, one segment at a time, so the
@@ -438,6 +443,8 @@ export function initializeDiagnostics() {
           status,
           attempts: record.attempts,
           answer,
+          // The run's own record of this field: who decided it, why it was left.
+          outcome: JobsFormPipeline?.outcome?.(node) || { state: "open" },
           ...(record.decision ? { decision: record.decision } : {}),
           ...(record.writeDecision
             ? { writeDecision: record.writeDecision }
@@ -595,7 +602,9 @@ export function initializeDiagnostics() {
           /^(complete-required|complete-manually|site-error|ai-review)$/.test(
             report.phase,
           ) ||
-          report.unansweredContainers.length
+          report.unansweredContainers.length ||
+          trackedCase === report.sessionId + "|" + report.runId ||
+          report.fields.some((field) => field.outcome?.taken)
         )
           void saveCase(report).catch(() => {});
       } catch {
@@ -894,7 +903,7 @@ export function initializeDiagnostics() {
       const signature = stableStringify([
         report.sessionId,
         report.step,
-        report.fields.map((f) => [f.id, f.completion, f.attempts]),
+        report.fields.map((f) => [f.id, f.completion, f.attempts, f.outcome]),
         report.unansweredContainers.map((u) => u.question),
         report.events
           .filter((e) => e.type === "answer_decision")
@@ -908,17 +917,22 @@ export function initializeDiagnostics() {
       )
         return null;
       lastCaseAttempt = { signature, at: Date.now() };
+      // Fields the plugin did not complete itself, with their ledger outcome.
+      const failed = report.fields.filter(
+        (f) =>
+          f.invalid ||
+          (f.required && !f.hasValue) ||
+          f.status === "attempted_still_empty" ||
+          handedOver(f.outcome),
+      );
       const result = await captureCorpusFailure({
         runId: report.runId,
         documentId: report.sessionId,
-        fieldIds: report.fields
-          .filter(
-            (f) =>
-              f.invalid ||
-              (f.required && !f.hasValue) ||
-              f.status === "attempted_still_empty",
-          )
-          .map((f) => f.id),
+        fieldIds: failed.map((f) => f.id),
+        outcomes: Object.fromEntries(
+          failed.map((f) => [f.id, f.outcome || { state: "open" }]),
+        ),
+        observedAt: report.observedAt,
         reason: force
           ? "manual_report"
           : report.unansweredContainers.length
@@ -927,7 +941,10 @@ export function initializeDiagnostics() {
               ? "site_error"
               : "incomplete",
       });
-      if (result?.captured) lastCaseSignature = signature;
+      if (result?.captured) {
+        lastCaseSignature = signature;
+        trackedCase = report.sessionId + "|" + report.runId;
+      }
       return result;
     }
 
