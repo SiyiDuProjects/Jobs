@@ -169,14 +169,23 @@ class QuestionCorpus:
         if fingerprint != digest({k: page[k] for k in ('trees', 'fields')}): raise ValueError('Corpus fingerprint mismatch')
         if failure is not None:
             from .validation import shape, text, sequence
-            shape(failure, ('runId', 'documentId', 'fieldIds', 'reason'), ('fieldLinks',))
+            shape(failure, ('runId', 'documentId', 'fieldIds', 'reason'), ('fieldLinks', 'outcomes', 'observedAt'))
             field_ids = sorted(set(text(key, 20) for key in sequence(failure['fieldIds'], 300)))
             links = failure.get('fieldLinks', {})
             if not isinstance(links, dict) or set(links) - set(field_ids) or any(not isinstance(v, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,80}', v) for v in links.values()):
                 raise ValueError('Invalid corpus event field links')
+            outcomes = failure.get('outcomes')
+            if outcomes is not None:
+                from .field_outcome import outcome
+                from .validation import integer
+                if not isinstance(outcomes, dict) or set(outcomes) - set(field_ids) or 'observedAt' not in failure:
+                    raise ValueError('Invalid corpus field outcomes')
+                outcomes = {key: outcome(value) for key, value in sorted(outcomes.items())}
+                observed = integer(failure['observedAt'], int(time.time() * 1000) + 60_000, 1)
             failure = {**{key: text(failure[key], 128) for key in ('runId', 'documentId')},
                        'fieldIds': field_ids,
-                       'reason': text(failure['reason'], 40), 'fieldLinks': links}
+                       'reason': text(failure['reason'], 40), 'fieldLinks': links,
+                       **({'outcomes': outcomes, 'observedAt': observed} if outcomes is not None else {})}
             if failure['reason'] not in {'incomplete', 'site_error', 'unrecognized_control', 'manual_report'}:
                 raise ValueError('Invalid corpus failure reason')
             if set(failure['fieldIds']) - {field['id'] for field in page['fields']}:
@@ -195,7 +204,18 @@ class QuestionCorpus:
             if stored:
                 stored_page = dict(page, quality=quality(page))
                 stored = c.execute('INSERT OR IGNORE INTO corpus_pages VALUES(?,?,?)', (fingerprint, zlib.compress(encoded(stored_page), 9), time.time())).rowcount == 1
-            if failure:
+            if failure and 'outcomes' in failure:
+                # One outcome per page of a run. A later observed state of the
+                # same page replaces it; a delayed retry of an older one does not.
+                ident = digest(['outcome', failure['runId'], failure['documentId']])
+                c.execute('''INSERT INTO corpus_failures(id,page_id,run_id,document_id,field_ids,reason,created) VALUES(?,?,?,?,?,?,?)
+                             ON CONFLICT(id) DO UPDATE SET page_id=excluded.page_id,field_ids=excluded.field_ids,reason=excluded.reason
+                             WHERE json_extract(excluded.field_ids,'$.observedAt')>=coalesce(json_extract(corpus_failures.field_ids,'$.observedAt'),0)''',
+                          (ident, fingerprint, failure['runId'], failure['documentId'],
+                           encoded({'ids': failure['fieldIds'], 'links': links, 'outcomes': failure['outcomes'],
+                                    'observedAt': failure['observedAt']}).decode(),
+                           failure['reason'], time.time()))
+            elif failure:
                 ident = digest([fingerprint, failure])
                 c.execute('INSERT OR IGNORE INTO corpus_failures(id,page_id,run_id,document_id,field_ids,reason,created) VALUES(?,?,?,?,?,?,?)',
                           (ident, fingerprint, failure['runId'], failure['documentId'], encoded({'ids': failure['fieldIds'], 'links': links}).decode(), failure['reason'], time.time()))
@@ -218,9 +238,44 @@ class QuestionCorpus:
             return [dict(id=r['id'], pageId=r['page_id'], runId=r['run_id'], documentId=r['document_id'],
                          fieldIds=fields['ids'] if isinstance(fields, dict) else fields,
                          fieldLinks=fields.get('links', {}) if isinstance(fields, dict) else {},
+                         **({'outcomes': fields['outcomes']} if isinstance(fields, dict) and 'outcomes' in fields else {}),
                          reason=r['reason'], at=int(r['created'] * 1000), resolved=bool(r['resolved']))
                     for r in c.execute('SELECT * FROM corpus_failures ORDER BY created DESC,id')
                     for fields in [json.loads(r['field_ids'])]]
+
+    def outcomes(self, run_id=None, limit=20):
+        """Recent page outcomes: each field the plugin did not complete itself, who
+        completed it and why it was left, with the redacted question structure."""
+        from .validation import text
+        if run_id is not None:
+            text(run_id, 128)
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('limit must be 1-100')
+        query = ("SELECT f.*,p.payload FROM corpus_failures f JOIN corpus_pages p ON p.id=f.page_id "
+                 "WHERE json_extract(f.field_ids,'$.outcomes') IS NOT NULL" + (' AND f.run_id=?' if run_id else '') +
+                 ' ORDER BY f.created DESC,f.id LIMIT ?')
+        pages, summary = [], {}
+        with self.store.connect() as c:
+            for r in c.execute(query, (run_id, limit) if run_id else (limit,)):
+                page, record = json.loads(zlib.decompress(r['payload'])), json.loads(r['field_ids'])
+                fields = {field['id']: field for field in page['fields']}
+                items = []
+                for ident, result in record['outcomes'].items():
+                    field = fields.get(ident, {})
+                    items.append({'field': ident, 'question': field.get('question', ''), 'type': field.get('type', ''),
+                                  'required': bool(field.get('required')), 'options': len(field.get('options') or []), **result})
+                    key = (page.get('platform', ''), field.get('type', ''), result.get('by', ''), result.get('reason', ''))
+                    summary[key] = summary.get(key, 0) + 1
+                pages.append({'id': r['id'], 'runId': r['run_id'], 'documentId': r['document_id'],
+                              'platform': page.get('platform', ''), 'company': page.get('company', ''),
+                              'jobIdentity': page.get('jobIdentity', ''), 'step': page.get('step', ''),
+                              'build': page.get('build', ''), 'at': int(r['created'] * 1000), 'reason': r['reason'],
+                              'resolved': bool(r['resolved']), 'fields': items})
+        return {'pages': pages,
+                'summary': [dict(platform=k[0], type=k[1], by=k[2], reason=k[3], count=n)
+                            for k, n in sorted(summary.items(), key=lambda item: (-item[1], item[0]))],
+                'notice': 'One entry per page of a run, updated until the page ended. Fields list only what the plugin '
+                          'did not complete itself. Redacted structure, no answer values; summary covers the returned pages only.'}
 
     def resolve_failure(self, ident, resolved):
         if type(resolved) is not bool: raise ValueError('Invalid corpus resolution')

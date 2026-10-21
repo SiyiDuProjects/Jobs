@@ -142,6 +142,23 @@ def create_server(store, origin=None):
         except sqlite3.OperationalError:
             raise ToolError('Diagnostic history storage is unavailable; service storage needs attention.') from None
 
+    from .question_corpus import QuestionCorpus
+    corpus = QuestionCorpus(store)
+
+    @operation_tool(annotations=read)
+    def get_page_outcomes(run_id: str | None = None, limit: int = 20) -> dict[str, Any]:
+        """Read recent per-page fill outcomes from the extension's field ledger, also after the page closed.
+        Each entry is one page of a run, updated until that page ended, and lists only fields the plugin did not
+        complete itself: who completed them (by: user, agent, page-tool, unknown operator), what an operator replaced
+        (from), and the reason a field was left. Pass run_id for one run; limit 1-100 (default 20). summary counts
+        platform x control type x by x reason over the returned pages. Redacted question structure, no answer values.
+        Not proof of submission."""
+        require('jobs:read')
+        try:
+            return corpus.outcomes(run_id, limit)
+        except ValueError as error:
+            raise ToolError(str(error)) from None
+
     @server.tool(annotations=write)
     def retain_browser_diagnostic(history_id: str, case_ref: str | None = None) -> dict[str, Any]:
         """Pin a redacted diagnostic run to an unresolved notes/...md case. Omit case_ref only after its fix is verified to release the retention hold."""

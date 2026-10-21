@@ -14,6 +14,7 @@ import uuid
 from urllib.parse import parse_qsl, urlsplit
 
 from .store import encoded
+from .field_outcome import outcome as field_outcome
 from . import event_log
 
 
@@ -46,7 +47,7 @@ def answer_value(value):
 
 
 def field(value):
-    shape(value, ('id', 'question', 'type', 'required', 'filled', 'invalid', 'supported'), ('options', 'value'))
+    shape(value, ('id', 'question', 'type', 'required', 'filled', 'invalid', 'supported'), ('options', 'value', 'outcome'))
     result = {key: text(value[key], 128 if key == 'id' else 2000 if key == 'question' else 40, empty=key == 'question')
               for key in ('id', 'question', 'type')}
     if value['type'] in {'password', 'hidden'}:
@@ -61,6 +62,8 @@ def field(value):
         if value['type'] == 'file':
             raise ValueError('File contents must not be reported')
         result['value'] = answer_value(value['value'])
+    if 'outcome' in value:
+        result['outcome'] = field_outcome(value['outcome'])
     return result
 
 

@@ -238,3 +238,59 @@ def test_identity_redaction_outside_questions_does_not_exclude_snapshot(tmp_path
     value['trees'][0]['children'].append({'text': 'Hello [private], [email]'})
     corpus.capture(fingerprint(value), value)
     assert corpus.export()['pages'][0]['page']['quality'] == {'excluded': False, 'reasons': []}
+
+
+def outcome_failure(observed, outcomes, field_ids=('field-1',)):
+    return dict(runId='run-7', documentId='document-7', fieldIds=list(field_ids), reason='incomplete',
+                fieldLinks={key: 'runtime-' + key for key in field_ids}, outcomes=outcomes, observedAt=observed)
+
+
+def test_page_outcome_is_one_entry_per_page_and_keeps_the_latest_state(tmp_path):
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    value = page()
+    key = fingerprint(value)
+    left = {'field-1': {'state': 'abstained', 'by': 'ai', 'reason': 'answer_unknown', 'review': True}}
+    taken = {'field-1': {'state': 'decided', 'by': 'agent', 'from': 'ai', 'taken': True}}
+    first = corpus.capture(key, value, outcome_failure(1_000, left))
+    second = corpus.capture(key, value, outcome_failure(2_000, taken))
+    # A delayed retry of the earlier state is acknowledged but changes nothing.
+    stale = corpus.capture(key, value, outcome_failure(1_500, left))
+    assert first['failureId'] == second['failureId'] == stale['failureId']
+    rows = [row for row in corpus.failures() if 'outcomes' in row]
+    assert len(rows) == 1 and rows[0]['outcomes'] == taken
+    read = corpus.outcomes()
+    assert [p['runId'] for p in read['pages']] == ['run-7']
+    item = read['pages'][0]['fields'][0]
+    assert item['question'] == value['fields'][0]['question'] and item['options'] == 2
+    assert (item['by'], item['from'], item['taken']) == ('agent', 'ai', True)
+    assert read['summary'] == [dict(platform='workday', type='radio', by='agent', reason='', count=1)]
+    assert corpus.outcomes('run-other')['pages'] == []
+
+
+def test_page_outcome_tolerates_new_codes_but_not_new_shapes(tmp_path):
+    corpus = QuestionCorpus(Store(tmp_path / 'corpus.sqlite'))
+    value = page()
+    key = fingerprint(value)
+    newer = {'field-1': {'state': 'later_state', 'by': 'later_layer', 'reason': 'later_reason'}}
+    corpus.capture(key, value, outcome_failure(1_000, newer))
+    assert corpus.failures()[0]['outcomes'] == {'field-1': {'state': 'open', 'by': 'other', 'reason': 'other'}}
+    with pytest.raises(ValueError):
+        corpus.capture(key, value, outcome_failure(1_000, {'field-1': {'state': 'open', 'answer': 'private'}}))
+    with pytest.raises(ValueError):
+        corpus.capture(key, value, outcome_failure(1_000, {'field-2': {'state': 'open'}}))
+    missing_time = outcome_failure(1_000, newer)
+    del missing_time['observedAt']
+    with pytest.raises(ValueError):
+        corpus.capture(key, value, missing_time)
+    with pytest.raises(ValueError):
+        corpus.outcomes(limit=0)
+
+
+def test_page_outcomes_are_a_read_only_native_tool_requiring_owner_scope(tmp_path):
+    import asyncio
+    from mcp.server.mcpserver.exceptions import ToolError
+    server = create_server(Store(tmp_path / 'tool.sqlite'), 'https://radar.test')
+    tool = next(t for t in asyncio.run(server.list_tools()) if t.name == 'get_page_outcomes')
+    assert tool.annotations.read_only_hint is True
+    with pytest.raises(ToolError):
+        asyncio.run(server.call_tool('get_page_outcomes', {}))

@@ -625,3 +625,16 @@ def test_unknown_submit_cannot_be_reconciled_as_a_next_step(subject):
     clock[0] += 1001
     with pytest.raises(ControlConflict, match='Possible submission'):
         control.reconcile('command-1', target(page()))
+
+
+def test_snapshot_field_outcome_is_validated_and_tolerates_new_codes():
+    from jobs_radar.browser_control import field
+    base = dict(id='f1', question='Degree', type='text', required=True, filled=True, invalid=False, supported=True)
+    assert field({**base, 'outcome': {'state': 'decided', 'by': 'user', 'from': 'ai', 'taken': True}})['outcome'] == \
+        {'state': 'decided', 'by': 'user', 'from': 'ai', 'taken': True}
+    assert field({**base, 'outcome': {'state': 'abstained', 'by': 'later', 'reason': 'later'}})['outcome'] == \
+        {'state': 'abstained', 'by': 'other', 'reason': 'other'}
+    with pytest.raises(ValueError):
+        field({**base, 'outcome': {'state': 'decided', 'value': 'private'}})
+    with pytest.raises(ValueError):
+        field({**base, 'outcome': {'state': 'decided', 'taken': 'yes'}})
