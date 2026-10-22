@@ -29,7 +29,45 @@ function useController(create, initial) {
   return [state, controller];
 }
 
+// Pages across all tabs whose answers wait for the person.
+function useWaitingPages() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let active = true,
+      timer;
+    const read = () =>
+      chrome.runtime
+        .sendMessage({ type: "jobs:console-read" })
+        .then((result) => {
+          if (active && !result?.error)
+            setCount(
+              (result?.data?.tabs || []).filter((tab) => tab.reviewPending)
+                .length,
+            );
+        })
+        .catch(() => {});
+    const changed = (message, sender) => {
+      if (
+        sender.id !== chrome.runtime.id ||
+        message?.type !== "jobs:panel-changed"
+      )
+        return;
+      clearTimeout(timer);
+      timer = setTimeout(read, 200);
+    };
+    chrome.runtime.onMessage.addListener(changed);
+    void read();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      chrome.runtime.onMessage.removeListener(changed);
+    };
+  }, []);
+  return count;
+}
+
 export function Popup() {
+  const waiting = useWaitingPages();
   const [versionNotice, setVersionNotice] = useState("");
   const [dialog, setDialog] = useState(null);
   useEffect(() => {
@@ -57,6 +95,18 @@ export function Popup() {
       <header className="popup-header">
         <strong className="popup-brand">jobs</strong>
         <div className="panel-actions popup-header-actions">
+          <Button
+            id="jobs-open-console"
+            size="sm"
+            variant={waiting ? "primary" : "secondary"}
+            onPress={() =>
+              void chrome.runtime
+                .sendMessage({ type: "jobs:console-open" })
+                .catch(() => {})
+            }
+          >
+            答题台{waiting ? ` · ${waiting}` : ""}
+          </Button>
           <a
             id="jobs-manage"
             className={buttonVariants({ variant: "secondary", size: "sm" })}

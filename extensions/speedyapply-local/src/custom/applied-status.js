@@ -14,6 +14,14 @@ export function detectAppliedStatus(doc = document) {
   return found ? { url: doc.location.href, quote: found.quote } : null;
 }
 
+// A platform's post-submit receipt (Workday: "Application Submitted"). The
+// page may no longer name its posting, so the worker attributes it.
+export function detectSubmittedNotice(doc = document) {
+  if (!doc?.location) return null;
+  const found = JobsPlatformConfig.submittedNotice(doc);
+  return found ? { url: doc.location.href, quote: found.quote } : null;
+}
+
 let initialized = false;
 export function initializeAppliedStatus() {
   if (initialized || window !== window.top) return;
@@ -26,12 +34,48 @@ export function initializeAppliedStatus() {
     retryPending = false;
   let seen = "",
     completed = "",
-    lastRequest = "";
+    lastRequest = "",
+    notice = "",
+    noticePending = false;
   function present(value) {
     message = value;
     show?.(value);
   }
+  async function scanNotice() {
+    if (stopped || noticePending) return;
+    const found = detectSubmittedNotice();
+    const identity = found ? stableStringify(found) : "";
+    if (!found || notice === identity) return;
+    noticePending = true;
+    try {
+      const reply = await chrome.runtime.sendMessage({
+        type: "jobs:submitted-notice-observed",
+        ...found,
+      });
+      const data = reply?.data;
+      if (reply?.error || !data?.ok) throw Error("not_acknowledged");
+      if (stopped || stableStringify(detectSubmittedNotice()) !== identity)
+        return;
+      // A fast SPA receipt can precede the asynchronous attempt persistence.
+      // Only an attributed receipt is final; focus/storage changes retry others.
+      if (data.state !== "unattributed") notice = identity;
+      JobsDiagnostics?.note("submitted_notice_observed", null, data.state);
+      if (data.state === "unattributed")
+        present(
+          "网站显示已提交；本标签页没有可对应的提交记录，请在投递管理核对",
+        );
+      else {
+        JobsPageSession?.confirmed();
+        present("confirmed");
+      }
+    } catch {
+      // Retried on the next page change, focus or reconnect.
+    } finally {
+      noticePending = false;
+    }
+  }
   async function scan() {
+    void scanNotice();
     if (stopped || pending) return;
     const found = detectAppliedStatus();
     if (!found) return;
@@ -94,7 +138,8 @@ export function initializeAppliedStatus() {
     if (
       !force &&
       lastRequest &&
-      stableStringify(detectAppliedStatus()) === lastRequest
+      stableStringify(detectAppliedStatus()) === lastRequest &&
+      !detectSubmittedNotice()
     )
       return;
     scheduled = true;
@@ -140,17 +185,28 @@ export function initializeAppliedStatus() {
   for (const event of ["focus", "online", "pageshow", "jobs:locationchange"])
     window.addEventListener(event, retry);
   const changed = (changes, area) => {
-    if (area === "local" && changes.jobsSyncV1) retry();
+    if (
+      (area === "local" && changes.jobsSyncV1) ||
+      (area === "session" &&
+        Object.keys(changes).some((key) => key.startsWith("jobsTabSubmit:")))
+    )
+      retry();
   };
   chrome.storage.onChanged.addListener(changed);
   chrome.runtime.onMessage.addListener((request, sender, reply) => {
     if (
-      request?.type !== "jobs:applied-status-check" ||
+      !["jobs:applied-status-check", "jobs:submitted-notice-check"].includes(
+        request?.type,
+      ) ||
       sender.id !== chrome.runtime.id ||
       sender.tab
     )
       return;
-    reply(detectAppliedStatus());
+    reply(
+      request.type === "jobs:applied-status-check"
+        ? detectAppliedStatus()
+        : detectSubmittedNotice(),
+    );
   });
   window.addEventListener("pagehide", (event) => {
     if (event.persisted) return;

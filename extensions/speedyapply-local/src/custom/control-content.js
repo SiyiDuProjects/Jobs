@@ -67,6 +67,7 @@ export function initializeControlContent() {
     let transition;
     let nextWasRejected = false;
     let pipelineOptions;
+    let statusPresenter;
     let releaseSession;
     let generation = 0;
     // A platform's declared root wins; otherwise the root its adapter's run
@@ -806,13 +807,27 @@ export function initializeControlContent() {
       setAutofill: (callback) => {
         refill = callback;
       },
+      attachStatus(presenter) {
+        statusPresenter = presenter;
+        if (submitted)
+          presenter(phase === "confirmed" ? "confirmed" : "submitting");
+      },
+      attempted: () => {
+        submitted = true;
+        if (phase !== "confirmed") phase = "submitting";
+        (statusPresenter || pipelineOptions?.setMessage)?.(phase);
+      },
       confirmed: () => {
         submitted = true;
         phase = "confirmed";
+        // The site's receipt is the page's outcome; show it in the side panel
+        // and the answer console instead of a blank or "ready" state.
+        (statusPresenter || pipelineOptions?.setMessage)?.("confirmed");
       },
     };
     JobsSubmissionGuard?.attach({
       cancel: () => JobsAutomatic?.cancel(root()),
+      attempted: () => JobsPageSession.attempted(),
     });
   })();
 }

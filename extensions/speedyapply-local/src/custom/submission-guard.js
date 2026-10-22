@@ -108,6 +108,7 @@ export function initializeSubmissionGuard() {
   function afterNavigate() {
     if (submissionGuard) {
       submissionAttempted = true;
+      bridge.attempted?.();
       void chrome.runtime
         .sendMessage({
           type: "jobs:submission-attempted",
@@ -193,6 +194,7 @@ export function initializeSubmissionGuard() {
         )
           return;
         manualSubmit = true;
+        bridge.attempted?.();
         // The worker owns the full observe -> persist transaction. This page
         // must not await a prepare ACK before sending the executed attempt.
         void chrome.runtime

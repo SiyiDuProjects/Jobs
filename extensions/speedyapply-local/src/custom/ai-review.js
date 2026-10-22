@@ -271,6 +271,28 @@ export function initializeAiReview() {
         // Confirmation waits for manual writes; whole-page validation still owns navigation.
         own.canConfirm = !own.confirming && !!own.onConfirm;
         if (own.hidden || !render) return rows;
+        // Fields outside this card that still hold the page (a filled but
+        // invalid control, a required blank) are named, so the person can see
+        // why continuing would stop instead of an all-ready card that waits.
+        const outside = own.onConfirm
+          ? rows.filter(
+              (row) =>
+                !own.items.has(row.node) &&
+                (row.public.invalid ||
+                  (row.public.required && !row.public.filled)),
+            )
+          : [];
+        // Their edits refresh the card like its own fields.
+        own.blocking = outside.flatMap((row) => [
+          row.node,
+          ...(row.group || []),
+        ]);
+        const blockers = outside.length
+          ? `网页另有 ${outside.length} 项未完成：${outside
+              .slice(0, 3)
+              .map((row) => "“" + row.public.question.slice(0, 40) + "”")
+              .join("、")}${outside.length > 3 ? " 等" : ""}，请到网页处理。`
+          : "";
         present(own, {
           id: own.id,
           title: own.summary.length
@@ -278,13 +300,17 @@ export function initializeAiReview() {
             : filled || omitted
               ? `AI 补填 · ${filled} 项${omitted ? ` · 留空 ${omitted} 项` : ""}${unresolved ? ` · 待补 ${unresolved} 项` : ""}`
               : `需要你补充 · ${own.items.size} 项`,
-          status:
+          status: [
             own.confirmationError ||
-            (own.summary.length
-              ? "统一检查这些草稿；需修改前面步骤时可先返回。"
-              : unresolved && own.onConfirm
-                ? `还有 ${unresolved} 项待补或需检查，可直接在这里作答。`
-                : own.status),
+              (own.summary.length
+                ? "统一检查这些草稿；需修改前面步骤时可先返回。"
+                : unresolved && own.onConfirm
+                  ? `还有 ${unresolved} 项待补或需检查，可直接在这里作答。`
+                  : own.status),
+            blockers,
+          ]
+            .filter(Boolean)
+            .join(" "),
           canConfirm: own.canConfirm,
           items,
           expand,
@@ -351,8 +377,11 @@ export function initializeAiReview() {
         const box = target?.closest?.(
           '[data-automation-id="multiSelectContainer"]',
         );
-        return [...own.items.values()].some((item) =>
-          (item.members || []).some(
+        return [
+          ...[...own.items.values()].map((item) => item.members || []),
+          own.blocking || [],
+        ].some((members) =>
+          members.some(
             (node) =>
               node === target ||
               node.contains(target) ||

@@ -384,7 +384,7 @@ test("manual validation and explicit intent IDs cannot cross document ownership"
     ).data.ok,
     true,
   );
-  assert.equal(h.events[1].source.eventId, childId + ":validation");
+  assert.equal(h.events[1].source.eventId, childId + "-validation");
   assert.equal(
     (
       await h.request(

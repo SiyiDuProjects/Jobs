@@ -18,7 +18,7 @@ let savedDetails = "",
   metadataSync = Promise.resolve();
 
 const phases = {
-  idle: "就绪",
+  idle: "已识别页面，等待申请表单",
   "in-progress": "正在填写",
   "ai-thinking": "正在准备回答",
   "ai-filling": "正在填写回答",
@@ -28,12 +28,17 @@ const phases = {
   "profile-unavailable": "请选择或检查本页 Profile",
   "page-complete": "本页已填好",
   "autofill-complete": "本页已填好",
+  "ready-submit": "已填好，请检查后提交",
+  preparing: "正在准备本页（读取设置和档案）…",
   submitting: "已尝试提交，等待网站确认",
-  confirmed: "网站已确认",
+  confirmed: "网站已确认，投递完成",
   "already-applied": "网站显示已申请，无需再次提交",
   "awaiting-transition": "等待下一页",
   "site-error": "网站返回错误",
 };
+// After a submission the page's outcome stays visible. An adapter closing its
+// status surface (null) or a later idle report must not read as "not started".
+const terminalPhases = new Set(["submitting", "confirmed", "already-applied"]);
 export function lifecycle() {
   const controller = new AbortController();
   const context = {
@@ -59,6 +64,9 @@ export function statusPresenter(context) {
   const id = crypto.randomUUID();
   let available,
     active = true,
+    terminal = "",
+    outcomeUrl = location.href,
+    last = null,
     transport = Promise.resolve();
   const perform = async (action) => {
     if (!active || !["draft", "refill"].includes(action))
@@ -66,8 +74,10 @@ export function statusPresenter(context) {
     return JobsPageSession[action]();
   };
   const publish = (text, extra = {}) => {
+    last = { text, extra };
+    const documentUrl = location.href;
     JobsReviewPresenter?.status?.(
-      { id, text, canFill: !!JobsPageSession, ...extra },
+      { id, text, canFill: !!JobsPageSession && !terminal, ...extra },
       perform,
     );
     transport = transport
@@ -78,7 +88,8 @@ export function statusPresenter(context) {
             type: "jobs:panel-status",
             id,
             text,
-            canFill: !!JobsPageSession,
+            documentUrl,
+            canFill: !!JobsPageSession && !terminal,
             ...extra,
           });
       })
@@ -86,6 +97,16 @@ export function statusPresenter(context) {
     return transport;
   };
   const listener = (message, sender, reply) => {
+    if (
+      message?.type === "jobs:status-refresh" &&
+      active &&
+      sender.id === chrome.runtime.id &&
+      !sender.tab
+    ) {
+      relocated();
+      reply({ ok: true });
+      return;
+    }
     if (message?.type !== "jobs:status-command") return;
     if (
       !active ||
@@ -120,12 +141,50 @@ export function statusPresenter(context) {
     } else reply({ error: "当前操作不可用" });
   };
   chrome.runtime.onMessage.addListener(listener);
+  // The worker drops a tab's status when its URL changes, including SPA steps
+  // such as Workday's move to Candidate Home after Submit. Re-announce it.
+  const relocated = () => {
+    if (active && last)
+      present(
+        last.extra.phase === "message"
+          ? last.text
+          : last.extra.phase || current,
+        { reannounce: true },
+      );
+  };
+  window.addEventListener("jobs:locationchange", relocated);
   context.onInvalidated(() => {
     active = false;
     chrome.runtime.onMessage.removeListener(listener);
+    window.removeEventListener("jobs:locationchange", relocated);
   });
-  const present = (value) =>
-    publish(stoppedMessage(value) || phases[value] || value || "就绪");
+  let current = "";
+  const present = (value, { reannounce = false } = {}) => {
+    const identity = JobsJobMatch?.key(location.href);
+    if (
+      identity &&
+      JSON.parse(identity)[1] !== "exact" &&
+      !JobsJobMatch.same(outcomeUrl, location.href)
+    ) {
+      terminal = "";
+      outcomeUrl = location.href;
+      if (reannounce) value = "preparing";
+    }
+    if (
+      terminalPhases.has(value) &&
+      (!terminal || terminal === "submitting" || value === "confirmed")
+    ) {
+      terminal = value;
+    }
+    if (terminal) value = terminal;
+    current = value || "";
+    const stopped = stoppedMessage(value);
+    return publish(stopped || phases[value] || value || phases.idle, {
+      // The phase key lets the answer console group pages; text stays display-only.
+      phase: stopped || phases[value] ? value : value ? "message" : "idle",
+    });
+  };
+  present.phase = () => current;
   present.availability = (data) => {
     available = data;
     publish(data.message, { canRestore: data.canRestore, dismissible: true });
@@ -234,22 +293,31 @@ export async function startPage(existingContext, recovery = false) {
       ),
   );
   JobsAppliedStatus?.attach(present);
+  JobsPageSession?.attachStatus?.(present);
   try {
     // A title lookup must not hold up account entry or autofill if the server
     // is slow. It has its own acknowledgement and can retry on page activity.
     await syncJobDetails(context);
+    // Settings and the Profile can take seconds; say so instead of leaving
+    // the side panel with "no progress" until the first fill status.
+    void present("preparing");
     // Status is advisory here. The final submission path independently checks
     // duplication; a slow status lookup must not delay sign-in or local filling.
-    void send({ type: "jobs:application-status", url: location.href })
+    const statusUrl = location.href;
+    void send({ type: "jobs:application-status", url: statusUrl })
       .then((prior) => {
-        if (!context.isInvalid && prior?.applied)
-          present(prior.label || "此岗位已有投递记录");
+        if (!context.isInvalid && statusUrl === location.href && prior?.applied)
+          present(prior.confirmed ? "confirmed" : "submitting");
       })
       .catch(() => {});
     const config = await send({ type: "getAutofillConfig" });
-    if (!config?.enabled) return true;
+    if (!config?.enabled) {
+      void present("自动填写已关闭");
+      return true;
+    }
     if (!route) {
       installLinkedInTracking(context);
+      void present("idle");
       return true;
     }
     const options = {
@@ -261,6 +329,8 @@ export async function startPage(existingContext, recovery = false) {
       jobsRecovery: recovery,
     };
     await jobsRunAdapter(route.script, options);
+    // An adapter waiting for its form reports nothing; leave "preparing".
+    if (present.phase() === "preparing") void present("idle");
   } catch (error) {
     await present(error.message);
     if (recovery) context.abort("recovery unavailable");

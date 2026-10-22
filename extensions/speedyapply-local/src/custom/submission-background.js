@@ -118,7 +118,7 @@ export function initializeSubmissionBackground() {
           url: sender.url,
           tabId: sender.tab.id,
           proof: rejected ? "submit_validation_error" : "submit_attempt",
-          eventId: old.id + (rejected ? ":validation" : ""),
+          eventId: old.id + (rejected ? "-validation" : ""),
           profileId: old.profileId,
         },
       );

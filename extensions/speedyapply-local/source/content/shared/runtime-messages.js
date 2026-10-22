@@ -58,6 +58,8 @@ export async function jobsSaveApplicationRecord(application) {
     void jobsReportJobTitle(application.jobTitle);
   if (application.jobsSyncProof === "ats_confirmation")
     JobsPageSession?.confirmed();
+  else if (application.jobsSyncProof === "submit_attempt")
+    JobsPageSession?.attempted?.();
   const response = await chrome.runtime.sendMessage({
     type: "saveApplication",
     ...application,

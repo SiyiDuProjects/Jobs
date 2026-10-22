@@ -15,6 +15,7 @@ const common = await Promise.all(
     "src/custom/dom-wait.js",
     "source/content/shared/dom-controls.js",
     "source/content/shared/response-capture.js",
+    "source/content/shared/runtime-messages.js",
   ].map(read),
 );
 const turn = () => new Promise((resolve) => setImmediate(resolve));
@@ -173,6 +174,7 @@ function page(t, site, url, html = "") {
     records = [],
     advances = [],
     events = new Map();
+  let confirmations = 0;
   installPageLifecycle(w);
   t.after(() => w.close());
   Object.defineProperty(w.HTMLElement.prototype, "innerText", {
@@ -183,12 +185,22 @@ function page(t, site, url, html = "") {
   });
   Object.assign(w, {
     jobsReportJobTitle: async () => false,
-    jobsSaveApplicationRecord: async (value) => {
-      records.push(value);
-      return { ok: true };
+    chrome: {
+      runtime: {
+        sendMessage: async (value) => {
+          if (value.type === "saveApplication") records.push(value);
+          return { ok: true };
+        },
+      },
     },
     jobsMountManualAnswerControls: async () => {},
-    JobsPageSession: { root: () => w.document.body, setAutofill() {} },
+    JobsPageSession: {
+      root: () => w.document.body,
+      setAutofill() {},
+      confirmed() {
+        confirmations++;
+      },
+    },
     JobsFormPipeline: { settled: async () => true },
     JobsAutomatic: {
       advance: async (options) => {
@@ -215,7 +227,14 @@ function page(t, site, url, html = "") {
       },
     },
   };
-  return { w, records, advances, input, events };
+  return {
+    w,
+    records,
+    advances,
+    input,
+    events,
+    confirmations: () => confirmations,
+  };
 }
 
 for (const [site, url, html, confirmation, mode] of [
@@ -260,6 +279,11 @@ for (const [site, url, html, confirmation, mode] of [
     await flush();
     assert.equal(h.records.length, 1);
     assert.equal(h.records[0].jobsSyncProof, "ats_confirmation");
+    assert.equal(
+      h.confirmations(),
+      1,
+      "the real save path confirms the page session",
+    );
     await route({ newUrl: new h.w.URL(confirmation) });
     await flush();
     assert.equal(
@@ -441,6 +465,11 @@ for (const [site, receipt, url, mode = "run", gate = ""] of domReceipts) {
       "real adapter must emit the observed ATS receipt",
     );
     assert.equal(h.records[0].jobsSyncProof, "ats_confirmation");
+    assert.equal(
+      h.confirmations(),
+      1,
+      "the real save path confirms the page session",
+    );
     h.w.document.querySelector("#receipt").append(" ");
     h.w.document.dispatchEvent(new h.w.Event("change", { bubbles: true }));
     await flush();

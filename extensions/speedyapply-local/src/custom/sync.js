@@ -6,6 +6,7 @@ import { JobsJobMatch } from "./job-match.js";
 import { JobsAvailabilityRules } from "./availability-rules.js";
 import { JobsManagementSync } from "./management-sync.js";
 import { JobsRemovalBackground } from "./removal-background.js";
+import { rememberSubmitAttempt } from "./tab-submissions.js";
 export var JobsSync;
 let initialized = false;
 export function initializeSync() {
@@ -140,14 +141,28 @@ export function initializeSync() {
           const day = Number.isNaN(parsedDate.valueOf())
             ? new Date().toISOString().slice(0, 10)
             : parsedDate.toISOString().slice(0, 10);
-          const dedupe = JSON.stringify([
-            jobKey(url),
-            payload.job_title,
-            day,
-            proof,
-          ]);
+          const identity = jobKey(url);
+          const dedupe = JSON.stringify([identity, day, proof]);
           state.seen ||= {};
           if (state.seen[dedupe]) return;
+          // Older packages included the heading. A receipt and its click
+          // observer often see different headings for the same posting.
+          if (
+            Object.keys(state.seen).some((key) => {
+              try {
+                const old = JSON.parse(key);
+                return (
+                  old.length === 4 &&
+                  old[0] === identity &&
+                  old[2] === day &&
+                  old[3] === proof
+                );
+              } catch {
+                return false;
+              }
+            })
+          )
+            return;
           if (Number.isInteger(source.tabId)) {
             const binding = /** @type {import('./tab-profiles').TabBinding} */ (
               (
@@ -166,6 +181,13 @@ export function initializeSync() {
           JobsPrivateSession.assertCurrent(epoch);
           await write(state);
         });
+        // The receipt's tab attribution is secondary; the saved event stands.
+        if (proof === "submit_attempt" && Number.isInteger(source.tabId))
+          await rememberSubmitAttempt(
+            source.tabId,
+            url,
+            payload.event_id,
+          ).catch(() => {});
         void flush();
       } catch (error) {
         throw Error("申请事件未保存：" + String(error.message || error));

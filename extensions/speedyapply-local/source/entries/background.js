@@ -23,6 +23,7 @@ import { initializeControlBackground } from "../../src/custom/control-background
 import { initializeDiagnosticsBackground } from "../../src/custom/diagnostics-background.js";
 import { initializeRemovalBackground } from "../../src/custom/removal-background.js";
 import { initializeSubmissionBackground } from "../../src/custom/submission-background.js";
+import { initializeConsoleBackground } from "../../src/custom/console-background.js";
 import "../../source/background-api.js";
 import { initializeOperatorBackground } from "../../src/custom/operator-background.js";
 import "../../source/runtime-registration.js";
@@ -50,6 +51,7 @@ import "../../src/custom/reconnect-background.js";
 initializeDiagnosticsBackground();
 initializeRemovalBackground();
 initializeSubmissionBackground();
+initializeConsoleBackground();
 import { JobsSync } from "../../src/custom/sync.js";
 import { JobsManagementSync } from "../../src/custom/management-sync.js";
 void JobsSync.ready.then(() => JobsManagementSync.sync());

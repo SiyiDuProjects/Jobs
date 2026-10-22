@@ -12,7 +12,7 @@ import {
   TextField,
 } from "@heroui/react";
 import "./style.css";
-import { ExtensionSync } from "./ExtensionSync";
+import { ExtensionSync, openAnswerConsole } from "./ExtensionSync";
 import { createBoardLoader } from "./board-loader";
 import { DateWindowFilter } from "./DateWindowFilter";
 import { addedRange } from "./date-window";
@@ -65,6 +65,7 @@ export function JobsBoard({
     [actionError, setActionError] = useState(""),
     [saving, setSaving] = useState(false);
   const [undo, setUndo] = useState<UndoTarget | null>(null);
+  const [extension, setExtension] = useState(false);
   const mutation = useRef(false),
     keys = useRef(new Map<string, string>());
   const serial = useRef(0),
@@ -280,7 +281,7 @@ export function JobsBoard({
     <section aria-label={trash ? "回收站" : "岗位列表"}>
       {
         <>
-          {!trash && <ExtensionSync onSynced={load} />}
+          {!trash && <ExtensionSync onSynced={load} onInstalled={setExtension} />}
           <ListToolbar
             navigation={navigation}
             totals={<span title={stale ? "部分来源待更新" : busy ? "正在更新" : undefined}><ApplicationTotals key={kind} kind={kind}/></span>}
@@ -290,7 +291,7 @@ export function JobsBoard({
             </>}
             date={!trash && <DateWindowFilter value={filters.added_date} onChange={v => filter("added_date", v)}/>}
             query={query} onQuery={setQuery}
-            menu={trash ? [{ id: "retention", label: "删除记录保留 24 小时供恢复", disabled: true, onAction: () => {} }] : [{ id: "exclude", label: `排除公司${filters.exclude_companies ? `（${splitCompanies(filters.exclude_companies).length}）` : ""}`, onAction: () => { setExcludedCompanies(filters.exclude_companies); setExclusionsOpen(true); } }]}
+            menu={trash ? [{ id: "retention", label: "删除记录保留 24 小时供恢复", disabled: true, onAction: () => {} }] : [{ id: "exclude", label: `排除公司${filters.exclude_companies ? `（${splitCompanies(filters.exclude_companies).length}）` : ""}`, onAction: () => { setExcludedCompanies(filters.exclude_companies); setExclusionsOpen(true); } }, ...(extension ? [{ id: "console", label: "打开答题台（所有投递页的待答问题）", onAction: openAnswerConsole }] : [])]}
           />
           {!data && !error && <p className="text-muted">正在读取岗位…</p>}
           {data?.jobs.length === 0 && (

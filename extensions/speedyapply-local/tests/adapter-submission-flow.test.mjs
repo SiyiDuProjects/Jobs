@@ -464,7 +464,7 @@ test("a child manual attempt survives lost ACK and worker restart with one valid
   input.checkValidity();
   await flush();
   assert.equal(restarted.records.length, 1);
-  assert.equal(restarted.records[0].source.eventId, id + ":validation");
+  assert.equal(restarted.records[0].source.eventId, id + "-validation");
   const { observed, ...root } = storage.jobsSubmissionGuardsV1[key];
   assert.deepEqual(root, earlierPreparation);
   assert.equal(observed["synthetic-document"].state, "validation_error");

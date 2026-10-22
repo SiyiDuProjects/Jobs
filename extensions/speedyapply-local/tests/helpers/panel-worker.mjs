@@ -43,7 +43,8 @@ export function panelWorker({
     storage = {},
     notifications = [],
     badges = [],
-    opens = [];
+    opens = [],
+    updates = [];
   const tabs = new Map([
     [1, { id: 1, windowId: 5, url: "https://example.test/job" }],
   ]);
@@ -91,6 +92,10 @@ export function panelWorker({
         return tabs.get(id);
       },
       sendMessage: send,
+      update: async (id, change) => {
+        updates.push([id, structuredClone(change)]);
+        return Object.assign(tabs.get(id), change);
+      },
       onUpdated: event(),
       onRemoved: event(),
     },
@@ -115,6 +120,7 @@ export function panelWorker({
     notifications,
     badges,
     opens,
+    updates,
     restart,
     panel,
     page,

@@ -4,17 +4,19 @@ import { build, transform } from "esbuild";
 import { compile } from "@tailwindcss/node";
 
 export async function buildPopup(root, stage, plugins) {
-  await build({
-    absWorkingDir: root,
-    entryPoints: ["src/custom/popup.jsx"],
-    bundle: true,
-    outfile: path.join(stage, "custom/popup.js"),
-    format: "iife",
-    target: "chrome120",
-    minify: true,
-    define: { "process.env.NODE_ENV": '"production"' },
-    plugins,
-  });
+  // The side panel and the answer console share one stylesheet.
+  for (const name of ["popup", "console"])
+    await build({
+      absWorkingDir: root,
+      entryPoints: ["src/custom/" + name + ".jsx"],
+      bundle: true,
+      outfile: path.join(stage, "custom/" + name + ".js"),
+      format: "iife",
+      target: "chrome120",
+      minify: true,
+      define: { "process.env.NODE_ENV": '"production"' },
+      plugins,
+    });
   const input = path.join(root, "src/custom/popup.css");
   const compiler = await compile(await fs.readFile(input, "utf8"), {
     base: path.dirname(input),

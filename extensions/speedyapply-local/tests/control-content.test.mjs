@@ -1345,3 +1345,53 @@ test("recovery pause releases a bound page while an answer is pending and preven
     h.close();
   }
 });
+
+test("a review card names required fields outside it that still hold the page", async () => {
+  const h = harness(
+    ashby(
+      '<label>Location<select required><option value="">Choose</option><option value="yes">Yes</option></select></label><label>Graduation term<input required name="term"></label>' +
+        submit,
+    ),
+  );
+  const shown = [];
+  h.w.JobsReviewPresenter = { show: (data) => shown.push(data) };
+  h.w.eval(reviewSource);
+  try {
+    await h.activate("ashby", async (options) => {
+      await options.getProfile();
+      const root = h.doc.querySelector("form"),
+        reader = h.w.JobsControlFields.create(h.doc, () => root);
+      h.w.JobsAIReview.add(root, reader, reader.scan()[0], {
+        needsInput: true,
+      });
+      h.w.JobsAIReview.ready(async () => {}, "next");
+    });
+    const status = shown.at(-1).status;
+    assert.match(status, /网页另有 1 项未完成：“Graduation term”/);
+    assert.equal(shown.at(-1).items.length, 1, "the card itself is unchanged");
+    const term = h.doc.querySelector('[name="term"]');
+    term.value = "Spring 2027";
+    term.dispatchEvent(new h.w.Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.doesNotMatch(shown.at(-1).status, /网页另有/);
+  } finally {
+    h.close();
+  }
+});
+
+test("attempt and confirmation publish before an autofill run exists", () => {
+  const h = harness(ashby(textbox));
+  try {
+    const phases = [];
+    h.w.JobsPageSession.attachStatus((phase) => phases.push(phase));
+    h.w.JobsPageSession.attempted();
+    h.w.JobsPageSession.confirmed();
+    h.w.JobsPageSession.attempted();
+    assert.deepEqual(phases, ["submitting", "confirmed", "confirmed"]);
+    const restored = [];
+    h.w.JobsPageSession.attachStatus((phase) => restored.push(phase));
+    assert.deepEqual(restored, ["confirmed"]);
+  } finally {
+    h.close();
+  }
+});

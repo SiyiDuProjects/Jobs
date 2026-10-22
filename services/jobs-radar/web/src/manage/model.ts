@@ -19,6 +19,9 @@ export type Application = {
   id?: string;
   version?: number;
   submission?: {
+    label?: string;
+    submitted?: boolean;
+    confirmed?: boolean;
     attempted_at: number | null;
     confirmed_at: number | null;
     error: string | null;

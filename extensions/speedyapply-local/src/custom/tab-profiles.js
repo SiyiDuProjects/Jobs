@@ -796,6 +796,7 @@ export function initializeTabProfiles() {
               "jobsTabBinding:" + id,
               "profile_" + id,
               "jobsResponseTab:" + id,
+              "jobsTabSubmit:" + id,
             ]);
           }),
         )

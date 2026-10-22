@@ -23,6 +23,12 @@ Workday 技能按页面是否必填处理：选填跳过搜索和补答，保留
 
 点击工具栏图标打开 Chrome 原生侧边栏，集中查看当前窗口活动标签页的进度、审核、档案、账号和岗位操作；待确认答案显示 `!` 徽标。入口源码为 `src/custom/popup.jsx`，包内沿用 `popup.html` 路径。界面使用本地打包的 HeroUI，Pro 包与网站共用，不从远程加载界面代码。侧边栏与页内审核卡共享同一份审核状态；AI 接手在页内卡明确标记。队列已移除，提交保护和删除岗位后停止所有相关页面的填写仍独立保留。
 
+答题台（`console.html`）把所有已打开投递页的待确认答案按页面列成卡片：数字键选择、Enter 保留当前答案或确认本页、J/K 换题、[ / ] 换页，答完一页自动进入下一页。答案经各页原有的版本化审核命令写入原页面；“跳到网页”只把已打开的标签页切到前台并定位该题，不重新打开链接。入口：侧栏「答题台」、快捷键 ⌥⇧J（`open-console`，可在 chrome://extensions/shortcuts 修改）、网站列表「更多」菜单。
+
+提交后页面保持“已尝试提交／网站已确认／网站显示已申请”，不再回到初始状态；另一个岗位会重新准备。Workday Candidate Home 的 “Application Submitted” 可见对话框只按本标签页 30 分钟内、同一租户的提交尝试归因；没有记录时仅提示。该对话框结构仍待真实页面验收。
+
+答题台草稿只保留在当前答题台内存中，支持文字与多选切页；关闭答题台不保留未写入草稿。页面变化按标签页合并刷新，15 秒兜底检查；同时最多读取 4 个文档，单文档读取最多等 2 秒。未完成的申请标签页会关闭自动内存丢弃，网站确认后恢复；这不能防止用户主动关闭、浏览器退出或系统终止。
+
 服务器 Profile、已保存答案和投递记录是唯一数据源。活动页面读取固定版本的临时资料；相关页面结束后释放已确认资料，未同步的编辑与回执保留到同步完成。插件向服务端发送绑定的 Profile ID、版本和当前题目；服务端按该版本读取答案所需资料。每批生成后最多增加一次独立语义核验，请求仅含候选题、答案及必要引用，关闭 OpenAI 请求保存。后台不预取完整 Profile，审核答案从原申请文档按需读取。变更请求要求协议版本 2。
 
 只有来源明确为本人且携带原始上下文的回答可进入答案记忆。AI 接手及页面工具操作不会被当作本人输入学习；来源未知的旧记录不会自动提升可信度或扩大适用范围。一次性迁移工具已退役；历史验收不代表每台安装均已迁移。
@@ -33,12 +39,14 @@ Workday 技能按页面是否必填处理：选填跳过搜索和补答，保留
 
 `npm run develop` 生成无生产 key、无私人连接的 `artifacts/development`。只在独立 Chrome profile 加载并配置测试连接，不复制日常连接。设置页提示运行版与磁盘版不一致，不自动重载浏览器。
 
-| 检查 | 命令或脚本 |
-| --- | --- |
-| 行为、类型、格式、职责边界 | `npm test`、`npm run typecheck`、`npm run format:check`、`npm run check:structure` |
-| 扫描与页面流程性能 | `npm run measure:scanner`、`npm run measure:page`；可传已保存源码作对比基线，结果在 `.qa/` |
-| 隔离浏览器侧边栏布局、草稿和切页 | `node scripts/verify-panel-browser.mjs <playwright-core路径> <Chrome可执行文件>` |
-| 隔离浏览器接回、保值、审核与推进边界 | `node scripts/verify-recovery-browser.mjs <playwright-core路径> <Chrome可执行文件>` |
+| 检查                                 | 命令或脚本                                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------ |
+| 行为、类型、格式、职责边界           | `npm test`、`npm run typecheck`、`npm run format:check`、`npm run check:structure`         |
+| 扫描与页面流程性能                   | `npm run measure:scanner`、`npm run measure:page`；可传已保存源码作对比基线，结果在 `.qa/` |
+| 隔离浏览器侧边栏布局、草稿和切页     | `node scripts/verify-panel-browser.mjs <playwright-core路径> <Chrome可执行文件>`           |
+| 隔离浏览器接回、保值、审核与推进边界 | `node scripts/verify-recovery-browser.mjs <playwright-core路径> <Chrome可执行文件>`        |
+| 答题台键盘、草稿、实时更新及桌面/窄屏 | `node scripts/verify-console-browser.mjs <playwright-core路径> <Chrome可执行文件>` |
+| 隐藏页审核命令、Workday 下拉和日期 | `node scripts/verify-console-writes-browser.mjs <playwright-core路径> <Chrome可执行文件>` |
 
 浏览器脚本使用合成资料和独立实例，不访问日常扩展或真实申请。合成速度和本地检查不能替代雇主页面验收。旧 `verify-popup-browser.mjs` 保留包内设置界面验证，原生侧边栏以 panel 脚本为入口。
 

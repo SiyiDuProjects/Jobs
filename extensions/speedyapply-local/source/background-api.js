@@ -7,7 +7,15 @@ import { JobsSync } from "../src/custom/sync.js";
 import { JobsJobMatch } from "../src/custom/job-match.js";
 import { JobsAnswerContext } from "../src/custom/automatic-background.js";
 import { reportJobTitle } from "./job-title-background.js";
-import { recordAppliedStatus } from "./applied-status-background.js";
+import {
+  recordAppliedStatus,
+  recordSubmittedNotice,
+} from "./applied-status-background.js";
+import {
+  forgetSubmitAttempt,
+  readSubmitAttempt,
+  RECEIPT_WINDOW_MS,
+} from "../src/custom/tab-submissions.js";
 import { canReadAccount } from "./account-access.js";
 const defaults = {
   saveApplications: true,
@@ -25,6 +33,8 @@ export async function handle(message, sender) {
   const id = sender.tab.id;
   if (message.type === "jobs:applied-status-observed")
     return recordAppliedStatus(message, sender);
+  if (message.type === "jobs:submitted-notice-observed")
+    return recordSubmittedNotice(message, sender);
   if (message.type === "jobs:job-title-observed")
     return reportJobTitle(message, sender);
   if (message.type === "getAutofillConfig") {
@@ -77,6 +87,15 @@ export async function handle(message, sender) {
       );
     const sameJob =
       previous && JobsJobMatch.same(previous.appUrl, message.appUrl);
+    // Opening another posting in this tab ends the earlier attempt's window
+    // for an unattributed receipt.
+    const attempt = await readSubmitAttempt(id);
+    if (
+      attempt &&
+      JobsJobMatch.key(message.appUrl) &&
+      !JobsJobMatch.same(attempt.jobUrl, message.appUrl)
+    )
+      await forgetSubmitAttempt(id);
     await JobsPrivateSession.commit(epoch, {
       [key]: {
         title: String(
@@ -123,23 +142,45 @@ export async function handle(message, sender) {
   }
   if (message.type === "jobs:application-status") {
     const key = JobsJobMatch.key(message.url);
+    const attempt = await readSubmitAttempt(id);
+    const age = Date.now() - attempt?.at;
+    const attemptKey = attempt && JobsJobMatch.key(attempt.jobUrl);
+    // A full navigation loses the content script's terminal phase. Restore
+    // only this tab's own recent attempt, including Workday Candidate Home.
+    const localAttempt =
+      attempt &&
+      Number.isFinite(attempt.at) &&
+      age >= 0 &&
+      age <= RECEIPT_WINDOW_MS &&
+      attemptKey &&
+      (attemptKey === key ||
+        (JSON.parse(attemptKey)[1] === "workday" &&
+          new URL(attempt.jobUrl).origin === new URL(message.url).origin &&
+          /\/userHome\/?$/i.test(new URL(message.url).pathname)));
     // Login/registration pages can fill account settings without a posting.
     // No identity means unknown status, not permission to submit.
-    if (!key) return { applied: false, confirmed: false, unknown: true };
+    if (!key)
+      return {
+        applied: !!localAttempt,
+        confirmed: !!localAttempt && attempt.confirmed === true,
+        unknown: !localAttempt,
+      };
     const epoch = JobsPrivateSession.epoch;
     const result = await JobsSync.resolveJob(message.url);
     await JobsTabProfiles.rememberResolution?.(message.url, result, epoch);
     if (result?.application?.submitted)
       return {
         applied: true,
-        confirmed: result.application.confirmed,
+        confirmed:
+          result.application.confirmed ||
+          (!!localAttempt && attempt.confirmed === true),
         label: result.application.label,
       };
     const connection =
       /** @type {import('../src/custom/sync-types').SyncState} */ (
         (await chrome.storage.local.get("jobsSyncV1")).jobsSyncV1
       );
-    const pending = connection?.outbox?.some(
+    const pending = connection?.outbox?.filter(
       (item) =>
         [
           "submit_attempt",
@@ -150,9 +191,12 @@ export async function handle(message, sender) {
         JobsJobMatch.key(item.payload.job_url) === key,
     );
     return {
-      applied: !!pending,
-      confirmed: false,
-      label: pending ? "已有提交记录，等待同步" : "",
+      applied: !!localAttempt || !!pending?.length,
+      confirmed:
+        (!!localAttempt && attempt.confirmed === true) ||
+        pending?.some((item) => item.payload.proof === "ats_confirmation") ===
+          true,
+      label: pending?.length ? "已有提交记录，等待同步" : "",
       unknown: !result,
     };
   }
@@ -162,6 +206,7 @@ function documentTitle(sender) {
 }
 const types = new Set([
   "jobs:applied-status-observed",
+  "jobs:submitted-notice-observed",
   "jobs:job-title-observed",
   "getAutofillConfig",
   "storeJobDetails",

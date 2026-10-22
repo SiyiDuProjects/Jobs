@@ -244,3 +244,46 @@ for (const failure of ["pending-answer", "server-offline", "none"])
       w.close();
     }
   });
+
+test("the website opens the answer console only through its own window message", async () => {
+  const dom = new JSDOM("<body/>", { url: origin, runScripts: "outside-only" }),
+    w = dom.window;
+  const messages = [];
+  w.AbortSignal = AbortSignal;
+  w.postMessage = () => {};
+  w.fetch = async () => ({ ok: false, json: async () => ({}) });
+  w.chrome = {
+    runtime: {
+      id: "fixture",
+      sendMessage: async (message) => {
+        messages.push(message.type);
+        return { connected: true, profilesConnected: true };
+      },
+      onMessage: { addListener() {} },
+    },
+  };
+  try {
+    w.eval(code);
+    await tick();
+    const post = (source, from = origin) =>
+      w.dispatchEvent(
+        new w.MessageEvent("message", {
+          source,
+          origin: from,
+          data: { type: "jobs:open-console" },
+        }),
+      );
+    post(null);
+    post(w, "https://evil.test");
+    await tick();
+    assert(!messages.includes("jobs:console-open"));
+    post(w);
+    await tick();
+    assert.equal(
+      messages.filter((type) => type === "jobs:console-open").length,
+      1,
+    );
+  } finally {
+    w.close();
+  }
+});

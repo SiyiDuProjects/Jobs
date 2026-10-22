@@ -771,6 +771,18 @@ export function initializePlatformConfig() {
         submit: "[data-ui='apply-button']:not([disabled])",
       },
       workday: {
+        // The official receipt after Submit: an "Application Submitted" dialog
+        // over Candidate Home, whose URL no longer names the posting. The
+        // worker attributes it only to this tab's own recent submit attempt.
+        submittedNotice: {
+          url: /\/userHome\/?$/i,
+          marker: /submitted|applying|successfully applied|received/i,
+          candidates:
+            '[role="dialog"] :is(h1,h2,h3,h4,[role="heading"],[data-automation-id]),[aria-modal="true"] :is(h1,h2,h3,h4,[role="heading"],[data-automation-id])',
+          exclude:
+            '[data-jobs-ui],[data-jobs-owner],script,style,textarea,[contenteditable],[data-automation-id="jobPostingDescription"]',
+          text: /^(?:application submitted|thank you for applying|thanks for applying|your application (?:has been|was) (?:submitted|received)|you(?: have|'ve) successfully applied|application received)[.!]?$/i,
+        },
         appliedStatus: {
           url: /\/job\/(?:[^/]+\/)?[^/]*_[A-Za-z0-9-]+(?:\/.*)?$/,
           candidates:
@@ -926,6 +938,25 @@ export function initializePlatformConfig() {
       }
       return null;
     }
+    // A visible, short receipt heading declared by the platform. It proves only
+    // that this document shows a receipt; the worker decides whose it is.
+    function submittedNotice(doc, platform = detect(doc).id) {
+      const config = structure[platform]?.submittedNotice;
+      if (
+        !config ||
+        (config.url && !config.url.test(doc.location.pathname)) ||
+        !config.marker.test(doc.documentElement?.textContent || "")
+      )
+        return null;
+      for (const node of doc.querySelectorAll(config.candidates)) {
+        if (node.closest(config.exclude)) continue;
+        const quote = text(node.textContent);
+        if (quote.length > 80 || !config.text.test(quote) || !visible(node))
+          continue;
+        return { quote, node };
+      }
+      return null;
+    }
     function roots(doc, platform) {
       const config = structure[platform];
       const keys = rootKeys[platform] || ["root", "rootXPath"];
@@ -1008,6 +1039,7 @@ export function initializePlatformConfig() {
       navigation,
       confirmation,
       appliedStatus,
+      submittedNotice,
       containsRoot,
     });
   })();

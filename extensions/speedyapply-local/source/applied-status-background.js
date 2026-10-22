@@ -1,6 +1,60 @@
 import { JobsJobMatch } from "../src/custom/job-match.js";
 import { publicJobUrl } from "../src/custom/public-job-url.js";
 import { JobsSync } from "../src/custom/sync.js";
+import {
+  RECEIPT_WINDOW_MS,
+  confirmSubmitAttempt,
+  readSubmitAttempt,
+  sameSubmitAttempt,
+} from "../src/custom/tab-submissions.js";
+
+// A post-submit receipt on a page without a posting identity confirms only
+// this tab's own recent attempt on the same site. Nothing else is inferred.
+export async function recordSubmittedNotice(message, sender) {
+  if (
+    !sender.documentId ||
+    sender.frameId !== 0 ||
+    !sender.tab?.id ||
+    typeof message.quote !== "string" ||
+    message.url !== sender.url
+  )
+    throw Error("Receipt requires the current document");
+  const attempt = await readSubmitAttempt(sender.tab.id);
+  const age = Date.now() - attempt?.at;
+  const postingKey = attempt && JobsJobMatch.key(attempt.jobUrl);
+  if (
+    !attempt ||
+    !Number.isFinite(attempt.at) ||
+    age < 0 ||
+    age > RECEIPT_WINDOW_MS ||
+    !postingKey ||
+    JSON.parse(postingKey)[1] !== "workday" ||
+    new URL(attempt.jobUrl).origin !== new URL(sender.url).origin ||
+    !/\/userHome\/?$/i.test(new URL(sender.url).pathname)
+  )
+    return { ok: true, state: "unattributed" };
+  const live = await chrome.tabs.sendMessage(
+    sender.tab.id,
+    { type: "jobs:submitted-notice-check" },
+    { documentId: sender.documentId },
+  );
+  if (!live || live.url !== message.url || live.quote !== message.quote)
+    throw Error("Receipt changed before recording");
+  if (!sameSubmitAttempt(await readSubmitAttempt(sender.tab.id), attempt))
+    return { ok: true, state: "unattributed" };
+  if (attempt.confirmed) return { ok: true, state: "confirmed" };
+  await JobsSync.record(
+    { status: "applied", jobLink: attempt.jobUrl, jobTitle: "" },
+    {
+      url: sender.url,
+      tabId: sender.tab.id,
+      proof: "ats_confirmation",
+      ...(attempt.id ? { eventId: attempt.id + "-receipt" } : {}),
+    },
+  );
+  const retained = await confirmSubmitAttempt(sender.tab.id, attempt);
+  return { ok: true, state: retained ? "pending" : "unattributed" };
+}
 
 export async function recordAppliedStatus(message, sender) {
   const key = JobsJobMatch.key(message.url);

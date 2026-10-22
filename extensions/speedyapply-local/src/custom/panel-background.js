@@ -10,11 +10,10 @@ import { readOperator } from "./operator-background.js";
 void chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch(() => {});
-async function clear(tabId) {
-  await chrome.storage.session.remove([
-    panelKey(tabId, "review"),
-    panelKey(tabId, "status"),
-  ]);
+async function clear(tabId, kinds = ["review", "status"]) {
+  await chrome.storage.session.remove(
+    kinds.map((kind) => panelKey(tabId, kind)),
+  );
   await chrome.action.setBadgeText({ tabId, text: "" }).catch(() => {});
   await notifyPanel(tabId);
 }
@@ -22,7 +21,27 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void clear(tabId);
 });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (change.status === "loading" || change.url) void clear(tabId);
+  // A same-document URL change (an SPA step) keeps the document's status; its
+  // page re-announces it for the new URL. Readers ignore a status whose URL
+  // differs from the tab, and a new document always starts empty.
+  void (async () => {
+    const previous = await readPanelRecord(tabId, "status");
+    if (change.status === "loading") await clear(tabId);
+    else if (change.url) await clear(tabId, ["review"]);
+    if (change.url || change.status === "complete") {
+      // Ask the surviving document to publish after the clear has completed;
+      // ordering no longer depends on 250/1500ms page timers.
+      await chrome.tabs
+        .sendMessage(
+          tabId,
+          { type: "jobs:status-refresh" },
+          previous?.documentId
+            ? { documentId: previous.documentId }
+            : { frameId: 0 },
+        )
+        .catch(() => {});
+    }
+  })();
 });
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.type === "jobs:panel-open") {
@@ -54,15 +73,33 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         message.text.length > 4000
       )
         throw Error("Application document required");
+      if (
+        message.documentUrl &&
+        (message.documentUrl !== sender.url ||
+          (sender.frameId === 0 && sender.tab.url !== message.documentUrl))
+      )
+        throw Error("Application location changed");
       await storePanelRecord(sender.tab.id, "status", {
         id: message.id,
         documentId: sender.documentId,
         url: sender.tab.url,
         text: message.text,
+        phase:
+          typeof message.phase === "string" && message.phase.length <= 80
+            ? message.phase
+            : "",
         canFill: message.canFill === true,
         canRestore: message.canRestore === true,
         dismissible: message.dismissible === true,
       });
+      // Applications wait in background tabs while the person answers in the
+      // console. Memory Saver must not discard (and reload) a live form; a
+      // page the site has confirmed may be discarded again.
+      const keep = !["confirmed", "already-applied"].includes(message.phase);
+      if (sender.tab.autoDiscardable !== !keep)
+        await chrome.tabs
+          .update(sender.tab.id, { autoDiscardable: !keep })
+          .catch(() => {});
       // Top-page AI surface observes the same status as the side panel.
       await chrome.tabs
         .sendMessage(

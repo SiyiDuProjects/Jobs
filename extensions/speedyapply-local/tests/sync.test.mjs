@@ -45,6 +45,16 @@ const app = {
   resumeData: "private",
 };
 const sourceInfo = { url: url + "/application", proof: "ats_confirmation" };
+
+test("two observers of one receipt deduplicate even when their captured titles differ", async () => {
+  const h = harness();
+  await h.api.record(app, sourceInfo);
+  await h.api.record({ ...app, jobTitle: "" }, sourceInfo);
+  assert.equal(
+    (await h.chrome.storage.local.get()).jobsSyncV1.outbox.length,
+    1,
+  );
+});
 function harness(initial = {}, respond, privateConnection, session = {}) {
   let storage = structuredClone(initial),
     listener,
@@ -1157,7 +1167,14 @@ test("concurrent local records are all preserved while network is offline", asyn
   });
   await Promise.all(
     Array.from({ length: 15 }, (_, i) =>
-      h.api.record({ ...app, jobTitle: "Role " + i }, sourceInfo),
+      h.api.record(
+        {
+          ...app,
+          jobLink: url.slice(0, -2) + String(i).padStart(2, "0"),
+          jobTitle: "Role " + i,
+        },
+        sourceInfo,
+      ),
     ),
   );
   await h.api.flush();

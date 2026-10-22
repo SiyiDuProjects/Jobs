@@ -176,11 +176,14 @@ export function AppliedView({
           title: r.job?.title || r.jobTitle,
           locations: r.job?.locations || [],
           date: dateLabel(r.date),
-          badge: !r.job ? (
-            <Chip size="sm" variant="soft" className="job-badge">
-              外部投递
-            </Chip>
-          ) : undefined,
+          badge: (
+            <>
+              {r.submission?.label && <Chip size="sm" variant="soft" className="job-badge" color={r.submission.confirmed ? "success" : r.submission.error ? "warning" : "default"}>
+                {r.submission.label}
+              </Chip>}
+              {!r.job && <Chip size="sm" variant="soft" className="job-badge">外部投递</Chip>}
+            </>
+          ),
           extra: (
             <Chip size="sm" variant="soft">
               {progressLabel(r)}
@@ -287,6 +290,7 @@ export function AppliedView({
             投递时间：{dateLabel(dialog.row!.date)} ·{" "}
             {progressLabel(dialog.row!)}
           </p>
+          {dialog.row!.submission?.label && <p>{dialog.row!.submission!.label}</p>}
           {safeHref(dialog.row!.job?.apply_url || dialog.row!.jobLink) && (
             <a
               className="button button--secondary button--sm"

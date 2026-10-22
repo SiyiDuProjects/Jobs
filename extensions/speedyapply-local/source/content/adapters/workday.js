@@ -645,34 +645,42 @@ async function workdayHandleReviewPage(settings, jobsProfile, setMessage) {
     }));
 }
 async function workdayTrackReviewSubmitClick(record = true) {
-  let e = document.querySelector(`h3, [data-automation-id='jobTitleHeading']`),
-    t = /** @type {HTMLAnchorElement} */ (
+  const heading = () =>
+    document.querySelector(`h3, [data-automation-id='jobTitleHeading']`)
+      ?.textContent || ``;
+  const companyLink = () =>
+    /** @type {HTMLAnchorElement} */ (
       document.querySelector(`a[data-automation-id='logoLink']`)
-    ),
-    n = ``,
-    r = ``,
-    i = window.location.href;
-  if ((e && e.textContent && (n = e.textContent), t && t.href)) r = t.href;
-  else {
-    let e = i.match(/(https?:\/\/[^/]+\/(?:en-US\/)?[^/]+)/);
-    r = e ? e[1] : ``;
-  }
-  void jobsReportJobTitle(n, i);
+    )?.href ||
+    location.href.match(/(https?:\/\/[^/]+\/(?:en-US\/)?[^/]+)/)?.[1] ||
+    ``;
+  void jobsReportJobTitle(heading(), location.href);
   if (!record) return;
-  let a = i.substring(0, i.indexOf(`/apply`)),
-    o = await jobsWaitForCssNodes(
-      JobsPlatformConfig.structure.workday.nextEnabled,
-    );
-  o.length > 0 &&
-    o[0].addEventListener(`click`, () => {
-      document.querySelector(JobsPlatformConfig.structure.workday.reviewRoot) &&
-        jobsSaveApplicationRecord({
-          jobsSyncProof: "submit_attempt",
-          jobTitle: n,
-          jobLink: a,
-          companyLink: r,
-        });
-    });
+  // One delegated listener per document: Workday re-renders its footer, which
+  // dropped a listener bound to the first Submit button. A click counts only
+  // on the Review step's own Submit; the posting is read at click time.
+  const installed = Symbol.for(`jobs.workdayReviewSubmit`);
+  if (document[installed]) return;
+  document[installed] = true;
+  document.addEventListener(
+    `click`,
+    (event) => {
+      const { nextEnabled, reviewRoot } = JobsPlatformConfig.structure.workday;
+      const button = event
+        .composedPath()
+        .find((node) => node instanceof Element && node.matches(nextEnabled));
+      if (!button || !document.querySelector(reviewRoot)) return;
+      const href = location.href,
+        cut = href.indexOf(`/apply`);
+      void jobsSaveApplicationRecord({
+        jobsSyncProof: "submit_attempt",
+        jobTitle: heading(),
+        jobLink: cut < 0 ? href : href.slice(0, cut),
+        companyLink: companyLink(),
+      });
+    },
+    true,
+  );
 }
 async function workdayFillSelfIdentification(profile) {
   const results = await JobsFormPipeline.bind([

@@ -281,3 +281,122 @@ test("AI page actions share document routing and reject person mode, other frame
   h.local["jobsOperator:1"] = { mode: "person", epoch: "back", since: 2 };
   assert((await h.call(message, h.page)).error);
 });
+
+test("a live application tab is kept from Memory Saver discard until the site confirms it", async () => {
+  const h = panelWorker({ send: async () => ({ ok: true }) });
+  const status = (phase) =>
+    h.call(
+      { type: "jobs:panel-status", id: "status", text: phase, phase },
+      { ...h.page, tab: h.tabs.get(1) },
+    );
+  await status("in-progress");
+  await status("ai-review");
+  await status("confirmed");
+  await status("confirmed");
+  assert.deepEqual(h.updates, [
+    [1, { autoDiscardable: false }],
+    [1, { autoDiscardable: true }],
+  ]);
+});
+
+for (const mode of ["person", "agent", "page-tool", "unknown"])
+  for (const surface of ["panel", "console"])
+    test(`${surface} answers use the original writer and ${mode} learning semantics`, async (t) => {
+      const w = new JSDOM(
+        '<form><label>Decision<select required><option value="">Choose</option><option value="Y">Yes</option><option value="N">No</option></select></label></form>',
+        {
+          url: "https://example.test/job",
+          runScripts: "outside-only",
+        },
+      ).window;
+      t.after(() => w.close());
+      const listeners = [],
+        memories = [],
+        writes = [];
+      const h = panelWorker({
+        send: async (_id, message) =>
+          dispatch(listeners, message, { id: "jobs" }),
+      });
+      w.chrome = {
+        runtime: {
+          id: "jobs",
+          getURL: (path) => "chrome-extension://jobs/" + path,
+          onMessage: { addListener: (fn) => listeners.push(fn) },
+          sendMessage: (message) => h.call(message, h.page),
+        },
+      };
+      w.eval(fields);
+      w.eval(presenter);
+      w.eval(review);
+      w.JobsOperator.update({ mode, epoch: "fixture" });
+      w.JobsAnswerMemory = {
+        remember: (_question, _node, options) => memories.push(options),
+      };
+      const write = w.JobsFormPipeline.write;
+      w.JobsFormPipeline = {
+        ...w.JobsFormPipeline,
+        write: async (...args) => {
+          writes.push(args[2]);
+          return write(...args);
+        },
+      };
+      const root = w.document.querySelector("form");
+      const reader = w.JobsControlFields.create(w.document, () => root, {
+        write: true,
+      });
+      w.JobsAIReview.add(root, reader, reader.scan()[0], { needsInput: true });
+      w.JobsAIReview.ready(async (_nodes, release) => release(), "fill");
+      const from =
+        surface === "console"
+          ? {
+              id: "jobs",
+              frameId: 0,
+              tab: { id: 9 },
+              url: "chrome-extension://jobs/console.html",
+            }
+          : h.panel;
+      const read = () => h.call({ type: "jobs:panel-read", tabId: 1 }, from);
+      await settle(async () => (await read())?.review?.data.canConfirm);
+      const state = (await read()).review;
+      const action = {
+        type: "jobs:review-action",
+        tabId: 1,
+        id: state.id,
+        documentId: state.documentId,
+        action: "answer",
+        itemId: "0",
+        payload: { value: "N", version: state.data.items[0].editor.version },
+      };
+      assert.equal((await h.call(action, from)).ok, true);
+      assert.equal(root.querySelector("select").value, "N");
+      assert.equal(writes.length, 1);
+      assert.equal(writes[0].decider, mode === "person" ? "user" : mode);
+      assert.equal(memories.length, 1);
+      assert.equal(memories[0].learn, mode === "person");
+      assert.equal(memories[0].origin, mode);
+      assert.equal(memories[0].requireReview, true);
+      assert(
+        (await h.call(action, from)).error,
+        "the consumed version cannot write twice",
+      );
+      assert.equal(writes.length, 1);
+    });
+
+test("an old top document cannot publish its status under the new tab URL", async () => {
+  const h = panelWorker();
+  const reply = await h.call(
+    {
+      type: "jobs:panel-status",
+      id: "old",
+      text: "Website confirmed",
+      phase: "confirmed",
+      documentUrl: "https://example.test/old",
+    },
+    { ...h.page, url: "https://example.test/old" },
+  );
+  assert.match(reply.error, /location changed/);
+  assert.equal(
+    (await h.call({ type: "jobs:panel-read", tabId: 1 })).status,
+    null,
+  );
+});

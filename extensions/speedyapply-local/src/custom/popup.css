@@ -280,3 +280,275 @@ select[multiple].answer-input {
     padding: 12px;
   }
 }
+
+/* Answer console: one page for every open application. Layout only; HeroUI
+   components own color, states and shape. */
+.console {
+  max-width: 1240px;
+  margin-inline: auto;
+  padding: 24px 24px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.console-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+.console-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.console-brand strong {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+.console-brand span {
+  font-size: 15px;
+  color: var(--muted);
+}
+.console-summary,
+.console-header-actions,
+.console-row-actions,
+.console-card-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.console-summary {
+  font-variant-numeric: tabular-nums;
+}
+.console-header-actions {
+  margin-inline-start: auto;
+}
+.console-notice {
+  font-size: 13px;
+  color: var(--muted);
+}
+.console-notice[data-error] {
+  color: var(--danger);
+}
+.console-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.console-list {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.console-list-heading {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 12px 0 4px;
+}
+.console-list-heading:first-child {
+  margin-top: 0;
+}
+.console-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: start;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: inherit;
+  cursor: var(--cursor-interactive, pointer);
+  font: inherit;
+}
+.console-list-item:hover {
+  background: var(--surface-secondary);
+}
+.console-list-item[aria-current="true"] {
+  background: var(--surface);
+  box-shadow: var(--shadow-surface);
+}
+.console-list-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.console-list-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.console-list-meta,
+.console-list-status {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.console-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.console-card-header {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.console-card-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.console-card-tools {
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+.console-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.console-card-footer {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.console-status {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.console-group-title,
+.console-settled summary {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.console-settled summary {
+  cursor: pointer;
+  padding-block: 4px;
+}
+.console-questions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.console-question {
+  padding: 12px 14px;
+  border-radius: var(--radius-field);
+  background: var(--surface-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.console-question[data-active] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.console-question-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: var(--cursor-interactive, pointer);
+}
+.console-question-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.console-question-text {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.console-question-original,
+.console-reason,
+.console-hint,
+.console-keys {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.console-answer-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.console-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.console-error {
+  font-size: 12px;
+  color: var(--danger);
+}
+.console-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.console-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.console-option {
+  height: auto;
+  min-height: 32px;
+  white-space: normal;
+  text-align: start;
+  justify-content: flex-start;
+}
+.console-option-label {
+  overflow-wrap: anywhere;
+}
+.console-kbd {
+  font-size: 11px;
+}
+.console-empty {
+  padding: 64px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+@media (width < 900px) {
+  .console {
+    padding: 16px 16px 40px;
+  }
+  .console-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .console-list {
+    position: static;
+    max-height: 240px;
+  }
+  .console-header-actions {
+    margin-inline-start: 0;
+  }
+  .console-card-header {
+    flex-direction: column;
+  }
+  .console-card-tools {
+    justify-content: flex-start;
+  }
+}

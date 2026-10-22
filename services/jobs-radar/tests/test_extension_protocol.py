@@ -26,12 +26,12 @@ def test_actual_plugin_resolve_payload_and_authoritative_submission_state(tmp_pa
         assert client.post('/api/extension/events', json=attempt).status_code == 200
         current = client.post('/api/extension/resolve', json=request).json()
         assert current['application']['submitted'] and not current['application']['confirmed']
-        assert current['application']['label'] == '已投递'
+        assert current['application']['label'] == '已尝试提交'
         assert not current['queue']['allowed']
         assert client.post('/api/extension/events', json=receipt()).status_code == 200
         current = client.post('/api/extension/resolve', json=request).json()
         assert current['application']['confirmed'] and current['application']['confirmed_at']
-        assert current['application']['label'] == '已确认投递'
+        assert current['application']['label'] == '网站已确认'
         assert client.post('/api/extension/resolve', json={'job_url': request['url']}).status_code == 400
 
 

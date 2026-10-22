@@ -154,6 +154,18 @@ test('job submission badges and application progress stay on their respective pa
  } finally {h.dom.window.close();}
 });
 
+test('Applied displays the server submission label separately from recruiting progress',async()=>{
+ const applications=['已尝试提交','网站已确认','提交后报错，待核实'].map((label,i)=>({kind:'newgrad',id:'app-'+i,jobTitle:'Engineer '+i,companyName:'Fixture',jobLink:'https://example.test/'+i,companyLink:'',date:'2026-10-10T12:00:00Z',profileName:'Synthetic',status:'applied',submission:{label,submitted:true,confirmed:i===1,attempted_at:1,confirmed_at:i===1?2:null,error:i===2?'Synthetic validation':null}}));
+ const h=await page(0,{}, {}, applications);
+ try {
+  h.w.location.hash='/applications';
+  await until(()=>h.w.document.body.textContent.includes('Engineer 0'));
+  for(const row of applications)assert(h.w.document.querySelector('tbody').textContent.includes(row.submission.label));
+  assert(h.w.document.body.textContent.includes('等待回复'));
+  assert.deepEqual(h.errors,[]);
+ }finally{h.dom.window.close();}
+});
+
 
 test('opening jobs makes no tracking requests; row marking and undo still work',async()=>{
  const h=await page();try{

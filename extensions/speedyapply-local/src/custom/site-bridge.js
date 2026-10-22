@@ -158,6 +158,9 @@ import { JobsBrand } from "./brand.js";
       void connect();
     }
     if (event.data?.type === "jobs:extension-connect") void connect(true);
+    // Open (or bring forward) the extension's answer console.
+    if (event.data?.type === "jobs:open-console")
+      void send({ type: "jobs:console-open" }).catch(() => {});
     if (event.data?.type !== "jobs:extension-disconnect" || disconnecting)
       return;
     disconnecting = (async () => {

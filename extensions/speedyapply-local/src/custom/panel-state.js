@@ -19,10 +19,21 @@ export async function storePanelRecord(tabId, kind, value) {
   else await chrome.storage.session.remove(key);
   await notifyPanel(tabId);
 }
-export function isPanel(sender) {
+// The answer console is the side panel for every open application at once;
+// it uses the same versioned review and status commands.
+export const consoleUrl = () => chrome.runtime.getURL("console.html");
+export function isConsole(sender) {
   return (
     sender.id === chrome.runtime.id &&
-    !sender.tab &&
-    sender.url === chrome.runtime.getURL("popup.html")
+    sender.frameId === 0 &&
+    sender.url === consoleUrl()
+  );
+}
+export function isPanel(sender) {
+  return (
+    (sender.id === chrome.runtime.id &&
+      !sender.tab &&
+      sender.url === chrome.runtime.getURL("popup.html")) ||
+    isConsole(sender)
   );
 }

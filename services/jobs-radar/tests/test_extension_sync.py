@@ -67,7 +67,7 @@ def test_native_applied_record_syncs_directly_with_honest_provenance(setup,proof
         app=c.execute('SELECT * FROM applications WHERE job_id=?',(result['job_id'],)).fetchone()
         assert app['confirmed_at'] is None
         from jobs_radar.application_records import submission_state
-        assert submission_state(app)['label']=='已投递'
+        assert submission_state(app)['label']=='已尝试提交'
     assert sync.receive(DEVICE,p)==result
     assert sync.status()['pending']==0
 

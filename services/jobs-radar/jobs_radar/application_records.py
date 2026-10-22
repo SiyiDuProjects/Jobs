@@ -34,7 +34,7 @@ def submission_state(app):
     confirmed = app['confirmed_at'] is not None
     return {'status': app['status'], 'attempted_at': app['attempted_at'], 'confirmed_at': app['confirmed_at'],
             'error': app['submission_error'], 'submitted': submitted, 'confirmed': confirmed,
-            'label': '已确认投递' if confirmed else '提交后报错，待核实' if submitted and app['submission_error'] else '已投递' if app['status']=='submitted' else '已尝试提交' if submitted else '未投递'}
+            'label': '网站已确认' if confirmed else '提交后报错，待核实' if submitted and app['submission_error'] else '已尝试提交' if submitted else '未投递'}
 
 
 def write_state(c, job_id, changes, *, version_step=0, record_step=0, reason):

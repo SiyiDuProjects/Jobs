@@ -28,6 +28,27 @@ def test_tracker_after_explicit_error_restores_native_result_without_receipt(mod
     assert row['submission']['confirmed_at'] is None
 
 
+def test_attempt_confirmation_and_error_labels_agree_across_list_and_resolve(model):
+    store,sync,device=model
+    attempt=receipt()
+    sync.receive(device,attempt)
+    def check(label):
+        listed=ApplicationRecords(store).list()['applications'][0]['submission']
+        resolved=sync.resolve({'url':attempt['job_url']})['application']
+        assert listed['label']==resolved['label']==label
+        assert listed['confirmed']==resolved['confirmed']
+    check('已尝试提交')
+    error={**receipt('submit_validation_error'), 'event_id':attempt['event_id']+'-validation'}
+    sync.receive(device,error)
+    check('提交后报错，待核实')
+    sync.receive(device,receipt('ats_confirmation'))
+    check('网站已确认')
+    # Late attempts/errors cannot demote a confirmed receipt.
+    sync.receive(device,receipt('submit_attempt'))
+    sync.receive(device,receipt('submit_validation_error'))
+    check('网站已确认')
+
+
 
 
 

@@ -98,7 +98,7 @@ export async function buildPackage({
     await fs.cp(path.join(root, "src/icon"), path.join(stage, "icon"), {
       recursive: true,
     });
-    for (const name of ["popup.html", "diagnostics.html"])
+    for (const name of ["popup.html", "console.html", "diagnostics.html"])
       await fs.copyFile(path.join(root, "src", name), path.join(stage, name));
     for (const name of ["diagnostics-ui.css"])
       await fs.copyFile(
@@ -126,6 +126,12 @@ export async function buildPackage({
       background: { service_worker: "background.js", type: "module" },
       action: { default_title: brand.name },
       side_panel: { default_path: "popup.html" },
+      commands: {
+        "open-console": {
+          suggested_key: { default: "Alt+Shift+J" },
+          description: "打开答题台（所有投递页面的待答问题）",
+        },
+      },
       minimum_chrome_version: "120",
       web_accessible_resources: [
         { resources: ["custom/popup.css"], matches: ["https://*/*"] },
