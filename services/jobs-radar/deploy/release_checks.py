@@ -14,7 +14,7 @@ import tarfile
 
 from release_helpers import bounded
 
-CHECKS = ('website-tests', 'website-build', 'website-artifacts', 'service-tests')
+CHECKS = ('website-tests', 'website-build', 'website-artifacts', 'service-lint', 'service-tests')
 INPUTS = ('services/jobs-radar', 'extensions/speedyapply-local', 'scripts')
 
 
@@ -82,6 +82,7 @@ def run_checks(root, commit, source_hash, folder, stage_vendor, invoke=None):
     run([npm, 'run', 'test:build'], service / 'web', 'website-artifacts')
     local_python = root / INPUTS[0] / '.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     python = os.environ.get('JOBS_BUILD_PYTHON') or (str(local_python) if local_python.is_file() else sys.executable)
+    run([python, '-m', 'ruff', 'check', '.'], service, 'service-lint')
     run([python, '-m', 'pytest', '-q'], service, 'service-tests', timeout=1200)
     if any(not path.is_file() or path.is_symlink() or checksum(path) != expected
            for path, expected in original.items()):

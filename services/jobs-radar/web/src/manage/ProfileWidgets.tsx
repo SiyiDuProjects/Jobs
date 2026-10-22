@@ -8,7 +8,6 @@ import {
   Separator,
   TextField,
 } from "@heroui/react";
-import { DataGrid, type DataGridColumn } from "@heroui-pro/react";
 import { store, useManagement } from "./store";
 import { savedResponses } from "./saved-responses";
 import {

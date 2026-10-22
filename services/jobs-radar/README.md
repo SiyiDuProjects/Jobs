@@ -42,13 +42,16 @@ The private website uses its own approved session. Approve a browser request usi
 
 ```sh
 python -m venv .venv
-.venv/bin/pip install -r requirements-audit.txt
+.venv/bin/pip install -r requirements-audit.txt -e '.[dev]'
+.venv/bin/python -m ruff check .
 .venv/bin/python -m pytest tests -q
 cd web
 npm ci
 npm test
 npm run build
 ```
+
+Ruff is pinned in the `dev` extra and checks unused imports/locals (`F401`/`F841`) across runtime code, deployment helpers and tests. Intentional compatibility exports and imported pytest fixtures are explicit aliases; registered validators remain in place. The release receipt requires this check before tests.
 
 On Windows use `.venv/Scripts/python.exe` and a workspace-local pytest `--basetemp` when the system temporary directory is restricted. Local full-suite validation includes the recovery-content auditor and its pinned PDF parser in `requirements-audit.txt`; production continues to install only `requirements-lock.txt`. Linux process/resource tests need a separate bounded Linux environment, and an environment skip is not a pass. Docker compiles the service and website from the same committed tree. Static output is generated from `web/`, not reused from the running host. Plugin builds are a separate artifact whose loaded version must be verified.
 

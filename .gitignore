@@ -8,6 +8,8 @@ __pycache__/
 .qa/
 reports/
 work/
+/tmp/
+/output/
 extensions/speedyapply-local/.qa/
 resumes/*.pdf
 

@@ -17,10 +17,6 @@ def initialize(c):
         observed_at REAL NOT NULL, updated_at REAL NOT NULL)''')
 
 
-def display_titles(c):
-    return {r['job_id']:r['title'] for r in c.execute('SELECT job_id,title FROM job_title_overrides')}
-
-
 class JobTitles:
     def __init__(self, store):
         self.store = store

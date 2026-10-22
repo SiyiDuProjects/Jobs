@@ -132,7 +132,6 @@ def test_queue_eligibility_is_read_only_and_blocks_all_prior_attempt_states(tmp_
 
 
 def test_queue_eligibility_rechecks_current_listing_and_active_claim(tmp_path):
-    import time
     url = 'https://jobs.ashbyhq.com/acme/abcdefgh-1234-1234-1234-abcdefghijkl'
     store, sync = listed(tmp_path, url)
     jid = job_id(store, url)

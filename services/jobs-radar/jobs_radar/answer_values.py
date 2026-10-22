@@ -1,5 +1,4 @@
 """Closed Profile computations. No model-generated personal fact enters here."""
-import re
 from .profile_contract import SCHEMA
 from .employer_names import employed_by
 

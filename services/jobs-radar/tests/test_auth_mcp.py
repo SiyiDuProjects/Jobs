@@ -127,7 +127,7 @@ def test_oauth_and_live_mcp_flow(tmp_path):
         assert next(t for t in tools if t["name"] == "change_application_record")["annotations"]["readOnlyHint"] is False
         search = rpc(client, access, "tools/call", {"name": "search_jobs", "arguments": {"location": "CA"}}).json()["result"]
         assert not search.get("isError"), search
-        job_id = search["structuredContent"]["jobs"][0]["id"]
+        assert search["structuredContent"]["jobs"][0]["id"]
         assert not {'claim_jobs', 'record_application_result', 'manage_job_lease', 'reconcile_application', 'record_recruiting_email'} & {t['name'] for t in tools}
         profiles = rpc(client, access, 'tools/call', {'name': 'get_profiles', 'arguments': {}}).json()['result']
         assert not profiles.get('isError'), profiles

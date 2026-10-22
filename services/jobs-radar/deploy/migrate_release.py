@@ -4,7 +4,6 @@ from contextlib import closing
 import json
 import os
 from pathlib import Path
-import shutil
 import sqlite3
 import tempfile
 

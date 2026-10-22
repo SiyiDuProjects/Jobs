@@ -176,14 +176,6 @@ def project_display(c, rows):
     return rows
 
 
-def matching_jobs(c, row, index=None):
-    key = posting_key(row.get('jobLink'), c)
-    ids = (index if index is not None else job_index(c)).get(key, set()) if key else set()
-    if not key:
-        ids = {r[0] for r in c.execute('SELECT id FROM jobs') if records.manual_id(r[0])==row['id']}
-    return ids
-
-
 def job_progress(c, job_id):
     row=c.execute('SELECT progress FROM applications WHERE job_id=?',(job_id,)).fetchone()
     return job_progress_value(job_id, row[0] if row else None)

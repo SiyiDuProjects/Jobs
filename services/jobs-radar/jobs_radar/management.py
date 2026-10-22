@@ -4,8 +4,6 @@ The existing Jobs application ledger is NOT replaced by an imported extension li
 Application records project their submitted state onto matching existing jobs.
 """
 import json
-import re
-import time
 import hashlib
 from .profiles import ProfileConflict, Profiles
 from . import management_history

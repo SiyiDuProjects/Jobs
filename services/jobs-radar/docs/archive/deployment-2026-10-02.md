@@ -83,7 +83,7 @@ Deployed after explicit user approval. Four GitHub repositories still provide si
 Backend and public HTTPS deployed and verified. Jobs Radar is installed in ChatGPT developer mode with OAuth, and ChatGPT lists all nine tools. The real ChatGPT read-only acceptance check passed. No local Codex plugin was created. The old ChatGPT scheduled task was deleted on 2026-09-09 after explicit action-time confirmation; the task list now excludes it.
 
 - Source: `D:/Projects/Jobs/services/jobs-radar`.
-- Server: `ubuntu@49.51.38.235`, `/home/ubuntu/siyi/jobs-radar`.
+- Server: the private `JOBS_RADAR_HOST` destination, `/home/ubuntu/siyi/jobs-radar`.
 - Live remote MCP: `https://jobs.siyidu.com/mcp`.
 - ChatGPT application ID: `asdk_app_6aa1489a7f6c8191b92936c8ee01af76`; version `asdk_app_v_6aa1489a7f7481918dbc31853075c256`, development mode, OAuth.
 - Running container: `jobs-radar-mcp-1`, healthy, loopback `127.0.0.1:8796` only.

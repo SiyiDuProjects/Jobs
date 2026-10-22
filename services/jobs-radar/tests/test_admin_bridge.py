@@ -79,12 +79,14 @@ def test_pagination_cannot_repeat_mutations():
 
 
 def test_release_lock_failure_does_not_produce_a_saved_result(tmp_path, monkeypatch):
+    monkeypatch.setenv('JOBS_RADAR_HOST', 'operator@jobs.example.invalid')
     request = tmp_path / 'request.json'
     output = tmp_path / 'result.json'
     request.write_text(json.dumps({'method': 'health'}))
     monkeypatch.setattr(sys, 'argv', ['jobs_radar_admin.py', str(request), '--output', str(output)])
 
     def locked(command, **options):
+        assert command[-2] == 'operator@jobs.example.invalid'
         assert command[-1] == bridge.REMOTE_COMMAND
         assert 'flock -s -n .release.lock docker compose exec' in command[-1]
         assert options['timeout'] == 120
@@ -94,3 +96,13 @@ def test_release_lock_failure_does_not_produce_a_saved_result(tmp_path, monkeypa
     with pytest.raises(subprocess.CalledProcessError):
         bridge.main()
     assert not output.exists()
+
+
+@pytest.mark.parametrize('host', ['', '-oProxyCommand=unexpected'])
+def test_missing_or_option_like_destination_never_starts_ssh(monkeypatch, host):
+    monkeypatch.setenv('JOBS_RADAR_HOST', host)
+    monkeypatch.setattr(sys, 'argv', ['jobs_radar_admin.py', 'unused.json'])
+    monkeypatch.setattr(bridge.subprocess, 'run', lambda *a, **k: pytest.fail('SSH must not start'))
+    with pytest.raises(SystemExit) as error:
+        bridge.main()
+    assert error.value.code == 2

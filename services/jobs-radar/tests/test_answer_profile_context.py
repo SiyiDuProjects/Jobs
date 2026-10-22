@@ -1,5 +1,5 @@
 import pytest
-from jobs_radar.profile_contract import SCHEMA,assert_profile,project_answer_profile
+from jobs_radar.profile_contract import SCHEMA,project_answer_profile
 from test_answers import setup,save,run,Client,mapping,field
 from jobs_radar.profiles import Profiles
 

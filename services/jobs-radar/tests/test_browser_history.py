@@ -5,7 +5,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from jobs_radar.browser_control import BrowserControl
-from jobs_radar.event_log import Diagnostics, RETENTION_DAYS, MAX_RUNS, pin
+from jobs_radar.event_log import Diagnostics, RETENTION_DAYS
 from jobs_radar.server import create_server
 from jobs_radar.store import Store
 
@@ -35,7 +35,7 @@ def actions_of(detail):
 def history(tmp_path):
     store = Store(tmp_path / 'history.sqlite')
     control = BrowserControl(store, lambda: NOW + 100_000, allow_commands=False)
-    device, session = str(uuid.uuid4()), str(uuid.uuid4())
+    device = str(uuid.uuid4())
     def send(items):
         return Diagnostics(store, lambda: NOW + 100_000).receive(device, {'protocolVersion': 1, 'history': items})
     return store, control, send

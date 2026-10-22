@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from starlette.testclient import TestClient
 from jobs_radar.application_progress import ApplicationProgress
-from jobs_radar.application_records import read, ApplicationRecords, upsert
+from jobs_radar.application_records import ApplicationRecords, upsert
 from jobs_radar.management import Management
 from jobs_radar.profiles import ProfileConflict
 from jobs_radar.recruiting import Recruiting
@@ -243,7 +243,6 @@ def test_optimistic_versions_claims_idempotency_and_incomplete_email_are_atomic(
     with pytest.raises(ProfileConflict):p.update(aid,'interview',0,'stale-update','Owner reports an interview')
     with pytest.raises(ValueError,match='timestamp'):update(p,aid,'interview',source='email',reference='abcdef1234567800')
     assert current(p,aid)['progress']['stage']=='assessment'
-    with s.connect() as c:jid=c.execute('SELECT id FROM jobs').fetchone()[0]
 
 def test_newer_email_preserves_round_and_old_email_cannot_undo_owner(subject):
     _,_,p,aid=subject
@@ -260,7 +259,6 @@ def test_newer_email_preserves_round_and_old_email_cannot_undo_owner(subject):
 
 def test_external_record_available_via_mcp_and_later_ingestion(subject):
     s,m,p,_=subject
-    doc=m.snapshot()['appliedList']
     external=record(URL.replace('hpe.wd5','external.wd5'))
     ApplicationRecords(s).mutate([dict(action='create',value=external)],'add-external')
     row=next(r for r in p.list()['applications'] if 'external.' in r['jobLink'])

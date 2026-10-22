@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from jobs_radar.application_records import ApplicationRecords, read
+from jobs_radar.application_records import ApplicationRecords
 from jobs_radar.application_progress import ApplicationProgress
 from jobs_radar.board import Board
 from jobs_radar.extension_sync import ExtensionSync, EXTENSION_ID
@@ -187,7 +187,7 @@ def test_runtime_state_writers_are_centralized():
 
 def test_mail_cannot_create_a_record_or_change_unrelated_record_version(model):
     store,sync,device=model
-    first=sync.receive(device,receipt())
+    sync.receive(device,receipt())
     before=ApplicationRecords(store).list()['applications'][0]
     other={**observation(url='https://jobs.lever.co/example/another'),'source_id':'second'}
     store.ingest('simplify:newgrad',[observation(),other],'test')

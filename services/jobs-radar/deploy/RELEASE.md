@@ -280,10 +280,13 @@ activation verifies every listed asset over HTTP before keeping the switch.
 Full service builds first check an isolated archive of the exact commit, including
 extension and repository-script fixtures consumed by the service tests. The
 check stage installs locked Node dependencies only in that disposable directory,
-runs website tests/build/artifact validation and the full service pytest suite,
+runs website tests/build/artifact validation, `python -m ruff check .` for the
+service's configured F401/F841 checks, and the full service pytest suite,
 and refuses source changes during validation. Python uses `JOBS_BUILD_PYTHON`,
-the existing service `.venv`, or the invoking Python in that order; pytest must
-already be available. No private corpus or credentials enter the archive.
+the existing service `.venv`, or the invoking Python in that order. From the
+service directory, install `python -m pip install -r requirements-audit.txt -e '.[dev]'`
+into that environment first; pytest and the pinned Ruff must already be available.
+No private corpus or credentials enter the archive.
 A missing optional corpus remains an explicit skipped test, not acceptance.
 
 The manifest records the passing checks, exact test-input/archive hashes and

@@ -1,7 +1,7 @@
 """Switchable answer engines with a common extension wire contract."""
 import os
 from .answer_timing import database
-from .legacy_answers import Answers as LegacyAnswers, INSTRUCTIONS, unique_rows
+from .legacy_answers import Answers as LegacyAnswers, INSTRUCTIONS as INSTRUCTIONS, unique_rows as unique_rows
 from .simple_answers import SimpleAnswers
 from .answer_result import from_legacy
 from .field_answers import fields_input

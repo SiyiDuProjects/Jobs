@@ -1,7 +1,6 @@
 """Behavior regressions for read isolation, request scheduling and bounded reads."""
 import asyncio
 from contextlib import contextmanager
-import json
 import sqlite3
 import threading
 import time
@@ -11,7 +10,6 @@ import pytest
 from starlette.requests import Request
 
 from jobs_radar.answer_jobs import AnswerJobs
-from jobs_radar.async_work import run_sync
 from jobs_radar.http_routes import RouteAPI
 from jobs_radar.management import Management
 from jobs_radar.store import Store

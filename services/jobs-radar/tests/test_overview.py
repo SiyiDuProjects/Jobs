@@ -1,5 +1,3 @@
-import time
-from datetime import datetime, timezone
 
 from starlette.testclient import TestClient
 import pytest
@@ -68,7 +66,7 @@ def test_pending_and_owner_undo_not_counted_as_submission(tmp_path):
 
 
 def test_overview_private_and_ignores_list_filters(tmp_path):
-    s=Store(tmp_path/'web.sqlite');s.ingest('simplify:newgrad',[observation()],'init');r=Recruiting(s)
+    s=Store(tmp_path/'web.sqlite');s.ingest('simplify:newgrad',[observation()],'init')
     aid=confirmed_fixture(s)
     # A retained historical receipt is still displayed; a new email cannot create it.
     with s.connect(True) as c:

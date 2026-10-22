@@ -7,7 +7,7 @@ import pytest
 from deploy_module import module
 
 
-@pytest.mark.parametrize('fault', [None, 'failed', 'mutated'])
+@pytest.mark.parametrize('fault', [None, 'failed', 'lint-failed', 'mutated'])
 def test_receipt_exists_only_after_all_checks_on_unchanged_committed_inputs(tmp_path, fault):
     checks = module('release_checks')
     root, output = tmp_path / 'source', tmp_path / 'artifact'
@@ -27,9 +27,11 @@ def test_receipt_exists_only_after_all_checks_on_unchanged_committed_inputs(tmp_
             return subprocess.run(args, capture_output=True, text=True, **kwargs)
         calls.append(args)
         service_test = args[1:3] == ['-m', 'pytest']
+        lint = args[1:] == ['-m', 'ruff', 'check', '.']
         if service_test and fault == 'mutated':
             (kwargs['cwd'] / 'synthetic.txt').write_text('changed after checks')
-        return subprocess.CompletedProcess(args, 1 if service_test and fault == 'failed' else 0, 'synthetic check output', '')
+        failed = (service_test and fault == 'failed') or (lint and fault == 'lint-failed')
+        return subprocess.CompletedProcess(args, 1 if failed else 0, 'synthetic check output', '')
     if fault:
         with pytest.raises((ValueError, RuntimeError), match='changed|failed'):
             checks.run_checks(root, commit, 'c' * 64, output, lambda *_: None, invoke=invoke)
@@ -40,11 +42,14 @@ def test_receipt_exists_only_after_all_checks_on_unchanged_committed_inputs(tmp_
         assert receipt['testInputsSha256'] == hashlib.sha256((output / 'test-inputs.tar').read_bytes()).hexdigest()
         assert json.loads((output / 'tests.json').read_text()) == receipt
         assert not (output / 'checks-workspace').exists()
-        assert len(calls) == 6
+        assert len(calls) == 7
+        assert any(args[1:] == ['-m', 'ruff', 'check', '.'] for args in calls)
+    if fault == 'lint-failed':
+        assert not any(args[1:3] == ['-m', 'pytest'] for args in calls)
     assert not any('docker' in str(arg) for command in calls for arg in command)
 
 
-@pytest.mark.parametrize('fault', ['missing', 'commit', 'source', 'checks', 'fixtures'])
+@pytest.mark.parametrize('fault', ['missing', 'commit', 'source', 'checks', 'fixtures', 'lint-missing'])
 def test_receipt_cannot_be_reused_for_another_commit_or_failed_check(fault):
     checks = module('release_checks')
     receipt = dict(format=1, commit='b' * 40, sourceSha256='c' * 64,
@@ -53,6 +58,7 @@ def test_receipt_cannot_be_reused_for_another_commit_or_failed_check(fault):
     elif fault == 'commit': receipt['commit'] = 'a' * 40
     elif fault == 'source': receipt['sourceSha256'] = 'a' * 64
     elif fault == 'checks': receipt['checks']['service-tests'] = 'failed'
+    elif fault == 'lint-missing': del receipt['checks']['service-lint']
     else: receipt['testInputsSha256'] = ''
     with pytest.raises(ValueError, match='exact committed inputs'):
         checks.validate_receipt(receipt, 'b' * 40, 'c' * 64)

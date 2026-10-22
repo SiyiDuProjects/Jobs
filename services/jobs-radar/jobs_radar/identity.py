@@ -1,7 +1,5 @@
 """Conservative URL identity. Titles never authorize an automatic merge."""
 import hashlib
-import re
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 def identity(url: str) -> str:

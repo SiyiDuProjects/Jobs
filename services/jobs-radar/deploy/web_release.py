@@ -17,7 +17,7 @@ import tempfile
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from jobs_radar.web_bundles import FILES, MAX_FILE, MAX_MANIFEST, VERSION, manifest_files, read_manifest
+from jobs_radar.web_bundles import MAX_FILE, MAX_MANIFEST, VERSION, manifest_files, read_manifest
 
 LIVE = Path('/home/ubuntu/siyi/jobs-radar')
 ORIGIN = 'http://127.0.0.1:8796'

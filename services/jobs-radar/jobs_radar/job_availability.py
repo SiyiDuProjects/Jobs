@@ -67,7 +67,6 @@ class JobAvailability:
             return result
 
     def _remove(self,c,p,now):
-        manual = p['proof'] == 'manual_remove'
         try:
             observed = datetime.fromisoformat(p.get('observed_at','').replace('Z','+00:00'))
             if observed.tzinfo is None: raise ValueError('Timezone required')

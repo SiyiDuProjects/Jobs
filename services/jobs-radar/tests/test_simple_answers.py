@@ -4,12 +4,10 @@ import re
 import time
 from datetime import datetime, timezone, timedelta
 import httpx
-import pytest
 from jobs_radar.answers import Answers
-from jobs_radar.simple_answers import SimpleAnswers
 from jobs_radar.ai_answers import INSTRUCTIONS, checked
 from jobs_radar.profile_text import render_profile
-from jobs_radar.saved_answers import SavedAnswers, request_context
+from jobs_radar.saved_answers import request_context
 from jobs_radar.management import Management
 from test_answers import setup, field, save
 

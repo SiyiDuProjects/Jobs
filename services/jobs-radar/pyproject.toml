@@ -4,6 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = ["mcp==2.2.0", "httpx>=0.28,<1", "jsonschema>=4.26,<5"]
 
+[project.optional-dependencies]
+dev = ["ruff==0.17.1"]
+
 [project.scripts]
 jobs-radar = "jobs_radar.cli:main"
 
@@ -20,3 +23,10 @@ packages = ["jobs_radar"]
 
 [tool.setuptools.package-data]
 jobs_radar = ["*.json", "static/*.html", "static/*.css", "static/*.js", "static/manage/*", "static/chunks/*"]
+
+[tool.ruff]
+required-version = "==0.17.1"
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["F401", "F841"]

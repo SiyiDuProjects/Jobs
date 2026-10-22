@@ -2,7 +2,7 @@
 import hashlib
 import json
 import re
-from .answer_values import PREDICATES, PATHS, DEFAULTS, BOOLEAN, DISCLOSURE, COUNTRIES, evaluate, normalized
+from .answer_values import PREDICATES, PATHS, BOOLEAN, DISCLOSURE, COUNTRIES, evaluate, normalized, DEFAULTS as DEFAULTS
 from .answer_semantics import field_key
 from .field_answers import CHOICES, _exact_date
 

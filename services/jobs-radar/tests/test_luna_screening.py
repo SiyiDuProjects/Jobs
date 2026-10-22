@@ -6,7 +6,7 @@ import jsonschema
 import pytest
 
 from jobs_radar.board import Board
-from jobs_radar.luna_screening import ScreeningError, classify, failure_summary, run
+from jobs_radar.luna_screening import ScreeningError, failure_summary, run
 from jobs_radar.screening_progress import ScreeningProgress
 from jobs_radar.store import Store
 from test_store import observation
@@ -147,7 +147,7 @@ def test_unexpected_failure_logs_only_stage_and_keeps_failure(tmp_path,monkeypat
 def test_cli_keeps_failure_exit_and_redacts_diagnostics(tmp_path,monkeypatch,capsys,command):
     import sys
     from jobs_radar import cli, luna_screening, sources
-    s=setup_store(tmp_path)
+    setup_store(tmp_path)
     def fail(*args,**kwargs):
         raise ScreeningError('provider_http',http_status=429,provider_code='insufficient_quota')
     async def collected(*args,**kwargs): return [{'ok':True}]

@@ -1,9 +1,6 @@
-import json
-import time
 
 from jobs_radar.application_records import ApplicationRecords
-from jobs_radar.board import Board
-from test_application_model_v2 import model, receipt
+from test_application_model_v2 import model as model, receipt
 
 
 def old_native_record(store, sync, device, *, proof='submit_attempt'):

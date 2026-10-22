@@ -8,7 +8,6 @@ import asyncio
 import json
 import os
 from pathlib import Path
-import re
 import tempfile
 
 from jobs_radar.question_corpus import QuestionCorpus, question_key

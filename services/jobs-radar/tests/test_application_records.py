@@ -1,4 +1,3 @@
-import json
 from jobs_radar.store import Store
 from jobs_radar.management import Management
 from jobs_radar.board import Board

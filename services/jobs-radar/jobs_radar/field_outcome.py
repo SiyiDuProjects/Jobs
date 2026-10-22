@@ -23,9 +23,3 @@ def outcome(value):
         if key in value:
             result[key] = boolean(value[key])
     return result
-
-
-def handed_over(item):
-    """The plugin did not complete this field itself."""
-    return item.get('taken') is True or item.get('by') in VOCABULARY['operators'] \
-        or item['state'] in ('abstained', 'omitted', 'unrecognized') or 'reason' in item or item.get('review') is True

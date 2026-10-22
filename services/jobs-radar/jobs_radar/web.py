@@ -13,7 +13,7 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from .board import Board
 from .recruiting import Recruiting
 from .extension_sync import ExtensionSync
-from .profiles import Profiles, ProfileConflict
+from .profiles import Profiles
 from .management import Management
 from .answers import Answers
 from .http_routes import RouteAPI, RequestModel, json_response

@@ -6,7 +6,7 @@ import pytest
 from jobs_radar.application_records import ApplicationRecords
 from jobs_radar.extension_sync import ExtensionSync, EXTENSION_ID
 from jobs_radar.store import Store
-from test_application_model_v2 import model, receipt
+from test_application_model_v2 import model as model, receipt
 from test_job_duplicates import legacy_pair, URL
 from test_store import observation
 

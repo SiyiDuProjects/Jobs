@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from jobs_radar.board import Board
 from jobs_radar.extension_sync import ExtensionSync, EXTENSION_ID
-from jobs_radar.job_availability import JobAvailability, MESSAGES, valid_evidence
+from jobs_radar.job_availability import MESSAGES, valid_evidence
 from jobs_radar.store import Store
 from test_store import observation
 

@@ -11,7 +11,7 @@ import json
 import os
 import re
 import secrets
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 

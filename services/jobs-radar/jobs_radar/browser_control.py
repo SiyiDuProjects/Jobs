@@ -8,10 +8,8 @@ import hashlib
 import json
 import logging
 import os
-import re
 import time
 import uuid
-from urllib.parse import parse_qsl, urlsplit
 
 from .store import encoded
 from .field_outcome import outcome as field_outcome

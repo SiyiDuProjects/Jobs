@@ -1,6 +1,5 @@
 import time
 
-import pytest
 from starlette.testclient import TestClient
 
 from jobs_radar.board import Board

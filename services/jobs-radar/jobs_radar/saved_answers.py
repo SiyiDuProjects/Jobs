@@ -3,7 +3,7 @@ import json
 import re
 from datetime import datetime, timezone
 from .answer_cache import digest
-from .answer_memory import normalized, company_key, request_context
+from .answer_memory import normalized, company_key, request_context as request_context
 
 STOP = {'a','an','the','to','of','in','at','for','is','are','do','does','you','your','and','or','this','that'}
 

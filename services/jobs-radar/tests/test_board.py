@@ -1,4 +1,3 @@
-import json
 import time
 import pytest
 from starlette.testclient import TestClient
