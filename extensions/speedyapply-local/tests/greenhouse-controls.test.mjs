@@ -1258,3 +1258,31 @@ test("answering a reviewed Greenhouse placeholder completes without a false ques
     f.close();
   }
 });
+
+test("review keyword browsing lists candidates without selecting an answer", async () => {
+  const f = fixture({
+    labels: ["Example North", "Example South"],
+    finite: false,
+    question: "Choose a location",
+  });
+  try {
+    const reader = w.JobsControlFields.create(
+      w.document,
+      () => w.document.getElementById("root"),
+      { write: true },
+    );
+    const row = reader.scan()[0];
+    const options = await reader.readOptions(row, () => true, {
+      answer: "Example",
+      browse: true,
+    });
+    assert.deepEqual(
+      Array.from(options, (x) => x.label),
+      ["Example North", "Example South"],
+    );
+    assert.equal(f.clicks.length, 0);
+    assert.equal(reader.scan()[0].public.filled, false);
+  } finally {
+    f.close();
+  }
+});

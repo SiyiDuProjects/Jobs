@@ -763,7 +763,7 @@ export function initializeSync() {
       JobsPrivateSession.assertCurrent(epoch);
       return result;
     }
-    async function generateAnswer(payload) {
+    async function generateAnswer(payload, retryStoredFailure = true) {
       await ready;
       const state = await serial(read);
       if (!state.profileToken || state.disabled)
@@ -791,10 +791,11 @@ export function initializeSync() {
           );
         for (const [id, item] of Object.entries(tasks))
           if (Date.now() - item.created > 900000) delete tasks[id];
+        const reused = !!tasks[key];
         if (!tasks[key])
           tasks[key] = { id: crypto.randomUUID(), created: Date.now() };
         await chrome.storage.session.set({ jobsAnswerTasksV1: tasks });
-        return tasks[key];
+        return { ...tasks[key], reused };
       });
       const request = async (method) => {
         for (let attempt = 0; ; attempt++) {
@@ -866,13 +867,21 @@ export function initializeSync() {
         }
       };
       let result = await request("POST");
+      const alreadyCompleted = task.reused && result.state === "completed";
       const deadline = Date.now() + 605000;
       while (result.state === "pending" && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         result = await request("GET");
       }
-      if (result.state === "completed") return result.result;
-      if (result.state === "failed") {
+      const interrupted = result.result?.answers?.some(
+        (answer) => answer.interruptionReason === "ai_unavailable",
+      );
+      // A finished provider failure is retryable even when other fields succeeded.
+      // Keep pending tasks durable; retire only this completed request, not a newer retry.
+      if (
+        result.state === "failed" ||
+        (result.state === "completed" && interrupted)
+      ) {
         await serial(async () => {
           const tasks =
             /** @type {Record<string,import('./sync-types').AnswerTask>} */ (
@@ -884,6 +893,13 @@ export function initializeSync() {
             await chrome.storage.session.set({ jobsAnswerTasksV1: tasks });
           }
         });
+      }
+      // Migrate a failure left by an older worker during this explicit request.
+      // A pending task that fails now is returned as-is, never silently replayed.
+      if (alreadyCompleted && interrupted && retryStoredFailure)
+        return generateAnswer(payload, false);
+      if (result.state === "completed") return result.result;
+      if (result.state === "failed") {
         throw Object.assign(Error(result.result?.error || "Luna 请求失败"), {
           answerUsage: result.result?.answerUsage,
         });

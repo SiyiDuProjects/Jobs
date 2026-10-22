@@ -297,6 +297,44 @@ function TextEditor({ item, state, draft, onDraft, onAnswer, inputRef }) {
   );
 }
 
+function OptionsEditor({ item, state, onOptions, inputRef }) {
+  const [query, setQuery] = useState("");
+  const disabled = item.editor.disabled || state.pending;
+  return (
+    <div className="console-editor">
+      <Input
+        ref={inputRef}
+        aria-label={`${item.question} 搜索选项`}
+        placeholder="可输入关键词搜索网页选项"
+        value={query}
+        maxLength={500}
+        disabled={disabled}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            !event.nativeEvent.isComposing &&
+            !disabled
+          ) {
+            event.preventDefault();
+            onOptions(query);
+          }
+        }}
+      />
+      <Button
+        size="sm"
+        variant="secondary"
+        isDisabled={disabled}
+        isPending={state.pending}
+        onPress={() => onOptions(query)}
+      >
+        加载选项
+      </Button>
+      <p className="console-hint">读取这道题的网页选项后，由你选择答案。</p>
+    </div>
+  );
+}
+
 function Question({
   row,
   item,
@@ -306,6 +344,7 @@ function Question({
   onSelect,
   onDraft,
   onAnswer,
+  onOptions,
   onAccept,
   onLocate,
   inputRef,
@@ -342,7 +381,10 @@ function Question({
       <div className="console-answer-line">
         <span className="console-answer">{item.answer}</span>
         {state.pending ? (
-          <Spinner size="sm" aria-label="正在填入" />
+          <Spinner
+            size="sm"
+            aria-label={state.loadingOptions ? "正在加载选项" : "正在填入"}
+          />
         ) : (
           <Chip
             size="sm"
@@ -356,7 +398,14 @@ function Question({
       {item.reason && <p className="console-reason">{item.reason}</p>}
       {active &&
         item.editor &&
-        (["buttons", "select"].includes(item.editor.kind) ? (
+        (item.editor.kind === "options" ? (
+          <OptionsEditor
+            item={item}
+            state={state}
+            onOptions={onOptions}
+            inputRef={inputRef}
+          />
+        ) : ["buttons", "select"].includes(item.editor.kind) ? (
           <ChoiceEditor key={item.editor.version} {...editorProps} />
         ) : item.editor.kind === "multiple" ? (
           <MultipleEditor {...editorProps} draft={draft} onDraft={onDraft} />
@@ -479,6 +528,22 @@ function PageCard({
     // Keep the version the draft was written against. Only a new edit after
     // reading the updated page may adopt the new version.
     return false;
+  }
+  async function loadOptions(item, query) {
+    const key = itemKey(row, item);
+    if (answering.current.has(key) || item.editor.disabled) return;
+    answering.current.add(key);
+    patch(key, { pending: true, loadingOptions: true, error: "" });
+    try {
+      const result = await controller.act(row, "options", item.id, {
+        query,
+        version: item.editor.version,
+      });
+      patch(key, { error: result?.error || "" });
+    } finally {
+      answering.current.delete(key);
+      patch(key, { pending: false, loadingOptions: false });
+    }
   }
   async function confirm() {
     if (confirming.current || answering.current.size) return;
@@ -607,6 +672,7 @@ function PageCard({
         onAnswer={(value, version) =>
           void answer(item, value, version === undefined ? {} : { version })
         }
+        onOptions={(query) => void loadOptions(item, query)}
         onAccept={() => void answer(item, item.editor.value, { accept: true })}
         onLocate={locate}
       />

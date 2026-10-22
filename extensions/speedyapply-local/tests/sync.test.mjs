@@ -1784,3 +1784,82 @@ test("answer polling allows queued work to finish beyond the old two-minute dead
   );
   assert.equal(polls, 3);
 });
+
+for (const reason of ["ai_unavailable", "missing_fact", "answer_missing"])
+  test(`completed batch retry distinguishes ${reason} and preserves successful fields`, async () => {
+    const initial = connected();
+    initial.jobsSyncV1.profileToken = "b".repeat(64);
+    const ids = [];
+    const answers = [
+      { fieldId: "done", kind: "answer", value: "Synthetic kept answer" },
+      { fieldId: "gap", kind: "unknown", interruptionReason: reason },
+    ];
+    const h = harness(initial, async (_path, options) => {
+      ids.push(JSON.parse(options.body).requestId);
+      return Response.json({ state: "completed", result: { answers } });
+    });
+    const payload = {
+      profileId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+      profileVersion: "fixture",
+      fields: [],
+    };
+    const first = await h.api.generateAnswer(payload);
+    const session = await h.chrome.storage.session.get();
+    // A fresh worker with the same browser session models reload/reconnect.
+    const restarted = harness(
+      h.local(),
+      async (_path, options) => {
+        ids.push(JSON.parse(options.body).requestId);
+        return Response.json({ state: "completed", result: { answers } });
+      },
+      undefined,
+      session,
+    );
+    const second = await restarted.api.generateAnswer(payload);
+    assert.deepEqual(first.answers, answers);
+    assert.deepEqual(second.answers, answers);
+    assert.equal(ids[0] === ids[1], reason !== "ai_unavailable");
+  });
+
+test("an old worker's stored provider failure is retired and retried once on refresh", async () => {
+  const initial = connected();
+  initial.jobsSyncV1.profileToken = "b".repeat(64);
+  const payload = {
+    profileId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+    profileVersion: "fixture",
+    fields: [],
+  };
+  const old = harness(initial, async () =>
+    Response.json({ state: "completed", result: { answers: [] } }),
+  );
+  await old.api.generateAnswer(payload);
+  const session = await old.chrome.storage.session.get(),
+    ids = [];
+  const current = harness(
+    old.local(),
+    async (_path, options) => {
+      ids.push(JSON.parse(options.body).requestId);
+      return Response.json({
+        state: "completed",
+        result: {
+          answers: [
+            {
+              fieldId: "gap",
+              kind: "unknown",
+              interruptionReason: "ai_unavailable",
+            },
+          ],
+        },
+      });
+    },
+    undefined,
+    session,
+  );
+  await current.api.generateAnswer(payload);
+  assert.equal(
+    ids.length,
+    2,
+    "a newly failed retry must not cause an automatic loop",
+  );
+  assert.notEqual(ids[0], ids[1]);
+});

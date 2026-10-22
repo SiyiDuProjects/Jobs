@@ -1,3 +1,4 @@
+import { loadReviewOptions } from "./review-options.js";
 import { stableStringify } from "./stable-value.js";
 import { JobsDiagnostics } from "./diagnostics.js";
 import { JobsReviewPresenter } from "./review-presenter.js";
@@ -27,7 +28,9 @@ export function initializeAiReview() {
             ? confirm()
             : action === "answer"
               ? answer(id, payload)
-              : own.locate(id),
+              : action === "options"
+                ? options(id, payload)
+                : own.locate(id),
         );
       else
         own.transport = own.transport
@@ -181,6 +184,11 @@ export function initializeAiReview() {
                 options,
                 value: kind === "search-choice" ? row.raw[0] || "" : row.raw,
               };
+            else if (
+              JobsControlFields.choiceTypes.includes(kind) &&
+              reader.readOptions
+            )
+              editor = { kind: "options", value: "" };
             else if (["checkbox", "custom-checkbox"].includes(kind))
               editor = {
                 kind: "buttons",
@@ -466,6 +474,16 @@ export function initializeAiReview() {
     // Card answers are written one at a time in the order they were chosen.
     // The person can pick the next answer while an earlier one is still being
     // written; each write rechecks its own version when its turn comes.
+    function options(id, payload) {
+      const own = active;
+      if (!own || own.confirming || !own.onConfirm)
+        return Promise.resolve({ error: "当前不能加载选项，请稍候。" });
+      const task = own.writes.then(() =>
+        loadReviewOptions(own, id, payload, () => active === own),
+      );
+      own.writes = task.catch(() => {});
+      return task;
+    }
     function answer(id, payload, options = {}) {
       const own = active;
       if (!own || own.confirming || !own.onConfirm)
@@ -661,6 +679,10 @@ export function initializeAiReview() {
       }
       if (message.action === "confirm") {
         confirm().then((ok) => reply({ ok }));
+        return true;
+      }
+      if (message.action === "options") {
+        options(message.itemId, message.payload).then(reply);
         return true;
       }
       if (message.action === "answer") {

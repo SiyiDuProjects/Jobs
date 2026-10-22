@@ -90,12 +90,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (
       (!pageAction && !isPanel(sender)) ||
       !Number.isInteger(message.tabId) ||
-      !["confirm", "locate", "answer"].includes(message.action) ||
+      !["confirm", "locate", "answer", "options"].includes(message.action) ||
       typeof message.documentId !== "string"
     )
       throw Error("Side panel required");
     if (
-      message.action === "answer" &&
+      ["answer", "options"].includes(message.action) &&
       (!message.payload ||
         !Number.isInteger(message.payload.version) ||
         JSON.stringify(message.payload).length > 50000)

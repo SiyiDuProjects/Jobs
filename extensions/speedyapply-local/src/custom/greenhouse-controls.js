@@ -210,7 +210,8 @@ export function initializeGreenhouseControls() {
       {
         answer,
         optionSpec,
-      } = /** @type {{answer?: string, optionSpec?: import('./control-types.js').ControlAnswerSpec}} */ ({}),
+        browse = false,
+      } = /** @type {{answer?: string, optionSpec?: import('./control-types.js').ControlAnswerSpec, browse?: boolean}} */ ({}),
     ) {
       canProceed = JobsPageActions.guard(canProceed);
       if (
@@ -249,14 +250,15 @@ export function initializeGreenhouseControls() {
           // A search that lists nothing until typed exposes only the candidate
           // its rule verifies, not unrelated schools/places for a model to guess from.
           const search = !!query && !listed;
-          const relevant = search
-            ? labels.filter(
-                (label) => spec && JobsOptionMatch.pick([label], spec),
-              )
-            : labels;
+          const relevant =
+            search && !browse
+              ? labels.filter(
+                  (label) => spec && JobsOptionMatch.pick([label], spec),
+                )
+              : labels;
           if (
             relevant.length &&
-            (!search || relevant.length === 1) &&
+            (browse || !search || relevant.length === 1) &&
             relevant.length <= 150 &&
             new Set(relevant).size === relevant.length
           ) {

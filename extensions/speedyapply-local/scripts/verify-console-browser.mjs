@@ -139,6 +139,12 @@ try {
     const fixture = {
       commands: [],
       reads: [],
+      emptyChoices() {
+        rows[1].review.data.items = [
+          item("empty", "需要加载的选项", editor("options", "")),
+        ];
+        notify(2);
+      },
       bump() {
         rows[0].review.data.items[0].editor.version++;
         notify(1);
@@ -191,7 +197,24 @@ try {
             return { data: { ok: true, located: true } };
           const row = rows.find((entry) => entry.tabId === message.tabId);
           if (message.type === "jobs:review-action") {
-            if (message.action === "answer") {
+            if (message.action === "options") {
+              const item = row.review.data.items.find(
+                (entry) => entry.id === message.itemId,
+              );
+              if (message.payload.version !== item.editor.version)
+                return { error: "题目已变化" };
+              if (message.payload.query !== "Example")
+                return { error: "暂未找到选项，可输入更具体的关键词再加载。" };
+              item.editor = {
+                ...item.editor,
+                kind: "buttons",
+                version: item.editor.version + 1,
+                options: [
+                  { value: "north", label: "Example North" },
+                  { value: "south", label: "Example South" },
+                ],
+              };
+            } else if (message.action === "answer") {
               const item = row.review.data.items.find(
                 (entry) => entry.id === message.itemId,
               );
@@ -328,12 +351,41 @@ try {
     ),
     "announcements refresh only the changed tab",
   );
+  await page.evaluate(() => fixture.emptyChoices());
+  await selectPage("Developer Tools Engineer");
+  const optionsInput = page.getByRole("textbox", {
+    name: "需要加载的选项 搜索选项",
+  });
+  await optionsInput.waitFor();
+  const priorCommands = await page.evaluate(() => fixture.commands.length);
+  await page.getByRole("button", { name: "加载选项", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "暂未找到选项" }).waitFor();
+  await optionsInput.fill("Example");
+  await optionsInput.press("Enter");
+  await page
+    .getByRole("button", { name: "Example North", exact: true })
+    .waitFor();
+  assert.deepEqual(
+    await page.evaluate(
+      (start) => fixture.commands.slice(start).map((x) => x.action),
+      priorCommands,
+    ),
+    ["options", "options"],
+  );
+  await page
+    .getByRole("button", { name: "Example North", exact: true })
+    .click();
+  assert.equal(
+    await page.evaluate(() => fixture.commands.at(-1).action),
+    "answer",
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
       ok: true,
       screenshots: output,
       checks: [
+        "empty-options-retry-without-answer-or-confirm",
         "drafts",
         "stale-version",
         "IME",

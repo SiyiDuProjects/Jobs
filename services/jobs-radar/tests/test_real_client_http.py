@@ -145,6 +145,7 @@ def test_actual_answer_clients_reach_bound_profile_and_field_validator(clients, 
                             'kind':'draft','reasonZh':'开放式动机草稿。','jobSpecific':True,'signingDate':False} for f in data['fields']]}
             class Response:
                 status_code = 200
+                headers = {}
                 def json(self):
                     return {'status': 'completed', 'output': [{'content': [{'type': 'output_text', 'text': __import__('json').dumps(result)}]}]}
             return Response()

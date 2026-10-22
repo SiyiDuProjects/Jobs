@@ -117,7 +117,12 @@ const dependencies = {
     "profile-answers.js",
     "form-pipeline.js",
   ],
-  "ai-review.js": ["operator-state.js", "page-actions.js", "form-pipeline.js"],
+  "ai-review.js": [
+    "operator-state.js",
+    "page-actions.js",
+    "form-pipeline.js",
+    "review-options.js",
+  ],
   "control-content.js": [
     "automatic-field-policy.js",
     "recover-review.js",

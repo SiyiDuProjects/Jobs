@@ -400,3 +400,111 @@ test("an old top document cannot publish its status under the new tab URL", asyn
     null,
   );
 });
+
+test("empty recovered choices can load real options and answer without automatic filling or confirmation", async (t) => {
+  const w = new JSDOM(
+    '<form><label>Decision<select required><option value="">Choose</option></select></label></form>',
+    {
+      url: "https://example.test/job",
+      runScripts: "outside-only",
+    },
+  ).window;
+  t.after(() => w.close());
+  const listeners = [];
+  const h = panelWorker({
+    send: async (_id, message) => dispatch(listeners, message, { id: "jobs" }),
+  });
+  w.chrome = {
+    runtime: {
+      id: "jobs",
+      getURL: (path) => "chrome-extension://jobs/" + path,
+      onMessage: { addListener: (fn) => listeners.push(fn) },
+      sendMessage: (message) => h.call(message, h.page),
+    },
+  };
+  w.eval(fields);
+  w.eval(presenter);
+  w.eval(review);
+  const root = w.document.querySelector("form"),
+    select = root.querySelector("select");
+  let loads = 0,
+    confirms = 0;
+  const base = w.JobsControlFields.create(w.document, () => root, {
+    write: true,
+  });
+  const reader = {
+    ...base,
+    readOptions: async (_row, current, context) => {
+      assert(current());
+      assert.equal(context.browse, true);
+      loads++;
+      if (context.answer !== "ready") return [];
+      select.append(new w.Option("Yes", "Y"), new w.Option("No", "N"));
+      return base.scan()[0].public.options;
+    },
+  };
+  w.JobsAIReview.add(root, reader, reader.scan()[0], {
+    needsInput: true,
+    needsConfirmation: true,
+  });
+  w.JobsAIReview.ready(async () => {
+    confirms++;
+  }, "submit");
+  const read = async () =>
+    (await h.call({ type: "jobs:panel-read", tabId: 1 })).review;
+  await settle(async () => (await read())?.data.canConfirm);
+  let state = await read();
+  assert.equal(state.data.items[0].editor.kind, "options");
+  assert.equal(loads, 0, "reading a console must not open webpage controls");
+  const act = (action, payload) =>
+    h.call(
+      {
+        type: "jobs:review-action",
+        tabId: 1,
+        id: state.id,
+        documentId: state.documentId,
+        action,
+        itemId: "0",
+        payload,
+      },
+      h.panel,
+    );
+  assert((await act("options", { version: -1, query: "ready" })).error);
+  assert.equal(loads, 0);
+  assert(
+    (
+      await act("options", {
+        version: state.data.items[0].editor.version,
+        query: "none",
+      })
+    ).error,
+  );
+  state = await read();
+  assert.equal(state.data.items[0].editor.kind, "options");
+  assert.equal(
+    (
+      await act("options", {
+        version: state.data.items[0].editor.version,
+        query: "ready",
+      })
+    ).ok,
+    true,
+  );
+  await settle(
+    async () => (await read()).data.items[0].editor.kind === "buttons",
+  );
+  state = await read();
+  assert.equal(select.value, "");
+  assert.equal(confirms, 0);
+  assert.equal(
+    (
+      await act("answer", {
+        version: state.data.items[0].editor.version,
+        value: "N",
+      })
+    ).ok,
+    true,
+  );
+  assert.equal(select.value, "N");
+  assert.equal(confirms, 0);
+});

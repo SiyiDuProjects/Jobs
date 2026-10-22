@@ -9,6 +9,7 @@ import httpx
 from . import ai_answers
 from .answer_cache import AnswerCache, digest
 from .answer_result import result
+from .answer_transport import record_failure
 from .field_answers import fields_input, _exact_date
 from .luna_screening import MODEL, api_key
 from .profile_text import render_profile
@@ -69,7 +70,7 @@ class SimpleAnswers:
                 answers[field['fieldId']] = {**cached,'binding':{'profileId':pid,'profileVersion':version,'field':field}}
                 usage['cacheHits'] += 1
             else: pending.append(field)
-        rid = str(uuid.uuid4())
+        rid = str(uuid.uuid4()); failures = []
         async def run(active):
             if pending:
                 with self.store.connect(True) as c:
@@ -87,7 +88,8 @@ class SimpleAnswers:
                                 matches = [r for r in rows if isinstance(r,dict) and r.get('fieldId')==field['fieldId']]
                                 if len(matches)==1: generated[field['fieldId']]=matches[0]
                         failure = 'answer_missing'
-                    except (httpx.HTTPError,ValueError,KeyError,TypeError): pass
+                    except (httpx.HTTPError,ValueError,KeyError,TypeError) as error:
+                        failures.append(record_failure(error,rid,'simple'))
                 for field in pending:
                     sources = readable + '\n'.join(r['answer'] for r in memory.candidates(field))
                     dates = set(re.findall(r'\b\d{4}-\d{2}-\d{2}\b',sources))
@@ -105,7 +107,7 @@ class SimpleAnswers:
             rows = [answers[f['fieldId']] for f in fields]
             with self.store.connect(True) as c:
                 c.execute('UPDATE answer_requests SET state=? WHERE id=?',('needs_input' if any(r['kind']=='unknown' for r in rows) else 'answer',rid))
-            return {'answers':rows,'responseId':rid,'model':MODEL,'answerUsage':usage,'flow':'simple'}
+            return {'answers':rows,'responseId':rid,'model':MODEL,'answerUsage':usage,'flow':'simple', **({'answerDiagnostics':failures} if failures else {})}
         try:
             if client is not None or not pending: return await run(client)
             try: key = api_key()

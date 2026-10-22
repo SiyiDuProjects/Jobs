@@ -10,6 +10,7 @@ from . import answer_bindings as bindings
 from . import flexible_answers as flexible
 from .answer_memory import AnswerMemory, request_context
 from .field_answers import fields_input
+from .answer_transport import request_json, record_failure
 
 INSTRUCTIONS = flexible.INSTRUCTIONS
 
@@ -71,22 +72,17 @@ class Answers:
         projected=project_answer_profile(profile,partial=False)
         displays=cache.displays(fields,context,MODEL)
         pending=[f for f in fields if f['fieldId'] not in plans or bindings.answer(plans[f['fieldId']],None,f,profile,pid,version) is None or f['fieldId'] in public_plans and not displays.get(f['fieldId'])]
-        rid=str(uuid.uuid4()); now=time.time()
+        rid=str(uuid.uuid4()); now=time.time(); failures=[]
 
         async def request(active, instructions, data, schema, count):
             if active is None: raise ValueError('AI 服务暂时不可用')
             with self.store.connect(True) as c:
                 c.execute('INSERT OR IGNORE INTO answer_requests VALUES(?,?,?)',(rid,now,'started'))
             usage['modelCalls']+=1; usage['modelFields']=max(usage['modelFields'],count)
-            response=await active.post('https://api.openai.com/v1/responses',json={
+            return await request_json(active, {
                 'model':MODEL,'store':False,'instructions':instructions,'input':json.dumps(data,ensure_ascii=False),
                 'reasoning':{'effort':'low'},'max_output_tokens':max(6000,min(24000,count*1000)),
                 'text':{'format':{'type':'json_schema','name':'job_question','strict':True,'schema':schema}}})
-            if response.status_code!=200: raise ValueError('AI 服务暂时不可用')
-            body=response.json()
-            if body.get('status')!='completed': raise ValueError('AI 返回未完成')
-            text=''.join(p.get('text','') for o in body.get('output',[]) for p in o.get('content',[]) if p.get('type')=='output_text')
-            return json.loads(text)
 
         async def run(active):
             generated={}
@@ -109,7 +105,9 @@ class Answers:
                     new.update(public_plans)
                     views={f['fieldId']:flexible.presentation(generated.get(f['fieldId']),f) for f in pending}
                     cache.save_plans(pending,new,context,MODEL,views); plans.update(new); displays.update(views)
-                except (httpx.HTTPError,ValueError,KeyError,TypeError): mapping_failure = 'ai_unavailable'
+                except (httpx.HTTPError,ValueError,KeyError,TypeError) as error:
+                    mapping_failure = 'ai_unavailable'
+                    failures.append(record_failure(error,rid,'legacy'))
             if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
             answers={}
             for field in fields:
@@ -140,7 +138,7 @@ class Answers:
                 row=rows[0]
                 if row['state']=='needs_input': raise ValueError('需要补充资料或本人回答')
                 return {'text':row['value'],'source':row['source'],'responseId':rid,'remaining':None,'model':MODEL}
-            return {'answers':rows,'responseId':rid,'model':MODEL,'answerUsage':usage}
+            return {'answers':rows,'responseId':rid,'model':MODEL,'answerUsage':usage, **({'answerDiagnostics':failures} if failures else {})}
         try:
             if client is not None: return await run(client)
             # A cache-only request needs no credential or network.

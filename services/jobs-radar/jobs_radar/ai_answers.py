@@ -2,6 +2,7 @@
 import json
 import re
 from .answer_result import result
+from .answer_transport import request_json
 from .draft_quality import basic_issues
 from .field_answers import _exact_date
 from .profile_text import ENUM_TEXT
@@ -79,11 +80,7 @@ def checked(raw, field, pid, version, date_sources, today):
 
 
 async def generate(client, model, fields, data):
-    response = await client.post('https://api.openai.com/v1/responses',json={
+    return await request_json(client, {
         'model':model,'store':False,'instructions':INSTRUCTIONS,'input':json.dumps(data,ensure_ascii=False),
         'reasoning':{'effort':'low'},'max_output_tokens':max(6000,min(24000,len(fields)*1000)),
         'text':{'format':{'type':'json_schema','name':'job_answers','strict':True,'schema':schema(fields)}}})
-    if response.status_code != 200: raise ValueError('AI 服务暂时不可用')
-    body=response.json()
-    if body.get('status') != 'completed': raise ValueError('AI 返回未完成')
-    return json.loads(''.join(p.get('text','') for o in body.get('output',[]) for p in o.get('content',[]) if p.get('type')=='output_text'))

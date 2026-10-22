@@ -25,6 +25,63 @@ export function createReviewView({
       box.className = "editor";
       item.append(box);
     }
+    if (row.editor?.kind === "options") {
+      item.reviewRow = row;
+      if (item.editorKey !== "options") {
+        item.editorKey = "options";
+        releaseReviewControls(box);
+        box.replaceChildren();
+        const input = createReviewControl(box, "input");
+        input.setAttribute("aria-label", row.question + " 搜索选项");
+        input.placeholder = "可输入关键词搜索网页选项";
+        input.maxLength = 500;
+        const button = createReviewControl(box, "button");
+        button.type = "button";
+        button.textContent = "加载选项";
+        const load = () => {
+          if (item.pending || item.reviewRow.editor.disabled) return;
+          item.pending = 1;
+          input.disabled = button.disabled = true;
+          button.textContent = "正在加载选项";
+          const owner = view;
+          item.writing = owner
+            .act("options", row.id, {
+              query: input.value,
+              version: item.reviewRow.editor.version,
+            })
+            .then((result) => {
+              if (result?.error)
+                item.querySelector(".error").textContent = result.error;
+            })
+            .catch(() => {
+              item.querySelector(".error").textContent =
+                "选项加载失败，请重试。";
+            })
+            .finally(() => {
+              item.pending = 0;
+              button.textContent = "加载选项";
+              if (view === owner && last) render(last.data, last.act);
+            });
+        };
+        button.onclick = (event) => {
+          if (event.isTrusted) load();
+        };
+        input.onkeydown = (event) => {
+          if (event.isTrusted && !event.isComposing && event.key === "Enter") {
+            event.preventDefault();
+            load();
+          }
+        };
+      }
+      item.flush = async () => {
+        await item.writing;
+        return { ok: true };
+      };
+      box.querySelectorAll("button,input").forEach((node) => {
+        node.disabled = row.editor.disabled || !!item.pending;
+      });
+      return;
+    }
     const editor = row.editor,
       key = stableStringify([editor?.kind, editor?.inputType, editor?.options]);
     item.reviewRow = row;
