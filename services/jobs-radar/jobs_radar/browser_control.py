@@ -430,10 +430,11 @@ class BrowserControl:
         return self._status(row)
 
     async def wait_command(self, command_id, wait_seconds=20):
+        from .async_work import run_sync
         integer(wait_seconds, 20)
         deadline = time.monotonic() + wait_seconds
         while True:
-            result = self.get_command(command_id)
+            result = await run_sync(self.get_command,command_id)
             if result['state'] not in ('queued', 'dispatched') or time.monotonic() >= deadline:
                 result['nextStep'] = ('reconcile_without_repeating' if result['state'] == 'unknown' else
                                       'wait_for_result' if result['state'] in ('queued', 'dispatched') else
@@ -442,9 +443,10 @@ class BrowserControl:
             await asyncio.sleep(min(.25, max(0, deadline - time.monotonic())))
 
     async def wait_pages(self, device_id=None, session_id=None, page_target=None, wait_seconds=20):
+        from .async_work import run_sync
         integer(wait_seconds, 20)
         requested_at = self.clock()
-        result = self.pages(device_id, session_id, page_target)
+        result = await run_sync(self.pages,device_id,session_id,page_target)
         deadline = time.monotonic() + (wait_seconds if page_target else 0)
         while page_target:
             current = [p for p in result['pages'] if p['deviceId'] == device_id and p['sessionId'] == session_id
@@ -456,7 +458,7 @@ class BrowserControl:
                 break
             await asyncio.sleep(min(.25, max(0, deadline - time.monotonic())))
             pending = result.get('snapshotPending', [])
-            result = self.pages()
+            result = await run_sync(self.pages)
             result['snapshotPending'] = pending
         if not page_target:
             result['pages'] = []

@@ -69,15 +69,16 @@ On Windows, use Git for Windows and Node.js directly, without WSL or Docker:
 
 The wrapper dispatches through `release.sh`. Portable entrypoints are
 `--build-web`, `--release-web [--artifact <directory>]`, `--web-status`, and
-`--rollback-web`. SSH uses `JOBS_RADAR_HOST` and `JOBS_RADAR_KEY`, defaulting to
-the existing host and `~/.ssh/Siyi.pem`. Credentials never enter artifacts.
+`--rollback-web`. SSH requires an explicit `JOBS_RADAR_HOST` from local deployment configuration.
+`JOBS_RADAR_KEY` defaults to `~/.ssh/Siyi.pem`. Credentials never enter artifacts.
 
 On the restored Mac, the migration key is
 `/Users/siyi/Projects/_private/Keys/Siyi.pem`. Set
 `JOBS_RADAR_KEY=/Users/siyi/Projects/_private/Keys/Siyi.pem` when invoking an
 authorized SSH/release task. The migration does not add this identity to the
 SSH agent or move it into `~/.ssh`; an empty agent is not evidence of a missing
-private-key file. The server is `ubuntu@49.51.38.235`.
+private-key file. Set `JOBS_RADAR_HOST` to the authorized SSH destination recorded
+in the private workspace instructions; public deployment code has no host default.
 Builds archive the exact committed service tree, install locked dependencies,
 run website tests, build, and check the packaged entrypoints. The service tree
 must be clean; use an isolated checkout for unrelated work in progress.
@@ -266,3 +267,47 @@ bash services/jobs-radar/deploy/release.sh --prune --apply   # committed rules o
 The rules travel over stdin under the same host/live locks, so a disk too full
 for the next release's capacity preflight can be recovered without first
 installing a release. A failed capacity preflight points here.
+
+## Lazy assets and release check receipts
+
+Website bundles now enumerate their generated chunks, hash every file and pin
+entry URLs to `/assets/<version>/board.js`. Relative lazy imports retain that
+version after another website is activated or rolled back. The server accepts
+older four-file/query-string bundles so existing website rollback records stay
+usable. Archives reject unlisted members, duplicates, links and path traversal;
+activation verifies every listed asset over HTTP before keeping the switch.
+
+Full service builds first check an isolated archive of the exact commit, including
+extension and repository-script fixtures consumed by the service tests. The
+check stage installs locked Node dependencies only in that disposable directory,
+runs website tests/build/artifact validation and the full service pytest suite,
+and refuses source changes during validation. Python uses `JOBS_BUILD_PYTHON`,
+the existing service `.venv`, or the invoking Python in that order; pytest must
+already be available. No private corpus or credentials enter the archive.
+A missing optional corpus remains an explicit skipped test, not acceptance.
+
+The manifest records the passing checks, exact test-input/archive hashes and
+source commit. The image label `jobs.tests.sha256` binds the receipt to that image;
+local verification and import validate it. Explicit `--image-id` releases require
+this label and the full source commit. Failed checks produce no publishable
+manifest or image. Existing recorded rollback images remain usable.
+
+For local capacity review, run:
+
+```sh
+python3 services/jobs-radar/deploy/local_retention.py
+```
+
+This is an inventory only, with no deletion mode. Keep the current/previous
+artifacts, unfinished builder receipts, worktree recovery archives and unresolved
+bug evidence. Older build directories are review candidates only: establish
+that no rollback or unresolved-case reference depends on them before removal.
+Do not treat `.qa/` as a disposable cache. Server retention remains the separate
+locked `release.sh --prune` workflow.
+
+The compressed management-history storage contract is `zlib-sha256-v1`.
+Forward readers still accept older plain JSON revisions. Once compressed
+references have been written, rollback to an image that only understands plain
+JSON is incompatible and the normal contract comparison must refuse it; do not
+bypass that check. Retain the pre-upgrade backup for an explicitly planned
+restore if such a downgrade is ever required.

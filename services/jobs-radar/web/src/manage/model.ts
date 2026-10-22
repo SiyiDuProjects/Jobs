@@ -15,6 +15,7 @@ export type Application = {
     kind?: string;
     apply_url?: string;
     source_url?: string;
+    sources?: string[];
   } | null;
   id?: string;
   version?: number;
@@ -35,6 +36,18 @@ export type Application = {
   status: string;
   profileName: string;
   progress?: ApplicationProgress;
+};
+export type ProgressReview = {
+  job_id: string;
+  message_id: string;
+  received_at: number;
+  companyName: string;
+  stage: string;
+  label?: string;
+  summary: string;
+  reason?: string;
+  candidates?: { id: string; companyName: string; jobTitle: string; jobLink: string }[];
+  email_url?: string;
 };
 export type ApplicationProgress = {
   application_id: string;

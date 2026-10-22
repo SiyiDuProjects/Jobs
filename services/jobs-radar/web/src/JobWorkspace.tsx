@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -7,10 +9,14 @@ import {
   type ReactNode,
 } from "react";
 import { Segment } from "@heroui-pro/react";
-import { AppliedView } from "./manage/AppliedView";
+import { Spinner } from "@heroui/react";
+const AppliedView = lazy(() =>
+  import("./manage/AppliedView").then((m) => ({ default: m.AppliedView })),
+);
 import { useManagement } from "./manage/store";
 import { ApplicationTotals } from "./ApplicationTotals";
 import { api } from "./job-board-model";
+import { readBoardPosition } from "./view-preferences";
 export type JobKind = "newgrad" | "internship";
 export type BoardProps = {
   kind: JobKind;
@@ -32,14 +38,10 @@ export function JobWorkspace({
   Board,
   kind,
   route,
-  query,
-  setQuery,
 }: {
   Board: ComponentType<BoardProps>;
   kind: JobKind;
   route: string;
-  query: string;
-  setQuery: (value: string) => void;
 }) {
   const { error } = useManagement();
   const view =
@@ -128,24 +130,38 @@ export function JobWorkspace({
         </p>
       )}
       {view === "applied" ? (
-        <AppliedView
-          key={kind}
-          kind={kind}
-          onTotal={onTotal}
-          navigation={navigation}
-          totals={<ApplicationTotals key={kind} kind={kind} />}
-        />
+        <Suspense fallback={<Spinner aria-label="正在读取投递记录" />}>
+          <AppliedView
+            key={kind}
+            kind={kind}
+            onTotal={onTotal}
+            navigation={navigation}
+            totals={<ApplicationTotals key={kind} kind={kind} />}
+          />
+        </Suspense>
       ) : (
-        <Board
+        <BoardView
+          Board={Board}
           key={`${view}:${kind}`}
           kind={kind}
           trash={view === "trash"}
           navigation={navigation}
           onTotal={onTotal}
-          query={query}
-          setQuery={setQuery}
         />
       )}
     </div>
   );
+}
+
+function BoardView({
+  Board,
+  ...props
+}: { Board: ComponentType<BoardProps> } & Omit<
+  BoardProps,
+  "query" | "setQuery"
+>) {
+  const [query, setQuery] = useState(
+    () => readBoardPosition(props.kind, props.trash ? "trash" : "jobs").query,
+  );
+  return <Board {...props} query={query} setQuery={setQuery} />;
 }

@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "@heroui/styles";
-@import "@heroui-pro/react/css";
+/* Keep the same component layer while loading only the Pro components used here. */
+@import "@heroui-pro/react/css/components/segment.css" layer(components);
+@import "@heroui-pro/react/css/components/drop-zone.css" layer(components);
 
 .site-header {
   display: flex;

@@ -384,3 +384,49 @@ def test_email_oa_qualification_and_validation_share_the_contract(subject):
         update(p,aid,'interview',assessment_type='screened')
     with pytest.raises(ValueError,match='assessment_type'):
         update(p,aid,'assessment',assessment_type='fast')
+
+
+def test_resolve_pending_match_uses_recorded_email_and_preserves_submission(subject):
+    s,m,p,aid=subject
+    message='abcdef0123456789'
+    p.record_pending_email(message,iso(-60),'Synthetic','interview','Verified invitation.',candidate_ids=[aid])
+    before=current(p,aid)['progress']
+    with s.connect() as c:
+        submission=tuple(c.execute('SELECT status,attempted_at,confirmed_at FROM applications WHERE application_id=?',(aid,)).fetchone())
+    args=dict(review_id='email:'+message,application_id=aid,expected_version=before['version'],idempotency_key='resolve-fixture')
+    with pytest.raises(ProfileConflict):p.resolve_review(**{**args,'expected_version':999})
+    assert m.snapshot()['applicationProgressReview']['value']
+    result=p.resolve_review(**args)
+    assert p.resolve_review(**args)==result
+    assert result['applied']
+    assert result['progress']['source']=='email' and result['progress']['reference']==message
+    assert result['progress']['summary']=='Verified invitation.'
+    assert 'applicationProgressReview' not in m.snapshot()
+    with s.connect() as c:
+        assert tuple(c.execute('SELECT status,attempted_at,confirmed_at FROM applications WHERE application_id=?',(aid,)).fetchone())==submission
+        assert c.execute("SELECT count(*) FROM application_events WHERE kind='pending_resolved'").fetchone()[0]==1
+
+
+def test_resolving_older_email_keeps_owner_decision_and_resolves_match(subject):
+    _,m,p,aid=subject
+    p.record_pending_email('fedcba9876543210',iso(-60),'Synthetic','assessment','Verified old OA.',assessment_type='screened')
+    update(p,aid,'rejected')
+    before=current(p,aid)['progress']
+    result=p.resolve_review('email:fedcba9876543210',aid,before['version'],'resolved-old-mail')
+    assert not result['applied']
+    assert current(p,aid)['progress']['stage']=='rejected'
+    assert 'applicationProgressReview' not in m.snapshot()
+
+
+def test_pending_review_http_keeps_auth_csrf_and_version_checks(subject):
+    s,_,p,aid=subject
+    p.record_pending_email('0123456789abcdef',iso(-30),'Synthetic','interview','Verified invitation.',candidate_ids=[aid])
+    origin='https://radar.test'
+    with TestClient(create_server(s,origin).streamable_http_app(),headers={'X-Jobs-Protocol':'2'},base_url=origin) as client:
+        payload=dict(review_id='email:0123456789abcdef',application_id=aid,expected_version=0,idempotency_key='http-match-fixture')
+        path='/api/manage/progress-review'
+        assert client.post(path,json=payload).status_code==401
+        rid=client.get('/api/session').json()['request_id'];WebAccess(s,origin).approve(rid)
+        assert client.post(path,json=payload,headers={'origin':'https://other.test'}).status_code==403
+        assert client.post(path,json={**payload,'expected_version':100},headers={'origin':origin}).status_code==409
+        assert client.post(path,json=payload,headers={'origin':origin}).json()['applied']

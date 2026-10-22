@@ -156,3 +156,13 @@ def test_readonly_scope_rejects_write(tmp_path):
         assert "required scope" in str(result)
         denied = rpc(client, token['access_token'], 'tools/call', {'name':'manage_screening_run','arguments':{'action':'begin'}}).json()['result']
         assert denied['isError'] is True
+
+
+def test_consent_post_bounds_form_before_database_write(tmp_path):
+    store=Store(tmp_path/'consent-bounds.sqlite')
+    with TestClient(create_server(store,ORIGIN).streamable_http_app(),base_url=ORIGIN) as client:
+        headers={'origin':ORIGIN,'content-type':'application/x-www-form-urlencoded'}
+        assert client.post('/consent?request=missing',content='csrf='+('x'*4096),headers=headers).status_code==413
+        assert client.post('/consent?request=missing',content='csrf=x&csrf=y',headers=headers).status_code==400
+        assert client.post('/consent?request=missing',json={'csrf':'x'},headers={'origin':ORIGIN}).status_code==415
+        assert client.post('/consent?request=missing',content='unread',headers={'origin':'https://other.test'}).status_code==403

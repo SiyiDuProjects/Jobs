@@ -1,3 +1,4 @@
+import { continuation } from "./continuation.js";
 import { stableStringify } from "./stable-value.js";
 import { calendarDate } from "./calendar-date.js";
 import { fieldDescription } from "./field-description.js";
@@ -2420,27 +2421,6 @@ export function initializeControlFields() {
       } finally {
         node.removeEventListener("focusout", onExit);
       }
-    }
-    function continuation(target) {
-      const button = target?.closest?.(
-        'button,input[type="submit"],[role="button"]',
-      );
-      if (
-        !button ||
-        button.disabled ||
-        button.matches('[role="radio"],[role="checkbox"]')
-      )
-        return null;
-      const label = text(
-        button.getAttribute("aria-label") || button.value || button.textContent,
-      );
-      if (/back|previous|cancel|delete|remove|withdraw|later/i.test(label))
-        return null;
-      return /^(?:next|continue|submit|apply|save (?:and|&) continue|下一步|继续|提交)(?:\b|\s|$)/i.test(
-        label,
-      )
-        ? button
-        : null;
     }
     // Reading a committed complex control and knowing how to write it are
     // separate capabilities. All navigation checks share this distinction.

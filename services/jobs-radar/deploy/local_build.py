@@ -1,6 +1,5 @@
 """Build committed source on local Docker Desktop from macOS or WSL."""
 import argparse
-import base64
 from contextlib import contextmanager
 import hashlib
 import json
@@ -15,6 +14,7 @@ import tempfile
 import uuid
 
 from release_helpers import bounded
+from release_checks import archive_test_inputs, run_checks, validate_receipt
 
 
 MEMORY = 4 * 1024**3
@@ -91,34 +91,13 @@ def archive_source(root, commit, destination):
 
 
 def stage_locked_vendor(root, source):
-    """Supply the licensed package by its committed npm integrity, without auth."""
-    relative = Path('web/vendor/heroui-pro-react-1.0.0-beta.8.tgz')
-    package = '@heroui-pro/react'
-    expected = 'file:vendor/' + relative.name
-    manifest = json.loads((source / 'web/package.json').read_text())
-    lock = json.loads((source / 'web/package-lock.json').read_text())
-    locked = lock.get('packages', {}).get('node_modules/' + package, {})
-    integrity = locked.get('integrity', '')
-    if (manifest.get('dependencies', {}).get(package) != expected
-            or locked.get('resolved') != expected or not integrity.startswith('sha512-')):
-        raise ValueError('Local website dependency must be pinned by the committed npm lock')
-    original = root / SERVICE / relative
-    if any(path.is_symlink() for path in (original, original.parent)):
-        raise ValueError('Local website dependency must not be a link')
-    if original.resolve().parent != (root / SERVICE / 'web/vendor').resolve():
-        raise ValueError('Local website dependency escaped its directory')
+    """Use the same native Node lock/integrity rule as independent web builds."""
     try:
-        with original.open('rb') as handle:
-            data = handle.read(64 * 1024 * 1024 + 1)
-    except FileNotFoundError as error:
-        raise ValueError('Restore the licensed website dependency at ' + str(original)) from error
-    actual = 'sha512-' + base64.b64encode(hashlib.sha512(data).digest()).decode('ascii')
-    if len(data) > 64 * 1024 * 1024 or actual != integrity:
-        raise ValueError('Local website dependency differs from the committed npm integrity')
-    target = source / relative
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
-    return {str(relative): integrity}
+        result = command(['node', str(Path(__file__).with_name('vendor_dependency.mjs')),
+                          str(root), str(source)])
+    except RuntimeError as error:
+        raise ValueError(str(error)) from error
+    return {str(Path(name)): integrity for name, integrity in json.loads(result).items()}
 
 
 def image_json(data):
@@ -367,7 +346,8 @@ class DesktopBuild:
         self.plan['removed'] = True
         write_json(self.receipt, self.plan)
 
-    def build(self, source, commit, short, source_hash):
+    def build(self, source, commit, short, source_hash, tests=None):
+        tests_hash = validate_receipt(tests, commit, source_hash)
         self.call(['buildx', 'create', '--name', self.builder, '--driver', 'docker-container',
             '--driver-opt', 'memory=4g,memory-swap=4g,cpu-period=100000,cpu-quota=200000,env.JOBS_RELEASE_OPERATION=' + self.operation,
             self.context])
@@ -386,12 +366,14 @@ class DesktopBuild:
             self.call(['buildx', 'build', '--builder', self.builder, '--platform', 'linux/amd64', '--load',
                 '--iidfile', str(image_file), '--label', 'release=' + short,
                 '--label', 'org.opencontainers.image.revision=' + commit,
-                '--label', 'jobs.source.sha256=' + source_hash, str(source)], timeout=1800)
+                '--label', 'jobs.source.sha256=' + source_hash,
+                '--label', 'jobs.tests.sha256=' + tests_hash, str(source)], timeout=1800)
             image_id = image_file.read_text().strip()
             if not re.fullmatch('sha256:[a-f0-9]{64}', image_id):
                 raise ValueError('Build did not produce a complete image ID')
             info = json.loads(self.call(['image', 'inspect', image_id]))[0]
-            expected = {'release': short, 'org.opencontainers.image.revision': commit, 'jobs.source.sha256': source_hash}
+            expected = {'release': short, 'org.opencontainers.image.revision': commit,
+                        'jobs.source.sha256': source_hash, 'jobs.tests.sha256': tests_hash}
             if info['Id'] != image_id or any(info['Config']['Labels'].get(key) != value for key, value in expected.items()):
                 raise ValueError('Built image identity differs from the archived source')
             # Saving by ID omits mutable release tags from the transfer archive.
@@ -411,13 +393,18 @@ def verify_artifact(folder, root, commit, short):
     for name, key in [('source.tar', 'sourceSha256'), ('image.tar', 'imageSha256')]:
         if (folder / name).is_symlink() or digest(folder / name) != manifest[key]:
             raise ValueError('Artifact hash mismatch: ' + name)
+    tests_hash = validate_receipt(manifest.get('tests'), commit, manifest['sourceSha256'])
     verify_image_archive(folder / 'image.tar', manifest['imageId'], {'release': short,
-        'org.opencontainers.image.revision': commit, 'jobs.source.sha256': manifest['sourceSha256']})
+        'org.opencontainers.image.revision': commit, 'jobs.source.sha256': manifest['sourceSha256'],
+        'jobs.tests.sha256': tests_hash})
     with tempfile.TemporaryDirectory(dir=folder) as temporary:
         expected = Path(temporary) / 'source.tar'
         archive_source(root, commit, expected)
         if digest(expected) != manifest['sourceSha256']:
             raise ValueError('Artifact archive differs from the exact Git source')
+        archive_test_inputs(root, commit, expected, command)
+        if digest(expected) != manifest['tests']['testInputsSha256']:
+            raise ValueError('Artifact tests differ from the exact committed fixtures')
     return manifest
 
 
@@ -436,16 +423,17 @@ def build():
         source_archive = folder / 'source.tar'
         archive_source(root, commit, source_archive)
         source_hash = digest(source_archive)
+        tests = run_checks(root, commit, source_hash, folder, stage_locked_vendor)
         with tempfile.TemporaryDirectory(prefix='context-', dir=folder) as temporary:
             source = Path(temporary)
             with tarfile.open(source_archive) as archive:
                 archive.extractall(source, filter='data')
             local_dependencies = stage_locked_vendor(root, source)
-            image_id = DesktopBuild(folder).build(source, commit, short, source_hash)
+            image_id = DesktopBuild(folder).build(source, commit, short, source_hash, tests)
         write_json(folder / 'manifest.json', dict(version=1, commit=commit, release=short,
             imageId=image_id, sourceSha256=source_hash, imageSha256=digest(folder / 'image.tar'),
             builder='local-docker-desktop', cpuLimit=2, memoryBytes=MEMORY,
-            localDependencies=local_dependencies))
+            localDependencies=local_dependencies, tests=tests))
         return folder
 
 

@@ -60,24 +60,40 @@ def hydrate(rows, c, *, public=False):
     return result
 
 
+def source_evidence(c, result, kind):
+    by_id={r['id']:r for r in result}
+    for row in result: row['all_sources']=[]
+    if not result: return result
+    discovery, discovery_values=discovery_scope()
+    for source in c.execute('''SELECT o.job_id,o.payload FROM observations o
+            JOIN board_jobs b ON b.job_id=o.job_id AND b.kind=?
+            LEFT JOIN search_index s USING(stream,source_id)
+            WHERE b.job_id IN (SELECT value FROM json_each(?)) AND (
+                (b.active=1 AND s.kind=? AND o.present=1 AND s.active=1 AND s.visible=1 AND '''+discovery+''')
+                OR (b.active=0 AND json_extract(o.payload,'$.kind')=?))''',
+            [kind,json.dumps(list(by_id)),kind,*discovery_values,kind]):
+        by_id[source['job_id']]['all_sources'].append(json.loads(source['payload']))
+    for row in result:
+        row['all_sources'].sort(key=lambda s:({'simplify':0,'speedyapply':1}.get(s['source'],9),s.get('source_id','')))
+    return result
+
+
 def rows(store, kind, include_history=False):
     clause, values = scope(kind,include_history)
     with store.connect() as c:
-        result=hydrate(c.execute(BASE+'SELECT * FROM board WHERE '+clause,[time.time(),*values]),c)
-        by_id={r['id']:r for r in result}
-        for row in result: row['all_sources']=[]
-        discovery, discovery_values=discovery_scope()
-        # Screening needs source evidence; normal paginated browsing never reads it.
-        for source in c.execute('''SELECT o.job_id,o.payload FROM observations o
-                JOIN board_jobs b ON b.job_id=o.job_id AND b.kind=?
-                LEFT JOIN search_index s USING(stream,source_id)
-                WHERE (b.active=1 AND s.kind=? AND o.present=1 AND s.active=1 AND s.visible=1 AND '''+discovery+''')
-                   OR (b.active=0 AND json_extract(o.payload,'$.kind')=?)''',[kind,kind,*discovery_values,kind]):
-            if source['job_id'] in by_id:
-                by_id[source['job_id']]['all_sources'].append(json.loads(source['payload']))
-        for row in result:
-            row['all_sources'].sort(key=lambda s:({'simplify':0,'speedyapply':1}.get(s['source'],9),s.get('source_id','')))
-        return result
+        return source_evidence(c,hydrate(c.execute(BASE+'SELECT * FROM board WHERE '+clause,[time.time(),*values]),c),kind)
+
+
+def queue(store, kind, limit, cursor):
+    clause, values = scope(kind)
+    clause += " AND status='not_started' AND application_version=0 AND screening='pending' AND coalesce(manual_keep,0)=0"
+    if cursor:
+        clause += ' AND job_id>?'
+        values.append(cursor)
+    with store.connect() as c:
+        c.execute('BEGIN')
+        selected = c.execute(BASE+'SELECT * FROM board WHERE '+clause+' ORDER BY job_id LIMIT ?', [time.time(),*values,limit]).fetchall()
+        return source_evidence(c,hydrate(selected,c),kind)
 
 
 def listing(store, *, kind, view, status, text, location, category, group, screening,

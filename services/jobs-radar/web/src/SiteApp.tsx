@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -14,7 +16,10 @@ import {
   type JobKind,
 } from "./JobWorkspace";
 import brand from "../../config/brand.json";
-import { ErrorBoundary, Management } from "./manage/main";
+import { ErrorBoundary } from "./manage/ErrorBoundary";
+const Management = lazy(() =>
+  import("./manage/main").then((m) => ({ default: m.Management })),
+);
 import { store, useManagement } from "./manage/store";
 import { CLIENT_PROTOCOL_HEADERS } from "./client-protocol";
 import { profileForKind } from "./manage/kind-profiles";
@@ -39,7 +44,6 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
   const { draftDirty, pending, unsaved, docs, current, profiles, loading } =
     useManagement();
   const [kind, setKind] = useState<JobKind>(readKind);
-  const [query, setQuery] = useState("");
   const [route, setRoute] = useState(
     location.hash.slice(1).split("?")[0] ||
       (location.pathname === "/trash" ? "/trash" : "/"),
@@ -137,10 +141,7 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
         <a href="#/" className="text-xl font-semibold tracking-tight">
           {brand.name}
         </a>
-        <nav
-          aria-label="jobs 主导航"
-          className="site-nav"
-        >
+        <nav aria-label="jobs 主导航" className="site-nav">
           {links.map(([path, label]) => {
             const selected =
               path === "/"
@@ -216,15 +217,11 @@ export function SiteApp({ Board }: { Board: ComponentType<BoardProps> }) {
         ) : (
           <ErrorBoundary>
             {["/", "/applied", "/applications", "/trash"].includes(route) ? (
-              <JobWorkspace
-                Board={Board}
-                kind={kind}
-                route={route}
-                query={query}
-                setQuery={setQuery}
-              />
+              <JobWorkspace Board={Board} kind={kind} route={route} />
             ) : (
-              <Management route={route} kind={kind} />
+              <Suspense fallback={<Spinner aria-label="正在读取资料" />}>
+                <Management route={route} kind={kind} />
+              </Suspense>
             )}
           </ErrorBoundary>
         )}

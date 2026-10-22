@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Chip, Dropdown, Label } from "@heroui/react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { Button, Chip, Dropdown, Label, Spinner } from "@heroui/react";
 import { ApplicationEditor, ProgressEditor } from "./application-editors";
 import { store, useManagement } from "./store";
 import {
@@ -10,10 +17,15 @@ import {
   progressLabel,
   type AppRow,
   type Application,
+  type ProgressReview,
 } from "./model";
-import { ApplicationFlow } from "./ApplicationFlow";
+import { ProgressReviews } from "./ProgressReviews";
+import { useAppliedPreferences } from "../view-preferences";
+const ApplicationFlow = lazy(() =>
+  import("./ApplicationFlow").then((m) => ({ default: m.ApplicationFlow })),
+);
 import { dateLabel } from "./application-format";
-import { Dialog, download, Field } from "./components";
+import { Choice, Dialog, download, Field } from "./components";
 import { profileForKind } from "./kind-profiles";
 import { JobList } from "../JobList";
 import { ActionMenu, ListToolbar, ListPagination } from "../ListControls";
@@ -31,15 +43,19 @@ export function AppliedView({
 }) {
   const { docs, profiles, applicationsLoading } = useManagement();
   const all: Application[] = docs.appliedList?.value || [];
-  const scoped = useMemo(() => all.filter((r) => r.kind === kind), [all, kind]);
+  const [{ query, status, from, to, page, unclassified }, preferences] =
+    useAppliedPreferences(kind);
+  const known = useMemo(() => all.filter((r) => r.kind === kind), [all, kind]);
+  const unknown = useMemo(
+    () => all.filter((r) => !r.kind || r.kind === "unknown"),
+    [all],
+  );
+  const scoped = unclassified ? unknown : known;
+  const reviews: ProgressReview[] = docs.applicationProgressReview?.value || [];
   useEffect(() => {
-    if (!applicationsLoading) onTotal?.(scoped.length);
-  }, [applicationsLoading, scoped.length, onTotal]);
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [page, setPage] = useState(1);
+    if (!applicationsLoading) onTotal?.(known.length);
+  }, [applicationsLoading, known.length, onTotal]);
+  const setPage = (page: number) => preferences({ page });
   const [flow, setFlow] = useState<{ label: string; ids: string[] } | null>(
     null,
   );
@@ -78,9 +94,38 @@ export function AppliedView({
     <section aria-label="已投递">
       <ListToolbar
         navigation={navigation}
-        totals={totals}
+        totals={
+          unclassified ? (
+            <span className="text-muted">未分类 {unknown.length} 条</span>
+          ) : (
+            totals
+          )
+        }
         filters={
           <>
+            {(unknown.length > 0 || unclassified) && (
+              <Button
+                size="sm"
+                variant={unclassified ? "primary" : "secondary"}
+                onPress={() => {
+                  preferences({ unclassified: !unclassified, page: 1 });
+                  setFlow(null);
+                }}
+              >
+                {unclassified
+                  ? "返回" + (kind === "newgrad" ? "全职" : "实习")
+                  : `未分类 · ${unknown.length}`}
+              </Button>
+            )}
+            {reviews.length > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onPress={() => setDialog({ type: "reviews" })}
+              >
+                待确认进展 · {reviews.length}
+              </Button>
+            )}
             <Dropdown>
               <Button size="sm" variant="secondary" aria-label="筛选投递进展">
                 {progressOptions[status as keyof typeof progressOptions] ||
@@ -92,7 +137,7 @@ export function AppliedView({
                   selectionMode="single"
                   selectedKeys={[status]}
                   onAction={(key) => {
-                    setStatus(String(key));
+                    preferences({ status: String(key), page: 1 });
                     setFlow(null);
                     setPage(1);
                   }}
@@ -130,7 +175,7 @@ export function AppliedView({
         }
         query={query}
         onQuery={(value) => {
-          setQuery(value);
+          preferences({ query: value, page: 1 });
           setFlow(null);
           setPage(1);
         }}
@@ -139,6 +184,7 @@ export function AppliedView({
           {
             id: "add",
             label: "手动补录",
+            disabled: unclassified,
             onAction: () => setDialog({ type: "add" }),
           },
           {
@@ -147,7 +193,7 @@ export function AppliedView({
             disabled: !scoped.length,
             onAction: () =>
               download(
-                `applications-${kind}.csv`,
+                `applications-${unclassified ? "unclassified" : kind}.csv`,
                 exportCSV(scoped),
                 "text/csv;charset=utf-8",
               ),
@@ -178,10 +224,27 @@ export function AppliedView({
           date: dateLabel(r.date),
           badge: (
             <>
-              {r.submission?.label && <Chip size="sm" variant="soft" className="job-badge" color={r.submission.confirmed ? "success" : r.submission.error ? "warning" : "default"}>
-                {r.submission.label}
-              </Chip>}
-              {!r.job && <Chip size="sm" variant="soft" className="job-badge">外部投递</Chip>}
+              {r.submission?.label && (
+                <Chip
+                  size="sm"
+                  variant="soft"
+                  className="job-badge"
+                  color={
+                    r.submission.confirmed
+                      ? "success"
+                      : r.submission.error
+                        ? "warning"
+                        : "default"
+                  }
+                >
+                  {r.submission.label}
+                </Chip>
+              )}
+              {!r.job && (
+                <Chip size="sm" variant="soft" className="job-badge">
+                  外部投递
+                </Chip>
+              )}
             </>
           ),
           extra: (
@@ -194,6 +257,11 @@ export function AppliedView({
             <ActionMenu
               label={`${r.job?.title || r.jobTitle}的操作`}
               items={[
+                {
+                  id: "classify",
+                  label: "归类",
+                  onAction: () => setDialog({ type: "classify", row: r }),
+                },
                 {
                   id: "progress",
                   label: "更新进展",
@@ -238,23 +306,30 @@ export function AppliedView({
           to={to}
           onClose={close}
           onApply={(a, b) => {
-            setFrom(a);
-            setTo(b);
+            preferences({ from: a, to: b, page: 1 });
             setPage(1);
           }}
         />
       )}
       {dialog?.type === "flow" && (
         <Dialog title="投递进展" onClose={close} wide>
-          <ApplicationFlow
-            rows={rows.map((r) => ({ ...r, id: r.id || r.key }))}
-            onSelect={(label, ids) => {
-              setFlow(ids ? { label, ids } : null);
-              setPage(1);
-              close();
-            }}
-          />
+          <Suspense fallback={<Spinner aria-label="正在读取进展图" />}>
+            <ApplicationFlow
+              rows={rows.map((r) => ({ ...r, id: r.id || r.key }))}
+              onSelect={(label, ids) => {
+                setFlow(ids ? { label, ids } : null);
+                setPage(1);
+                close();
+              }}
+            />
+          </Suspense>
         </Dialog>
+      )}
+      {dialog?.type === "reviews" && (
+        <ProgressReviews reviews={reviews} applications={all} onClose={close} />
+      )}
+      {dialog?.type === "classify" && (
+        <Classification row={dialog.row!} onClose={close} />
       )}
       {dialog?.type === "delete" && (
         <Dialog
@@ -290,7 +365,9 @@ export function AppliedView({
             投递时间：{dateLabel(dialog.row!.date)} ·{" "}
             {progressLabel(dialog.row!)}
           </p>
-          {dialog.row!.submission?.label && <p>{dialog.row!.submission!.label}</p>}
+          {dialog.row!.submission?.label && (
+            <p>{dialog.row!.submission!.label}</p>
+          )}
           {safeHref(dialog.row!.job?.apply_url || dialog.row!.jobLink) && (
             <a
               className="button button--secondary button--sm"
@@ -342,6 +419,48 @@ function DateFilter({
       >
         不限日期
       </Button>
+    </Dialog>
+  );
+}
+
+function Classification({
+  row,
+  onClose,
+}: {
+  row: AppRow;
+  onClose: () => void;
+}) {
+  const [kind, setKind] = useState(
+    row.kind === "unknown" ? "" : row.kind || "",
+  );
+  return (
+    <Dialog
+      title="归类投递记录"
+      onClose={onClose}
+      saveLabel="保存分类"
+      onSave={async () => {
+        if (kind !== "newgrad" && kind !== "internship")
+          throw Error("请选择全职或实习");
+        const { key, ...value } = row;
+        await store.mutateApplications([
+          {
+            action: "update",
+            application_id: row.id,
+            expected_version: row.version,
+            value: { ...value, kind },
+          },
+        ]);
+      }}
+    >
+      <p>
+        {row.companyName} · {row.jobTitle}
+      </p>
+      <Choice
+        label="岗位类型"
+        value={kind}
+        onChange={setKind}
+        options={{ newgrad: "全职", internship: "实习" }}
+      />
     </Dialog>
   );
 }

@@ -4,6 +4,7 @@ import logging
 import re
 import time
 import httpx
+from .answer_timing import add
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,8 @@ async def request_json(client, payload):
         details.setdefault('category', category)
         details['elapsedMs'] = round((time.monotonic() - started) * 1000)
         raise AnswerProviderError(details) from None
+    finally:
+        add("modelMs", time.monotonic()-started)
 
 
 def record_failure(error, request_id, engine):

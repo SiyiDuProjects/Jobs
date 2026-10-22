@@ -6,6 +6,7 @@ from functools import wraps
 from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.responses import JSONResponse, Response
 
+from .async_work import run_sync
 from .profiles import ProfileConflict
 from .validation import ControlConflict
 
@@ -32,7 +33,7 @@ class RouteAPI:
                     incompatible = require_current(request)
                     if incompatible is not None:
                         return incompatible
-                principal = authorize(request)
+                principal = await authorize(request) if inspect.iscoroutinefunction(authorize) else await run_sync(authorize, request)
                 if inspect.isawaitable(principal):
                     principal = await principal
                 if isinstance(principal, Response):
@@ -61,7 +62,7 @@ class RouteAPI:
                             payload = model.model_validate(payload)
                         elif not isinstance(payload, dict):
                             raise ValueError('JSON object required')
-                    result = handler(request, payload, principal)
+                    result = await handler(request, payload, principal) if inspect.iscoroutinefunction(handler) else await run_sync(handler, request, payload, principal)
                     if inspect.isawaitable(result):
                         result = await result
                     return result if isinstance(result, Response) else json_response(result)

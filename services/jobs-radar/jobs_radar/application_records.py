@@ -63,15 +63,24 @@ def write_state(c, job_id, changes, *, version_step=0, record_step=0, reason):
 
 
 def read(c):
-    rows=[]
-    for app in c.execute('SELECT * FROM applications WHERE record IS NOT NULL AND deleted=0 ORDER BY updated DESC,job_id'):
+    applications = c.execute('SELECT * FROM applications WHERE record IS NOT NULL AND deleted=0 ORDER BY updated DESC,job_id').fetchall()
+    observations = {}
+    kinds = {}
+    sources = {}
+    for item in c.execute('''SELECT o.job_id,o.payload FROM observations o
+            JOIN applications a ON a.job_id=o.job_id WHERE a.record IS NOT NULL AND a.deleted=0
+            ORDER BY o.present DESC,o.last_seen DESC,o.stream,o.source_id'''):
+        data = json.loads(item['payload']); jid = item['job_id']
+        observations.setdefault(jid, data)
+        kinds.setdefault(jid, set()).add(data.get('kind'))
+        if isinstance(data.get('source'), str): sources.setdefault(jid, set()).add(data['source'])
+    rows = []
+    for app in applications:
         item = record(app)
-        item['kind'] = application_kind(c, app['job_id'], item)
-        observation = c.execute('SELECT payload FROM observations WHERE job_id=? ORDER BY present DESC,last_seen DESC LIMIT 1',(app['job_id'],)).fetchone()
-        item['job'] = None
-        if observation:
-            data = json.loads(observation[0])
-            item['job'] = {'id': app['job_id'], **{key: data.get(key) for key in ('title','company','locations','kind','apply_url','source_url')}}
+        item['kind'] = application_kind(c, app['job_id'], item, observed_kinds=kinds.get(app['job_id'], set()))
+        data = observations.get(app['job_id'])
+        item['job'] = {'id':app['job_id'], **{key:data.get(key) for key in ('title','company','locations','kind','apply_url','source_url')},
+                       'sources':sorted(sources.get(app['job_id'], set()))} if data else None
         rows.append(item)
     return rows
 

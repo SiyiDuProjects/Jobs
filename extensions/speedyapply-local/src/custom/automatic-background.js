@@ -161,6 +161,7 @@ export function initializeAutomaticBackground() {
           reply({
             error: String(error.message || error).slice(0, 600),
             answerUsage: error.answerUsage,
+            answerTimings: error.answerTimings,
           }),
       );
       return true;

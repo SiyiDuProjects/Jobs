@@ -80,3 +80,51 @@ test("ES module resolution rejects missing dependencies and unexported methods b
     );
   }
 });
+
+test("content frames and the injected top presenter defer editor libraries to one packaged module", async () => {
+  const result = await nativePackage();
+  const inputs = async (entry) =>
+    JSON.parse(
+      await fs.readFile(result.stage + "/" + entry + "-modules.json", "utf8"),
+    );
+  for (const entry of ["content", "review-surface"]) {
+    const files = await inputs(entry);
+    assert(
+      !files.some((file) =>
+        /node_modules\/(?:react|react-dom|@heroui|@heroui-pro)\//.test(file),
+      ),
+      entry + " must not parse editor libraries before review",
+    );
+    assert(!files.includes("src/custom/review-view.js"));
+  }
+  const presenter = await inputs("review-surface");
+  assert(
+    !presenter.includes("src/custom/control-fields.js"),
+    "the injected presenter must not initialize form scanners",
+  );
+  assert(presenter.includes("src/custom/continuation.js"));
+  assert(
+    (await inputs("review-ui")).includes("src/custom/review-components.js"),
+  );
+  await fs.access(result.stage + "/custom/review-ui.js");
+  const manifest = JSON.parse(
+    await fs.readFile(result.stage + "/manifest.json", "utf8"),
+  );
+  assert(
+    manifest.web_accessible_resources.some((row) =>
+      row.resources.includes("custom/review-ui.js"),
+    ),
+  );
+  assert.equal(
+    manifest.content_scripts.find((row) =>
+      row.js.includes("custom/runtime-bundle.js"),
+    ).all_frames,
+    true,
+  );
+  const sizes = {};
+  for (const name of ["runtime-bundle", "review-surface", "review-ui"])
+    sizes[name] = (
+      await fs.stat(result.stage + "/custom/" + name + ".js")
+    ).size;
+  console.info("Deferred review bundle bytes:", JSON.stringify(sizes));
+});

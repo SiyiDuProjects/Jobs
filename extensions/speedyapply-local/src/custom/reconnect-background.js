@@ -9,17 +9,22 @@ export async function reconnectPages() {
         (await chrome.storage.local.get("jobsSyncV1")).jobsSyncV1
       );
     if (!connection?.profileToken || connection.disabled) return;
+    // Open tab IDs are the index. Read only their tiny routing records, never
+    // diagnostic payloads. This also works on our Chrome 120 minimum version.
+    const open = await chrome.tabs.query({});
+    const keys = open
+      .filter((tab) => Number.isInteger(tab.id))
+      .map((tab) => "jobsReconnectTab:" + tab.id);
+    const saved = await chrome.storage.local.get(keys);
     const scripts = chrome.runtime.getManifest().content_scripts || [];
     for (const script of scripts) {
       if (!script.js?.includes("custom/runtime-bundle.js")) continue;
       const tabs = await chrome.tabs.query({ url: script.matches });
-      const saved = await chrome.storage.local.get(null);
-      const known = Object.entries(saved).filter(([key]) =>
-        key.startsWith("jobsReconnectTab:"),
-      );
-      for (const [key, origin] of known) {
+      for (const tab of open) {
+        const key = "jobsReconnectTab:" + tab.id;
+        const origin = saved[key];
+        if (!origin) continue;
         try {
-          const tab = await chrome.tabs.get(Number(key.split(":")[1]));
           if (
             new URL(tab.url).origin === origin &&
             !tabs.some((item) => item.id === tab.id)

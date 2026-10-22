@@ -17,7 +17,7 @@ import tempfile
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from jobs_radar.web_bundles import FILES, MAX_FILE, VERSION, read_manifest
+from jobs_radar.web_bundles import FILES, MAX_FILE, MAX_MANIFEST, VERSION, manifest_files, read_manifest
 
 LIVE = Path('/home/ubuntu/siyi/jobs-radar')
 ORIGIN = 'http://127.0.0.1:8796'
@@ -54,16 +54,21 @@ def release_lock(live):
 def unpack(data, folder):
     if len(data) > MAX_ARCHIVE:
         raise ValueError('Website archive is too large')
-    expected = {'manifest.json', *FILES}
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:') as archive:
         members = archive.getmembers()
+        manifests = [member for member in members if member.name == 'manifest.json']
+        if len(manifests) != 1 or not manifests[0].isfile() or not 0 < manifests[0].size <= MAX_MANIFEST:
+            raise ValueError('Unexpected website archive members')
+        manifest = json.load(archive.extractfile(manifests[0]))
+        expected = {'manifest.json', *manifest_files(manifest)}
         if len(members) != len(expected) or {m.name for m in members} != expected:
             raise ValueError('Unexpected website archive members')
         for member in members:
-            if not member.isfile() or not 0 < member.size <= (8192 if member.name == 'manifest.json' else MAX_FILE):
+            if not member.isfile() or not 0 < member.size <= (MAX_MANIFEST if member.name == 'manifest.json' else MAX_FILE):
                 raise ValueError('Only bounded regular website files are allowed')
             target = folder / member.name
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+            target.parent.chmod(0o755)  # SSH may use umask 077; container UID still needs access.
             with archive.extractfile(member) as source, target.open('xb') as output:
                 shutil.copyfileobj(source, output)
             target.chmod(0o644)
@@ -106,8 +111,12 @@ def verify_http(version, manifest):
     if status()['active'] != version:
         raise ValueError('Running service did not select the website version')
     paths = {'/': 'index.html', '/manage/': 'manage/index.html'}
-    paths.update({'/assets/' + name + ('?v=' + version if version else ''): name
-                  for name in ('board.js', 'board.css')})
+    if manifest and manifest['format'] == 2:
+        paths.update({'/assets/' + version + '/' + name: name for name in manifest['files']
+                      if not name.endswith('.html')})
+    else:
+        paths.update({'/assets/' + name + ('?v=' + version if version else ''): name
+                      for name in ('board.js', 'board.css')})
     for route, name in paths.items():
         with urllib.request.urlopen(ORIGIN + route, timeout=10) as response:
             body = response.read(MAX_FILE + 1)

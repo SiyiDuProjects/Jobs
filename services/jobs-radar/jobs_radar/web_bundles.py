@@ -7,6 +7,9 @@ import re
 
 FILES = ('board.css', 'board.js', 'index.html', 'manage/index.html')
 MAX_FILE = 16 * 1024 * 1024
+MAX_MANIFEST = 64 * 1024
+MAX_FILES = 256
+ASSET = re.compile(r'chunks/[A-Za-z0-9_-]+\.(?:js|css|woff2?|svg|png|webp)')
 VERSION = re.compile(r'[a-f0-9]{32}')
 
 
@@ -31,18 +34,36 @@ def backend_fingerprint(service):
     return digest('\n'.join(rows).encode())
 
 
+def manifest_files(manifest):
+    names = manifest.get('files', {})
+    if (manifest.get('format') not in (1, 2)
+            or not isinstance(names, dict) or not set(FILES).issubset(names)
+            or not len(FILES) <= len(names) <= MAX_FILES
+            or (manifest['format'] == 1 and set(names) != set(FILES))
+            or any(not isinstance(name, str) or (name not in FILES and not ASSET.fullmatch(name))
+                   or not isinstance(checksum, str) or not re.fullmatch(r'[a-f0-9]{64}', checksum)
+                   for name, checksum in names.items())):
+        raise ValueError('Invalid website manifest files')
+    return names
+
+
 def read_manifest(folder):
     folder = Path(folder)
     raw = (folder / 'manifest.json').read_bytes()
-    if len(raw) > 8192 or (folder / 'manifest.json').is_symlink():
+    if len(raw) > MAX_MANIFEST or (folder / 'manifest.json').is_symlink():
         raise ValueError('Invalid website manifest')
     manifest = json.loads(raw)
-    if (manifest.get('format') != 1 or not VERSION.fullmatch(manifest.get('id', ''))
+    if (not VERSION.fullmatch(manifest.get('id', ''))
             or not re.fullmatch(r'[a-f0-9]{40}', manifest.get('sourceCommit', ''))
-            or not re.fullmatch(r'[a-f0-9]{64}', manifest.get('backendFingerprint', ''))
-            or set(manifest.get('files', {})) != set(FILES)):
+            or not re.fullmatch(r'[a-f0-9]{64}', manifest.get('backendFingerprint', ''))):
         raise ValueError('Invalid website manifest')
-    for name in FILES:
+    if manifest.get('format') == 2:
+        tests = manifest.get('tests', {})
+        if (tests.get('commit') != manifest['sourceCommit']
+                or not re.fullmatch(r'[a-f0-9]{64}', tests.get('sourceSha256', ''))
+                or tests.get('checks') != ['website-tests', 'website-build', 'website-artifacts']):
+            raise ValueError('Website has no matching passing-test receipt')
+    for name in manifest_files(manifest):
         target = folder / name
         if target.is_symlink() or target.resolve() != target.absolute():
             raise ValueError('Website file escaped its bundle')
@@ -51,7 +72,11 @@ def read_manifest(folder):
     root = (folder / 'index.html').read_text(encoding='utf-8')
     if root != (folder / 'manage/index.html').read_text(encoding='utf-8'):
         raise ValueError('Website and management entry must match')
-    refs = re.findall(r'/assets/(board\.(?:css|js))\?v=([a-f0-9]+)', root)
+    if manifest['format'] == 1:
+        refs = re.findall(r'/assets/(board\.(?:css|js))\?v=([a-f0-9]+)', root)
+    else:
+        refs = [(name, version) for version, name in
+                re.findall(r'/assets/([a-f0-9]+)/(board\.(?:css|js))', root)]
     if sorted(refs) != [('board.css', manifest['id']), ('board.js', manifest['id'])]:
         raise ValueError('Website assets are not pinned to this bundle')
     return manifest
@@ -104,14 +129,33 @@ class WebBundles:
                 'active': manifest['id'] if manifest else None}
 
     def asset(self, name, version=None):
-        if name not in {'board.js', 'board.css'}:
+        # Version in the path also pins relative imports from dynamically loaded
+        # modules. Query strings on an entry cannot pin its imported chunks.
+        if '/' in name and re.fullmatch(r'[a-f0-9]{16}|[a-f0-9]{32}', name.split('/', 1)[0]):
+            pinned, name = name.split('/', 1)
+            if version and version != pinned:
+                raise ValueError('Conflicting website versions')
+            version = pinned
+        if name not in {'board.js', 'board.css'} and not ASSET.fullmatch(name):
             raise ValueError('Unknown website asset')
         if version and VERSION.fullmatch(version):
-            # An already-open page must still receive its exact old JS/CSS.
-            return self.bundle(version)[0] / name, True
+            folder, manifest = self.bundle(version)
+            if name not in manifest['files']:
+                raise ValueError('Unknown website asset')
+            return folder / name, True
         if version:
             html = (self.static / 'index.html').read_text(encoding='utf-8')
-            if f'/assets/{name}?v={version}' not in html:
+            if (f'/assets/{name}?v={version}' not in html
+                    and f'/assets/{version}/board.js' not in html):
                 raise ValueError('Unknown bundled website version')
-            return self.static / name, False
-        return self.active()[0] / name, False
+            target = self.static / name
+            if not target.is_file() or target.resolve() != target.absolute():
+                raise ValueError('Unknown bundled website asset')
+            return target, True
+        folder, manifest = self.active()
+        if manifest and name not in manifest['files']:
+            raise ValueError('Unknown website asset')
+        target = folder / name
+        if not target.is_file() or target.resolve() != target.absolute():
+            raise ValueError('Unknown website asset')
+        return target, False

@@ -1,5 +1,6 @@
 """Switchable answer engines with a common extension wire contract."""
 import os
+from .answer_timing import database
 from .legacy_answers import Answers as LegacyAnswers, INSTRUCTIONS, unique_rows
 from .simple_answers import SimpleAnswers
 from .answer_result import from_legacy
@@ -18,16 +19,18 @@ class Answers:
         # Old installed clients retain their contract during staged deployment.
         if not modern and self.flow is None: flow = 'legacy'
         if flow == 'legacy':
-            response = await LegacyAnswers(self.store).generate(payload,client)
+            engine = await database(LegacyAnswers, self.store)
+            response = await engine.generate(payload,client)
             if modern and batch:
                 fields = {f['fieldId']:f for f in fields_input(payload)['fields']}
                 response['answers'] = [from_legacy(row,fields[row['fieldId']],payload['profileId'],payload['profileVersion']) for row in response['answers']]
                 response['flow'] = 'legacy'
             return response
-        if batch: return await SimpleAnswers(self.store).generate(payload,client)
+        engine = await database(SimpleAnswers, self.store)
+        if batch: return await engine.generate(payload,client)
         prompt = payload.get('prompt')
         if not isinstance(prompt,str) or not 1 <= len(prompt) <= 8000: raise ValueError('题目为空或过长')
-        response = await SimpleAnswers(self.store).generate({**payload,'fields':[{
+        response = await engine.generate({**payload,'fields':[{
             'fieldId':'text','question':prompt[:2000],'description':prompt[2000:],
             'type':'textarea','required':True,'options':[]}]},client)
         row = response['answers'][0]

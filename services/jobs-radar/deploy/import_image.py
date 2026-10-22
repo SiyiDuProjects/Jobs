@@ -8,6 +8,7 @@ import re
 import shutil
 
 from local_build import build_lock, command, digest, verify_image_archive
+from release_checks import validate_receipt
 
 
 ROOT = Path('/home/ubuntu/siyi')
@@ -29,7 +30,8 @@ def import_artifact(folder, commit, *, root=ROOT, invoke=command):
         path = folder / name
         if path.is_symlink() or digest(path) != manifest[key]:
             raise ValueError('Transferred artifact checksum differs: ' + name)
-    expected = {'release': short, 'org.opencontainers.image.revision': commit, 'jobs.source.sha256': manifest['sourceSha256']}
+    tests_hash = validate_receipt(manifest.get('tests'), commit, manifest['sourceSha256'])
+    expected = {'release': short, 'org.opencontainers.image.revision': commit, 'jobs.source.sha256': manifest['sourceSha256'], 'jobs.tests.sha256': tests_hash}
     verify_image_archive(folder / 'image.tar', image_id, expected)
     if shutil.disk_usage(root).free < 2 * (folder / 'image.tar').stat().st_size + 2 * 1024**3:
         raise ValueError('Insufficient disk headroom for the imported image')

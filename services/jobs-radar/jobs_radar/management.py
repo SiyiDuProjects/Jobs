@@ -8,6 +8,7 @@ import re
 import time
 import hashlib
 from .profiles import ProfileConflict, Profiles
+from . import management_history
 
 
 class Management:
@@ -20,6 +21,7 @@ class Management:
               CREATE TABLE IF NOT EXISTS management_documents(key TEXT PRIMARY KEY,value TEXT NOT NULL,revision INTEGER NOT NULL);
               CREATE TABLE IF NOT EXISTS management_revisions(key TEXT,revision INTEGER,value TEXT NOT NULL,created REAL,PRIMARY KEY(key,revision));
             ''')
+            management_history.initialize(c)
 
     @classmethod
     def valid_key(cls, key):
@@ -65,9 +67,22 @@ class Management:
                     if not c.execute('SELECT 1 FROM owner_profiles WHERE id=? AND deleted=0',(pid,)).fetchone(): raise ValueError('Profile unavailable')
         return raw
 
-    def snapshot(self, *, include_applications=True):
+    def snapshot(self, *, include_applications=True, keys=None, revisions=None):
+        if keys is not None and (not isinstance(keys, list) or any(not self.valid_key(k) for k in keys)):
+            raise ValueError('Invalid management keys')
+        if revisions is not None and (not isinstance(revisions, dict) or any(not self.valid_key(k) or type(v) is not int or v < 0 for k,v in revisions.items())):
+            raise ValueError('Invalid management revisions')
         with self.store.connect() as c:
-            result={r['key']: {'value': json.loads(r['value']), 'revision': r['revision']} for r in c.execute('SELECT * FROM management_documents') if self.valid_key(r['key'])}
+            c.execute('BEGIN')
+            clauses, params = [], []
+            if keys is not None:
+                clauses.append('key IN (SELECT value FROM json_each(?))'); params.append(json.dumps(keys))
+            if revisions:
+                clauses.append('NOT EXISTS (SELECT 1 FROM json_each(?) r WHERE r.key=management_documents.key AND r.value=revision)')
+                params.append(json.dumps(revisions))
+            selection = ' WHERE '+' AND '.join(clauses) if clauses else ''
+            result={r['key']: {'value': json.loads(r['value']), 'revision': r['revision']}
+                    for r in c.execute('SELECT * FROM management_documents'+selection, params) if self.valid_key(r['key'])}
             if not include_applications:
                 return result
             from .application_progress import pending_reviews, project_display
@@ -125,6 +140,16 @@ class Management:
                 old=c.execute('SELECT * FROM management_documents WHERE key=?',(key,)).fetchone()
                 if old and old['value']==raw: continue
                 if old:
-                    c.execute('INSERT OR IGNORE INTO management_revisions VALUES(?,?,?,?)',(key,old['revision'],old['value'],time.time()))
+                    management_history.save(c,key,old['revision'],old['value'])
                 c.execute('INSERT INTO management_documents VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,revision=excluded.revision',(key,raw,rev+1))
         return self.snapshot(include_applications=include_applications) if return_snapshot else {'written': [key for key, _, _ in checked]}
+
+    def history(self, key):
+        if not self.valid_key(key): raise ValueError('Invalid management key')
+        with self.store.connect(read_only=True) as c:
+            return [{'revision':r['revision'],'created':r['created'],'value':management_history.unpack(c,r['value'])}
+                    for r in c.execute('SELECT * FROM management_revisions WHERE key=? ORDER BY revision', (key,))]
+
+    def compact_history(self, limit=100, after=None):
+        with self.store.connect(True) as c:
+            return management_history.compact(c,limit,after)

@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 export default defineConfig({
   plugins: [
@@ -23,23 +23,23 @@ export default defineConfig({
           .replaceAll("&", "&amp;")
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;");
-        const stamp = createHash("sha256")
-          .update(
-            await readFile(
-              new URL("../jobs_radar/static/board.js", import.meta.url),
-            ),
-          )
-          .update(
-            await readFile(
-              new URL("../jobs_radar/static/board.css", import.meta.url),
-            ),
-          )
-          .digest("hex")
-          .slice(0, 16);
+        const output = new URL("../jobs_radar/static/", import.meta.url);
+        const assets = ["board.js", "board.css"];
+        try {
+          assets.push(...(await readdir(new URL("chunks/", output)))
+            .map((name) => "chunks/" + name));
+        } catch (error) {
+          if ((error as { code?: string }).code !== "ENOENT") throw error;
+        }
+        const fingerprint = createHash("sha256");
+        for (const asset of assets.sort()) {
+          fingerprint.update(asset).update(await readFile(new URL(asset, output)));
+        }
+        const stamp = fingerprint.digest("hex").slice(0, 16);
         const rendered = html
           .replace(
             /(\/assets\/board\.(?:js|css))\?v=[^"']+/g,
-            (_match, asset) => asset + "?v=" + stamp,
+            (_match, asset) => asset.replace("/assets/", "/assets/" + stamp + "/"),
           )
           .replace(
             /<title>[^<]*<\/title>/,
@@ -70,7 +70,7 @@ export default defineConfig({
       onwarn(warning, warn) {
         if (warning.code !== "MODULE_LEVEL_DIRECTIVE") warn(warning);
       },
-      output: { codeSplitting: false },
+      output: { chunkFileNames: "chunks/[name]-[hash].js", minify: true },
     },
   },
 });

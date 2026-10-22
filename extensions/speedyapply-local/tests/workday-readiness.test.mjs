@@ -1,3 +1,4 @@
+import { withFixtureClock } from "./helpers/fixture-clock.mjs";
 import { readWithDependencies } from "./helpers/runtime-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -223,7 +224,7 @@ test("Workday missing committed source and real validation errors still block Ne
   ]) {
     const h = setup(body);
     try {
-      assert.equal(await h.run(), false);
+      assert.equal(await withFixtureClock(h.w, h.run), false);
       assert.equal(h.clicks(), 0);
       assert.equal(
         h.calls(),

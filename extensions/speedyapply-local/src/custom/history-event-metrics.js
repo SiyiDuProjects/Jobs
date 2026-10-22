@@ -1,5 +1,6 @@
 // Only bounded measurements and visibility enums can leave the event detail.
 // Questions, answers, URLs and arbitrary diagnostic text are never metrics.
+/** @returns {{visibility?:string, timing?:Record<string,number|Record<string,number>>, answerUsage?:{fieldCount?:number,cacheHits?:number,modelFields?:number,modelCalls?:number,unavailable?:boolean}}} */
 export function historyEventMetrics(type, detail) {
   if (type === "visibility_changed")
     return ["hidden", "visible"].includes(detail) ? { visibility: detail } : {};
@@ -15,7 +16,28 @@ export function historyEventMetrics(type, detail) {
   } catch {
     value = null;
   }
+  const numbers = (input, keys) => {
+    const result = {};
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      return result;
+    for (const key of keys) {
+      const n = input[key],
+        max = key === "ms" || key.endsWith("Ms") ? 86400000 : 1000000;
+      if (Number.isInteger(n) && n >= 0 && n <= max) result[key] = n;
+    }
+    return result;
+  };
   if (type === "auto_answer_batch") {
+    const timing = numbers(value?.timing, [
+      "requestMs",
+      "queueMs",
+      "processingMs",
+      "storageMs",
+      "modelMs",
+      "preparationMs",
+    ]);
+    const measured = Object.keys(timing).length ? { timing } : {};
+
     const keys = ["fieldCount", "cacheHits", "modelFields", "modelCalls"];
     if (
       value &&
@@ -32,20 +54,10 @@ export function historyEventMetrics(type, detail) {
     )
       return {
         answerUsage: Object.fromEntries(keys.map((key) => [key, value[key]])),
+        ...measured,
       };
-    return { answerUsage: { unavailable: true } };
+    return { answerUsage: { unavailable: true }, ...measured };
   }
-  const numbers = (input, keys) => {
-    const result = {};
-    if (!input || typeof input !== "object" || Array.isArray(input))
-      return result;
-    for (const key of keys) {
-      const n = input[key],
-        max = key === "ms" || key === "heldMs" ? 86400000 : 1000000;
-      if (Number.isInteger(n) && n >= 0 && n <= max) result[key] = n;
-    }
-    return result;
-  };
   const timing = numbers(
     value,
     type === "auto_write_timing"

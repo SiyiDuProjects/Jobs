@@ -1,3 +1,4 @@
+import { effectiveAutofillSettings } from "./autofill-settings.js";
 import { JobsPrivateSession } from "./private-session.js";
 import { JobsBrand } from "./brand.js";
 import { JobsJobMatch } from "./job-match.js";
@@ -720,6 +721,18 @@ export function initializeTabProfiles() {
           data.jobsProfilesList?.find((row) => row.id === currentId)
             ?.profileName || "",
         source,
+        ...(current
+          ? {
+              resume: {
+                fileName: current.profile?.resumeData?.fileName || "",
+                uploadedAt: current.profile?.resumeData?.dateUploaded || "",
+              },
+              profileUpdatedAt: current.lastSync || "",
+            }
+          : {}),
+        settings: effectiveAutofillSettings(
+          await chrome.storage.local.get(["settings", "autofillEnabled"]),
+        ),
         choices: {
           intern: !!map.intern,
           newgrad: !!map.newgrad,

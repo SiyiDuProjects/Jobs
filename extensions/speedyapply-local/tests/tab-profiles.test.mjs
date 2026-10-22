@@ -1322,3 +1322,25 @@ test("current status resolution feeds binding without another network lookup", a
     /连接|session|会话/i,
   );
 });
+
+test("popup exposes only bound attachment metadata and the same effective settings as filling", async () => {
+  const h = setup({
+    settings: {
+      autofillSettings: { autoSubmit: true, autoClickNextPage: false },
+    },
+    autofillEnabled: false,
+  });
+  h.cloud.ng.profile.resumeData = {
+    fileName: "synthetic.pdf",
+    resumeBase64: "PRIVATE-BINARY",
+    dateUploaded: "2026-10-01",
+  };
+  h.tabs.set(2, { id: 2, url: "https://jobs.example/role/2" });
+  await h.scope.select(2, h.cloud.ng);
+  const reply = await h.popup({ action: "read", tabId: 2 });
+  assert.equal(reply.data.resume.fileName, "synthetic.pdf");
+  assert.equal(reply.data.profileUpdatedAt, h.cloud.ng.last_sync);
+  assert.equal(reply.data.settings.enabled, false);
+  assert.equal(reply.data.settings.autofillSettings.autoSubmit, true);
+  assert(!JSON.stringify(reply).includes("PRIVATE-BINARY"));
+});

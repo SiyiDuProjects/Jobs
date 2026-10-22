@@ -11,6 +11,7 @@ from . import flexible_answers as flexible
 from .answer_memory import AnswerMemory, request_context
 from .field_answers import fields_input
 from .answer_transport import request_json, record_failure
+from .answer_timing import database, request_state, add
 
 INSTRUCTIONS = flexible.INSTRUCTIONS
 
@@ -45,6 +46,7 @@ class Answers:
             c.execute('CREATE TABLE IF NOT EXISTS answer_requests(id TEXT PRIMARY KEY,created REAL,state TEXT)')
 
     async def generate(self,payload,client=None):
+        started = time.monotonic()
         if not isinstance(payload,dict): raise ValueError('题目为空或过长')
         if 'profile' in payload or 'responseContext' in payload:
             raise ValueError('Use a bound server Profile reference')
@@ -55,7 +57,7 @@ class Answers:
         fields=data['fields']
         from .profiles import Profiles
         pid=Profiles.identifier(payload.get('profileId')); version=payload.get('profileVersion')
-        profile=Profiles(self.store).at_version(pid,version)
+        profile=await database(lambda: Profiles(self.store).at_version(pid,version))
         context={'jobContext':request_context(payload)}
         for key,limit in [('additionalContext',6000),('jobTitle',500),('jobDescription',18000)]:
             value=payload.get(key,'')
@@ -64,20 +66,20 @@ class Answers:
         context = bindings.recognition_context(context)
         context['formContext'] = data['formContext']
         if data['formDocument'] is not None: context['formDocument'] = data['formDocument']
-        memory=AnswerMemory(self.store,pid,fields,{**context['jobContext'],'profileVersion':version})
-        cache=bindings.BindingCache(self.store); plans=cache.plans(fields,context,MODEL)
+        memory=await database(AnswerMemory,self.store,pid,fields,{**context['jobContext'],'profileVersion':version})
+        cache=await database(bindings.BindingCache,self.store); plans=await database(cache.plans,fields,context,MODEL)
         public_plans={f['fieldId']:plan for f in fields if (plan:=bindings.public_binding(f))}
         plans.update(public_plans)
         usage={'fieldCount':len(fields),'cacheHits':len(plans),'modelFields':0,'modelCalls':0}
         projected=project_answer_profile(profile,partial=False)
-        displays=cache.displays(fields,context,MODEL)
+        displays=await database(cache.displays,fields,context,MODEL)
         pending=[f for f in fields if f['fieldId'] not in plans or bindings.answer(plans[f['fieldId']],None,f,profile,pid,version) is None or f['fieldId'] in public_plans and not displays.get(f['fieldId'])]
+        add('preparationMs',time.monotonic()-started)
         rid=str(uuid.uuid4()); now=time.time(); failures=[]
 
         async def request(active, instructions, data, schema, count):
             if active is None: raise ValueError('AI 服务暂时不可用')
-            with self.store.connect(True) as c:
-                c.execute('INSERT OR IGNORE INTO answer_requests VALUES(?,?,?)',(rid,now,'started'))
+            await database(request_state,self.store,rid,'started',created=now)
             usage['modelCalls']+=1; usage['modelFields']=max(usage['modelFields'],count)
             return await request_json(active, {
                 'model':MODEL,'store':False,'instructions':instructions,'input':json.dumps(data,ensure_ascii=False),
@@ -104,11 +106,11 @@ class Answers:
                     new={f['fieldId']:b for f in pending if (b:=bindings.checked(mapped.get(f['fieldId'],{}).get('binding'),None,f,context))}
                     new.update(public_plans)
                     views={f['fieldId']:flexible.presentation(generated.get(f['fieldId']),f) for f in pending}
-                    cache.save_plans(pending,new,context,MODEL,views); plans.update(new); displays.update(views)
+                    await database(cache.save_plans,pending,new,context,MODEL,views); plans.update(new); displays.update(views)
                 except (httpx.HTTPError,ValueError,KeyError,TypeError) as error:
                     mapping_failure = 'ai_unavailable'
                     failures.append(record_failure(error,rid,'legacy'))
-            if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
+            if not await database(memory.current): raise ValueError('已存回答已改变，请重试；当前填写已保留')
             answers={}
             for field in fields:
                 fid=field['fieldId']; plan=plans.get(fid)
@@ -129,11 +131,10 @@ class Answers:
                 if candidate and row['value'] is not None and row['value']==candidate['value'] and generated[fid].get('basis')==origin:
                     row={**row,**{k:candidate[k] for k in ('questionZh','answerZh','reason') if k in candidate}}
                 answers[fid]=flexible.display(row,field,displays.get(fid))
-            if not memory.current(): raise ValueError('已存回答已改变，请重试；当前填写已保留')
+            if not await database(memory.current): raise ValueError('已存回答已改变，请重试；当前填写已保留')
             rows=[answers[f['fieldId']] for f in fields]
-            self.profile_gaps.record(pid,profile,fields,rows)
-            with self.store.connect(True) as c:
-                c.execute('UPDATE answer_requests SET state=? WHERE id=?',('needs_input' if any(r['state']=='needs_input' for r in rows) else 'answer',rid))
+            await database(self.profile_gaps.record,pid,profile,fields,rows)
+            await database(request_state,self.store,rid,'needs_input' if any(r['state']=='needs_input' for r in rows) else 'answer')
             if not batch:
                 row=rows[0]
                 if row['state']=='needs_input': raise ValueError('需要补充资料或本人回答')

@@ -1,11 +1,13 @@
 """Same-origin private browser access; no application data on public routes."""
 import hashlib
+import json
 import ipaddress
 import os
 import secrets
 import time
 from pathlib import Path
-from anyio import CapacityLimiter, to_thread
+from functools import wraps
+from .async_work import run_sync, worker
 
 from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from .board import Board
@@ -60,8 +62,16 @@ class WebAccess:
 
     def session(self, request):
         token=request.cookies.get(COOKIE,'')
-        with self.store.connect() as c:
+        with self.store.connect(read_only=True) as c:
             return c.execute('SELECT * FROM web_sessions WHERE hash=? AND expires>?',(hashlib.sha256(token.encode()).hexdigest(),time.time())).fetchone()
+
+    def authorize(self, request, *, write=False):
+        current = self.session(request)
+        if not current or not current['approved']:
+            return False
+        if write and request.headers.get('origin') != self.origin:
+            return json_response({'error': 'Invalid origin'}, 403)
+        return True
 
     def approve(self, request_id):
         with self.store.connect(True) as c:
@@ -71,16 +81,17 @@ class WebAccess:
             c.execute("INSERT INTO audit(event,actor,created,payload) VALUES('web_login','owner',?,?)",(time.time(),request_id))
         return {'approved':True,'request_id':request_id}
 
-def attach_web(server, store, origin):
-    read_pool = CapacityLimiter(4)
+def attach_web(server, store, origin, *, board=None, recruiting=None, application_progress=None):
     from .web_bundles import WebBundles
     bundles = WebBundles(STATIC, os.environ.get('JOBS_WEB_ROOT'))
-    access, board = WebAccess(store,origin), Board(store)
+    access = WebAccess(store,origin)
+    board = board if board is not None else Board(store)
+    recruiting = recruiting if recruiting is not None else Recruiting(store)
     extension = ExtensionSync(store)
     profiles = Profiles(store)
     management = Management(store)
     from .application_progress import ApplicationProgress
-    application_progress = ApplicationProgress(store)
+    application_progress = application_progress if application_progress is not None else ApplicationProgress(store)
     answers = Answers(store)
     from .answer_jobs import AnswerJobs
     answer_jobs = AnswerJobs(store, answers)
@@ -92,27 +103,31 @@ def attach_web(server, store, origin):
         return profiles.authenticate(auth[7:] if auth.startswith('Bearer ') else '')
 
     @api.route('/api/extension/diagnostics', ['POST'], profile_access, DiagnosticRequest, max_bytes=2 * 1024 * 1024)
-    async def extension_diagnostics(request, payload, device):
+    def extension_diagnostics(request, payload, device):
         return diagnostics.receive(device, payload.model_dump())
     def response(value,status=200):
         r=JSONResponse(value,status_code=status)
         r.headers['Cache-Control']='no-store'
         return r
 
+    def browser_read(handler):
+        @wraps(handler)
+        def authorized(request):
+            if not access.authorize(request):
+                return response({'error':'Sign in first'},401)
+            return handler(request)
+        return authorized
+
     def management_access(request):
         auth=request.headers.get('authorization','')
         if auth.startswith('Bearer '):
             return bool(profiles.authenticate(auth[7:]))
-        current=access.session(request)
-        if not current or not current['approved']: return False
-        if request.method != 'GET' and request.headers.get('origin') != origin:
-            return json_response({'error': 'Invalid origin'}, 403)
-        return True
+        return access.authorize(request, write=request.method != 'GET')
 
     from .question_corpus import register_corpus_routes
     register_corpus_routes(api, store, management_access)
 
-    from .web_inputs import (ProgressRequest, ApplicationRequest, StateRequest, PairRequest,
+    from .web_inputs import (ProgressReviewRequest, ProgressRequest, ApplicationRequest, StateRequest, PairRequest,
         DeviceRequest, ResolveRequest, ReceiptRequest, AnswerJobRequest, BoardAction)
     from .application_records import ApplicationRecords
     records = ApplicationRecords(store)
@@ -123,23 +138,27 @@ def attach_web(server, store, origin):
     register_retired_routes(api, management_access)
 
     @api.route('/api/manage/applications', ['GET', 'POST'], management_access, ApplicationRequest)
-    async def management_applications(request, payload, principal):
+    def management_applications(request, payload, principal):
         if request.method == 'GET':
             return records.list()
         return records.mutate([change.model_dump(exclude_none=True) for change in payload.changes], payload.idempotency_key)
 
     @api.route('/api/manage/progress', ['GET', 'POST'], management_access, ProgressRequest, max_bytes=8000)
-    async def management_progress(request, payload, principal):
+    def management_progress(request, payload, principal):
         if request.method == 'GET':
             return application_progress.list(application_id=request.query_params.get('application_id'))
         return application_progress.update(**payload.model_dump(exclude_unset=True), source='web-owner')
+
+    @api.route('/api/manage/progress-review', ['POST'], management_access, ProgressReviewRequest, max_bytes=2000)
+    def management_progress_review(request, payload, principal):
+        return application_progress.resolve_review(**payload.model_dump())
 
     from .browser_control import BrowserControl, MAX_BODY, enabled as control_enabled, observable as control_observable
     if control_observable():
         control = BrowserControl(store, allow_commands=control_enabled())
 
         @api.route('/api/extension/control', ['POST'], profile_access, ControlRequest, max_bytes=MAX_BODY)
-        async def extension_control(request, payload, device):
+        def extension_control(request, payload, device):
             try:
                 return control.exchange(device, payload.model_dump())
             except ValueError as error:
@@ -152,21 +171,22 @@ def attach_web(server, store, origin):
     @api.route('/api/manage/answer/jobs', ['GET', 'POST'], management_access, AnswerJobRequest)
     async def management_answer_jobs(request, payload, principal):
         if request.method == 'GET':
-            return answer_jobs.status(request.query_params.get('id', ''))
-        return json_response(answer_jobs.start(payload.model_dump(exclude_none=True)), 202)
+            return await run_sync(answer_jobs.status, request.query_params.get('id', ''))
+        return json_response(await answer_jobs.start_async(payload.model_dump(exclude_none=True)), 202)
 
     @api.route('/api/manage/state', ['GET', 'POST'], management_access, StateRequest, max_bytes=24*1024*1024)
-    async def management_state(request, payload, principal):
+    def management_state(request, payload, principal):
         if payload and any(change.get('key') == 'appliedList' for change in payload.changes):
             return upgrade_required()
         if request.method == 'GET':
-            return await to_thread.run_sync(lambda: management.snapshot(
-                include_applications=request.query_params.get('applications')!='0'),limiter=read_pool)
-        return await to_thread.run_sync(lambda: management.write(payload.changes,
-            include_applications=request.query_params.get('applications')!='0'),limiter=read_pool)
+            return management.snapshot(include_applications=request.query_params.get('applications')!='0',
+                keys=request.query_params['keys'].split(',') if 'keys' in request.query_params else None,
+                revisions=json.loads(request.query_params['since']) if 'since' in request.query_params else None)
+        return management.write(payload.changes, include_applications=request.query_params.get('applications')!='0')
 
     @server.custom_route('/api/session',methods=['GET','DELETE'])
-    async def session(request):
+    @worker
+    def session(request):
         current=access.session(request)
         if request.method=='DELETE':
             if request.headers.get('origin')!=origin: return response({'error':'Invalid origin'},403)
@@ -187,12 +207,7 @@ def attach_web(server, store, origin):
         return r
 
     def owner_write(request):
-        current = access.session(request)
-        if not current or not current['approved']:
-            return False
-        if request.headers.get('origin') != origin:
-            return json_response({'error': 'Invalid origin'}, 403)
-        return True
+        return access.authorize(request, write=True)
 
     def receipt_access(request):
         auth = request.headers.get('authorization', '')
@@ -202,80 +217,81 @@ def attach_web(server, store, origin):
     register_job_title_routes(api,store,receipt_access)
 
     @api.route('/api/extension/connect', ['POST'], owner_write, PairRequest, max_bytes=1000)
-    async def extension_connect(request, payload, principal):
+    def extension_connect(request, payload, principal):
         paired = extension.pair(payload.device_id, payload.extension_id)
         if payload.profiles:
             paired['profile_token'] = profiles.grant(payload.device_id)
         return paired
 
     @api.route('/api/extension/events', ['POST'], receipt_access, ReceiptRequest, max_bytes=8000)
-    async def extension_event(request, payload, device):
+    def extension_event(request, payload, device):
         return extension.receive(device, payload.model_dump(exclude_none=True))
 
     @api.route('/api/extension/resolve', ['POST'], receipt_access, ResolveRequest, max_bytes=4000)
-    async def extension_resolve(request, payload, device):
+    def extension_resolve(request, payload, device):
         return extension.resolve(payload.model_dump(exclude_none=True))
 
     @api.route('/api/extension/disconnect', ['POST'], owner_write, DeviceRequest, max_bytes=1000)
-    async def extension_disconnect(request, payload, principal):
+    def extension_disconnect(request, payload, principal):
         return extension.disconnect(payload.device_id)
 
     @server.custom_route('/api/extension/status',methods=['GET'])
-    async def extension_status(request):
-        current=access.session(request)
-        if not current or not current['approved']: return response({'error':'Sign in first'},401)
+    @worker
+    @browser_read
+    def extension_status(request):
         return response(extension.status())
 
     @server.custom_route('/api/jobs',methods=['GET'])
-    async def jobs(request):
-        current=access.session(request)
-        if not current or not current['approved']: return response({'error':'Sign in first'},401)
+    @worker
+    @browser_read
+    def jobs(request):
         try:
             p=dict(request.query_params)
             p['page']=int(p.get('page',1));p['page_size']=int(p.get('page_size',50))
             for key in ('added_since','added_before'):
                 if key in p: p[key]=float(p[key]) if p[key] else None
-            return await to_thread.run_sync(lambda: response(board.list(**p)),limiter=read_pool)
+            return response(board.list(**p))
         except (ValueError,TypeError) as e: return response({'error':str(e)},400)
 
     @server.custom_route('/api/filter-counts',methods=['GET'])
-    async def filter_counts(request):
-        current=access.session(request)
-        if not current or not current['approved']: return response({'error':'Sign in first'},401)
+    @worker
+    @browser_read
+    def filter_counts(request):
         try:
             p=dict(request.query_params)
             for key in ('added_since','added_before'):
                 if key in p: p[key]=float(p[key]) if p[key] else None
-            return await to_thread.run_sync(lambda: response(board.filter_counts(**p)),limiter=read_pool)
+            return response(board.filter_counts(**p))
         except (ValueError,TypeError) as e: return response({'error':str(e)},400)
 
     @server.custom_route('/api/application-counts',methods=['GET'])
-    async def application_counts(request):
-        current=access.session(request)
-        if not current or not current['approved']: return response({'error':'Sign in first'},401)
+    @worker
+    @browser_read
+    def application_counts(request):
         try:
             from .application_records import counts
             today=float(request.query_params.get('today',''))
             week=float(request.query_params.get('week',''))
-            return await to_thread.run_sync(lambda: response(counts(store,today,week,request.query_params.get('kind'))),limiter=read_pool)
+            return response(counts(store,today,week,request.query_params.get('kind')))
         except (ValueError,TypeError) as e: return response({'error':str(e)},400)
 
     @server.custom_route('/api/application-overview',methods=['GET'])
-    async def application_overview(request):
-        current=access.session(request)
-        if not current or not current['approved']: return response({'error':'Sign in first'},401)
-        return response(Recruiting(store).overview())
+    @worker
+    @browser_read
+    def application_overview(request):
+        return response(recruiting.overview())
 
     @api.route('/api/actions', ['POST'], owner_write, BoardAction, max_bytes=20000)
-    async def actions(request, payload, principal):
+    def actions(request, payload, principal):
         values = payload.model_dump(exclude_none=True)
         action = values.pop('action')
         if action == 'review':
             return board.review(**values, actor='web-owner')
         return {'submitted': board.mark_submitted, 'undo_submitted': board.undo_submitted}[action](**values)
 
-    @server.custom_route('/assets/{name}',methods=['GET'])
-    async def assets(request):
+    @server.custom_route('/assets/{name:path}',methods=['GET'])
+    @worker
+    def assets(request):
         name=request.path_params['name']
         try:
             target, immutable = bundles.asset(name, request.query_params.get('v'))
@@ -284,13 +300,15 @@ def attach_web(server, store, origin):
         return FileResponse(target,headers={'Cache-Control':'public, max-age=31536000, immutable' if immutable else 'no-cache','X-Content-Type-Options':'nosniff'})
 
     @server.custom_route('/.well-known/jobs-web-release', methods=['GET'])
-    async def web_release_status(request):
+    @worker
+    def web_release_status(request):
         try:
             return response(bundles.status())
         except (ValueError, OSError):
             return response({'error':'Website release needs repair'},503)
 
-    async def shell(request):
+    @worker
+    def shell(request):
         try:
             root, _ = bundles.active()
         except (ValueError, OSError):
@@ -306,7 +324,8 @@ def attach_web(server, store, origin):
         return RedirectResponse('/manage/',status_code=307)
 
     @server.custom_route('/manage/{name:path}',methods=['GET'])
-    async def manage_asset(request):
+    @worker
+    def manage_asset(request):
         name=request.path_params.get('name') or 'index.html'
         try:
             root=(bundles.active()[0]/'manage').resolve()

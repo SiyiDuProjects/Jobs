@@ -1,3 +1,4 @@
+import { withFixtureClock } from "./helpers/fixture-clock.mjs";
 import { typedAnswer } from "./helpers/typed-answer.mjs";
 import { confirmedAnswer } from "./helpers/verified-answer.mjs";
 import { chooseAnswer } from "./helpers/choose-answer.mjs";
@@ -127,11 +128,11 @@ function fixture({
       setLoading(false);
       if (open && (query || finite)) {
         setLoading(true);
-        const timer = setTimeout(() => {
+        const timer = w.setTimeout(() => {
           setOptions(filter(query));
           setLoading(false);
         }, delay);
-        return () => clearTimeout(timer);
+        return () => w.clearTimeout(timer);
       }
     }, [query, open]);
     const choose = (label) => {
@@ -855,12 +856,14 @@ test("the rules answer school and place searches; other gaps reach AI with real 
     };
     try {
       assert.equal(
-        await w.JobsAutomatic.advance({
-          root: w.document.getElementById("root"),
-          profile,
-          action: "fill",
-          autoConfirm: true,
-        }),
+        await withFixtureClock(w, () =>
+          w.JobsAutomatic.advance({
+            root: w.document.getElementById("root"),
+            profile,
+            action: "fill",
+            autoConfirm: true,
+          }),
+        ),
         true,
         JSON.stringify(events.map(([type, , detail]) => ({ type, detail }))),
       );

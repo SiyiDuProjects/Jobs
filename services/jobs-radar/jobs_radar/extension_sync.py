@@ -37,7 +37,7 @@ class ExtensionSync:
     def authenticate(self, token):
         if not isinstance(token, str) or not 40 <= len(token) <= 100:
             return None
-        with self.store.connect() as c:
+        with self.store.connect(read_only=True) as c:
             row = c.execute('SELECT device_id FROM extension_devices WHERE token_hash=? AND revoked=0 AND expires>?',
                             (hashlib.sha256(token.encode()).hexdigest(), time.time())).fetchone()
             return row['device_id'] if row else None

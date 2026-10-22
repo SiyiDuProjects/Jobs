@@ -70,13 +70,17 @@ export async function buildPackage({
       ["workday-state", "custom/workday-state.js", "iife"],
       ["content", "custom/runtime-bundle.js", "iife"],
       ["review-surface", "custom/review-surface.js", "iife"],
+      ["review-ui", "custom/review-ui.js", "esm"],
       ["background", "background.js", "esm"],
     ]) {
       const result = await build({
         absWorkingDir: root,
         entryPoints: ["source/entries/" + entry + ".js"],
+        outfile: path.join(stage, outfile),
         bundle: true,
         write: false,
+        minify: !development,
+        sourcemap: "linked",
         format,
         target: "chrome120",
         define: { "process.env.NODE_ENV": '"production"' },
@@ -88,7 +92,7 @@ export async function buildPackage({
         await fs.mkdir(path.dirname(path.join(stage, outfile)), {
           recursive: true,
         });
-        await fs.writeFile(path.join(stage, outfile), file.contents);
+        await fs.writeFile(file.path, file.contents);
       }
       await fs.writeFile(
         path.join(stage, entry + "-modules.json"),
@@ -134,7 +138,10 @@ export async function buildPackage({
       },
       minimum_chrome_version: "120",
       web_accessible_resources: [
-        { resources: ["custom/popup.css"], matches: ["https://*/*"] },
+        {
+          resources: ["custom/popup.css", "custom/review-ui.js"],
+          matches: ["https://*/*"],
+        },
       ],
       content_scripts: [
         {

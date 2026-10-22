@@ -40,16 +40,19 @@ def event_metrics(event):
     if 'timing' not in event:
         return result
     kind = event['type']
-    if kind not in ('auto_write_timing', 'auto_run_timing'):
+    if kind not in ('auto_write_timing', 'auto_run_timing', 'auto_answer_batch'):
         raise ValueError('Invalid diagnostic timing event')
 
     def numbers(value, keys):
         shape(value, (), keys)
         if not value:
             raise ValueError('Empty diagnostic timing')
-        return {key: integer(number, 86_400_000 if key in ('ms', 'heldMs') else 1_000_000)
+        return {key: integer(number, 86_400_000 if key in ('ms', 'heldMs') or key.endswith('Ms') else 1_000_000)
                 for key, number in value.items()}
 
+    if kind == 'auto_answer_batch':
+        result['timing'] = numbers(event['timing'], ('requestMs','queueMs','processingMs','storageMs','modelMs','preparationMs'))
+        return result
     if kind == 'auto_write_timing':
         result['timing'] = numbers(event['timing'], ('ms', 'heldMs', 'scans'))
         return result

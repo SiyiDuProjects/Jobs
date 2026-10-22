@@ -15,6 +15,7 @@ import "./style.css";
 import { ExtensionSync, openAnswerConsole } from "./ExtensionSync";
 import { createBoardLoader } from "./board-loader";
 import { DateWindowFilter } from "./DateWindowFilter";
+import { readBoardPosition, saveBoardPosition } from "./view-preferences";
 import { addedRange } from "./date-window";
 import { readBoardFilters, saveBoardFilters } from "./board-filters";
 import { ApplicationTotals } from "./ApplicationTotals";
@@ -54,8 +55,9 @@ export function JobsBoard({
         company_newgrad: "",
         region: "",
         text: query,
+        page: readBoardPosition(kind, "trash").page,
       };
-    return { ...readBoardFilters(localStorage, kind), text: query };
+    return { ...readBoardFilters(localStorage, kind), text: query, page: readBoardPosition(kind, "jobs").page };
   });
   const [excludedCompanies, setExcludedCompanies] = useState("");
   const [action, setAction] = useState<{ type: "trash"; job: Job } | null>(
@@ -113,7 +115,8 @@ export function JobsBoard({
   }, [auth, load]);
   useEffect(() => {
     if (!trash) saveBoardFilters(localStorage, kind, filters);
-  }, [filters, kind, trash]);
+    saveBoardPosition(kind, trash ? "trash" : "jobs", query, filters.text === query ? filters.page : 1);
+  }, [filters, kind, trash, query]);
   useEffect(() => {
     const timer = setTimeout(
       () =>

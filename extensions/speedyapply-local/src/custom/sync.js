@@ -737,13 +737,21 @@ export function initializeSync() {
       JobsPrivateSession.assertCurrent(epoch);
       return result;
     }
-    async function managementRequest(method, body) {
+    async function managementRequest(method, body, selection = undefined) {
       const epoch = JobsPrivateSession.epoch;
       await ready;
       const state = await serial(read);
       if (!state.profileToken || state.disabled)
         throw Error("管理同步未连接，本地数据已保留");
-      const response = await fetch(ORIGIN + "/api/manage/state", {
+      let query = "applications=0";
+      if (method === "GET" && selection) {
+        query +=
+          "&keys=" +
+          encodeURIComponent(selection.keys.join(",")) +
+          "&since=" +
+          encodeURIComponent(JSON.stringify(selection.since));
+      }
+      const response = await fetch(ORIGIN + "/api/manage/state?" + query, {
         method,
         credentials: "omit",
         headers: {
@@ -902,6 +910,7 @@ export function initializeSync() {
       if (result.state === "failed") {
         throw Object.assign(Error(result.result?.error || "Luna 请求失败"), {
           answerUsage: result.result?.answerUsage,
+          answerTimings: result.result?.answerTimings,
         });
       }
       if (result.state === "pending")

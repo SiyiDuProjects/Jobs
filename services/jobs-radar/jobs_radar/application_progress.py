@@ -163,8 +163,9 @@ def project_display(c, rows):
     events={}
     for event in c.execute("SELECT rowid,event_key,application_id,payload FROM application_events WHERE kind='progress'"):
         events.setdefault(event['application_id'],[]).append(event)
+    states = {r['application_id']:json.loads(r['progress']) for r in c.execute('SELECT application_id,progress FROM applications WHERE progress IS NOT NULL')}
     for row in rows:
-        current = state(c, row.get('id'))
+        current = states.get(row.get('id'))
         if not current: continue
         row['status'] = current['stage']
         row['progress'] = {**public_state(current), 'ever_advanced': row['id'] in advanced,
@@ -315,6 +316,31 @@ class ApplicationProgress:
                 return dict(duplicate=True,review=payload)
             c.execute("INSERT INTO application_events(event_key,kind,payload,created) VALUES(?,'pending',?,?)",('pending:'+key,json.dumps(payload,ensure_ascii=False),time.time()))
             return dict(duplicate=False,review=payload)
+
+    def resolve_review(self, review_id, application_id, expected_version, idempotency_key):
+        with self.store.connect(True) as c:
+            checksum, duplicate = self.store._idem(c,idempotency_key,
+                ['resolve-progress-review',review_id,application_id,expected_version])
+            if duplicate is not None: return duplicate
+            pending = c.execute("SELECT payload FROM application_events WHERE event_key=? AND kind='pending'", ('pending:'+review_id,)).fetchone()
+            if not pending: raise ProfileConflict('待确认记录已处理，请刷新')
+            review = json.loads(pending['payload'])
+            app = c.execute('SELECT * FROM applications WHERE application_id=? AND record IS NOT NULL AND deleted=0', (application_id,)).fetchone()
+            if not app: raise ValueError('Application not found')
+            current = state(c,application_id)
+            if type(expected_version) is not int or not current or current['version']!=expected_version:
+                raise ProfileConflict('申请进度已更新，请重新读取后操作')
+            # The owner confirms the match. Normal timestamp/stage protections
+            # still apply, preserving a newer owner decision as historical mail.
+            from .recruiting import authorized_mailbox
+            mailbox = authorized_mailbox(c)
+            result = apply_event(c,records.record(app),stage=review['stage'],observed_at=review['received_at'],
+                source='email',reference=review['message_id'],summary=review['summary'],
+                event_key='email:'+mailbox+':'+review['message_id'],assessment_type=review.get('assessment_type','unknown') if review['stage']=='assessment' else None)
+            c.execute("UPDATE application_events SET kind='pending_resolved',application_id=?,job_id=? WHERE event_key=? AND kind='pending'",
+                      (application_id,app['job_id'],'pending:'+review_id))
+            c.execute('INSERT INTO idempotency VALUES(?,?,?)',(idempotency_key,checksum,json.dumps(result)))
+            return result
 
     def list(self, query='', stage=None, limit=50, cursor=None, application_id=None):
         if not isinstance(query,str) or len(query)>200 or not 1<=limit<=100: raise ValueError('Invalid search')

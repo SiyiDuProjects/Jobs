@@ -18,6 +18,6 @@ def register_job_title_routes(api, store, authorize):
     titles = JobTitles(store)
 
     @api.route('/api/extension/job-title', ['POST'], authorize, JobTitleRequest, max_bytes=6000)
-    async def update_title(request, payload, device):
+    def update_title(request, payload, device):
         expected = hashlib.sha256(request.headers['authorization'][7:].encode()).hexdigest()
         return titles.update(device,payload.model_dump(exclude_none=True),expected_token_hash=expected)

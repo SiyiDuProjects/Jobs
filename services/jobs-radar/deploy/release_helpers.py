@@ -29,11 +29,11 @@ class CreationPending(RuntimeError):
     """The daemon may still complete a create whose client lost its receipt."""
 
 
-def bounded(args, *, env=None, timeout=180, max_output_bytes=1024 * 1024):
+def bounded(args, *, env=None, cwd=None, timeout=180, max_output_bytes=1024 * 1024):
     """Limit combined output and stop the entire Linux CLI group on failure."""
     if not 0 < max_output_bytes <= 1024 * 1024:
         raise ValueError('Output budget must be between 1 byte and 1 MiB')
-    process = subprocess.Popen([str(arg) for arg in args], env=env,
+    process = subprocess.Popen([str(arg) for arg in args], env=env, cwd=cwd,
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=os.name == 'posix')
     chunks = queue.Queue(maxsize=8)

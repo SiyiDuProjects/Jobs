@@ -337,7 +337,7 @@ def register_corpus_routes(api, store, authorize):
     corpus = QuestionCorpus(store)
 
     @api.route('/api/extension/corpus', ['GET', 'POST'], authorize, max_bytes=2100000)
-    async def exchange(request, payload, principal):
+    def exchange(request, payload, principal):
         if request.method == 'GET': return corpus.export(int(request.query_params.get('offset', 0)))
         if payload.get('action') == 'probe': return corpus.probe(payload.get('fingerprint'), payload.get('company', ''), payload.get('jobIdentity', ''))
         if payload.get('action') == 'capture': return corpus.capture(payload.get('fingerprint'), payload.get('page'), payload.get('failure'))

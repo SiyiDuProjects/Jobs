@@ -42,7 +42,7 @@ const custom = new URL("../../src/custom/", import.meta.url);
 const dependencies = {
   "diagnostics-ui.js": ["history-event-metrics.js", "diagnostics-view.jsx"],
   "review-presenter.js": ["operator-state.js", "page-review.js"],
-  "page-review.js": ["review-view.js"],
+  "page-review.js": ["review-view.js", "deferred-review-view.js"],
   "review-view.js": ["calendar-date.js", "review-components.js"],
   "submission-guard.js": [
     "job-match-rules.js",
@@ -164,5 +164,11 @@ export async function readWithDependencies(path, encoding, ancestors = []) {
       readWithDependencies(new URL(file, custom), "utf8", [...ancestors, name]),
     ),
   );
+  if (name === "page-review.js")
+    // JSDOM cannot fetch chrome-extension modules. Keep the actual loader and
+    // view, replacing only the module transport with the already loaded export.
+    prefix.push(
+      "globalThis.loadReviewView = createReviewLoader(async () => ({createReviewView}));",
+    );
   return [...prefix, value].join("\n");
 }

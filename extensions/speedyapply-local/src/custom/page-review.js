@@ -1,8 +1,12 @@
-import { createReviewView } from "./review-view.js";
+import { loadReviewView } from "./deferred-review-view.js";
 
 // Browser operators use the same editor and versioned actions as the side panel.
 // The host page can interact with this surface, so it can only claim AI ownership.
-export function createPageReview({ operator, claim }) {
+export function createPageReview({
+  operator,
+  claim,
+  loadView = loadReviewView,
+}) {
   // Embedded documents relay review/status through the background to the top
   // presenter. They still own their form actions, but never another visible UI.
   if (
@@ -19,11 +23,34 @@ export function createPageReview({ operator, claim }) {
     statusAction,
     last,
     act,
+    view,
+    loading,
+    loadError = "",
     disposed = false;
-  const view = createReviewView({
-    stylesheetHref: chrome.runtime.getURL("custom/popup.css"),
-    showReasons: true,
-  });
+  const enabled = () => ["agent", "page-tool"].includes(operator.read().mode);
+  function loadEditor() {
+    if (view || loading || loadError || disposed || !last || !enabled()) return;
+    loading = Promise.resolve()
+      .then(loadView)
+      .then((createReviewView) => {
+        // A module response is only code, never permission to revive an old
+        // review, reclaim ownership, or mount a removed page surface.
+        if (disposed || !last || !enabled()) return;
+        view = createReviewView({
+          stylesheetHref: chrome.runtime.getURL("custom/popup.css"),
+          showReasons: true,
+        });
+        view.attach(host, container, () => {});
+      })
+      .catch(() => {
+        if (!disposed && last && enabled())
+          loadError = "补答界面加载失败，请点击重试。";
+      })
+      .finally(() => {
+        loading = null;
+        if (!disposed) refresh();
+      });
+  }
   function mount() {
     if (host || disposed || !document.body) return;
     host = document.createElement("aside");
@@ -60,7 +87,9 @@ export function createPageReview({ operator, claim }) {
       try {
         await claim("page-tool");
         if (
+          disposed ||
           id !== progress?.id ||
+          statusAction !== action ||
           !["agent", "page-tool"].includes(operator.read().mode)
         )
           throw Error("页面已变化，请重新检查。");
@@ -76,9 +105,13 @@ export function createPageReview({ operator, claim }) {
     section.append(header, status, prepare, container);
     shadow.append(style, section);
     document.body.append(host);
-    view.attach(host, container, () => {});
     toggle.onclick = async (event) => {
       if (!event.isTrusted || disposed) return;
+      if (loadError && enabled()) {
+        loadError = "";
+        refresh();
+        return;
+      }
       if (
         operator.read().mode !== "person" &&
         operator.read().mode !== "unknown"
@@ -99,28 +132,36 @@ export function createPageReview({ operator, claim }) {
     };
   }
   function refresh() {
+    if (disposed) return;
     mount();
     if (!host) return;
-    const enabled = ["agent", "page-tool"].includes(operator.read().mode);
-    toggle.textContent = enabled ? "收起补答" : "AI 接手";
-    host.style.width = enabled ? "360px" : "auto";
-    status.hidden = !enabled;
-    prepare.hidden = !enabled || !progress?.canFill || !!last;
-    status.textContent = enabled
-      ? (progress?.text || "AI 操作中") + " · 补答不会记为本人回答"
+    const active = enabled();
+    loadEditor();
+    toggle.textContent = active
+      ? loadError
+        ? "重试补答"
+        : "收起补答"
+      : "AI 接手";
+    host.style.width = active ? "360px" : "auto";
+    status.hidden = !active;
+    prepare.hidden = !active || !progress?.canFill || !!last;
+    status.textContent = active
+      ? loadError ||
+        (loading ? "正在加载补答…" : progress?.text || "AI 操作中") +
+          " · 补答不会记为本人回答"
       : "亲自填写可使用侧边栏；AI 操作前先点接手。";
-    container.hidden = !enabled;
-    view.show(enabled ? last : null, async (...args) => {
-      // Recheck at dispatch; a side-panel hand-back invalidates an old page card.
-      if (!["agent", "page-tool"].includes(operator.read().mode))
+    container.hidden = !active;
+    const shownId = last?.id,
+      action = act;
+    view?.show(active ? last : null, async (...args) => {
+      // Recheck at dispatch and after claiming: neither a delayed import nor an
+      // old editor callback can redirect an action to another review/document.
+      if (disposed || !enabled())
         return { error: "操作模式已改变，请重新接手。" };
-      const currentId = last?.id,
-        action = act;
+      if (last?.id !== shownId || act !== action)
+        return { error: "这份补答已变化，请重新检查。" };
       await claim("page-tool");
-      if (
-        last?.id !== currentId ||
-        !["agent", "page-tool"].includes(operator.read().mode)
-      )
+      if (disposed || last?.id !== shownId || act !== action || !enabled())
         return { error: "这份补答已变化，请重新检查。" };
       return action?.(...args);
     });
@@ -129,24 +170,29 @@ export function createPageReview({ operator, claim }) {
   refresh();
   return {
     status(data, action) {
+      if (disposed) return;
       progress = data;
       statusAction = action;
       refresh();
     },
     show(data, action) {
+      if (disposed) return;
+      if (last?.id !== data?.id) loadError = "";
       last = data;
       act = action;
       refresh();
     },
     expand() {
+      if (disposed) return;
       refresh();
       if (container) container.hidden = false;
-      view.expand();
+      view?.expand();
     },
     dispose() {
       disposed = true;
       unsubscribe();
-      view.show(null);
+      view?.show(null);
+      last = progress = act = statusAction = null;
       host?.remove();
     },
   };

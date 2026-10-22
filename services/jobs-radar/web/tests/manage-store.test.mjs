@@ -67,9 +67,11 @@ async function fixture() {
     after,
     offline = false;
   w.fetch = async (url, init = {}) => {
+    const rawURL = url, params = new URL(url, w.location.href).searchParams;
+    if (url.startsWith("/api/manage/state?")) url = "/api/manage/state" + (params.get("applications") === "0" ? "?applications=0" : "");
     const body = init.body ? JSON.parse(init.body) : undefined,
       method = init.method || "GET";
-    requests.push({ url, method, body });
+    requests.push({ url, rawURL, method, body });
     await intercept?.(url, body);
     if (offline && body) throw Error("Offline write");
     let data,
@@ -135,6 +137,11 @@ async function fixture() {
         }
       }
     } else throw Error("Unexpected API " + url);
+    if (url.startsWith("/api/manage/state") && method === "GET" && params.has("keys")) {
+      const keys = params.get("keys").split(","), revisions = JSON.parse(params.get("since") || "{}");
+      data = Object.fromEntries(Object.entries(data).filter(([key, doc]) =>
+        ["appliedList", "applicationProgressReview"].includes(key) || keys.includes(key) && revisions[key] !== doc.revision));
+    }
     const snapshot = clone(data);
     await after?.(url, body);
     return { ok: status === 200, status, json: async () => snapshot };
@@ -507,5 +514,78 @@ test("a slow Profile list cannot replace application records loaded after naviga
     release.resolve();
     await starting;
     assert.equal(h.store.state.docs.appliedList.value.length, 1);
+  } finally { h.close(); }
+});
+
+test("newer refresh wins when older snapshots arrive late", async () => {
+  const h = await fixture();
+  try {
+    const entered = gate(), release = gate();
+    h.after(async (url, body) => {
+      if (url === "/api/manage/state" && !body) {
+        h.after(undefined); entered.resolve(); await release.promise;
+      }
+    });
+    const older = h.store.refresh();
+    await entered.promise;
+    h.docs.settings = { revision: 2, value: {testValue: 80} };
+    await h.store.refresh();
+    release.resolve(); await older;
+    assert.equal(h.store.state.docs.settings.revision, 2);
+    assert.equal(h.store.state.docs.settings.value.testValue, 80);
+  } finally { h.close(); }
+});
+
+test("obsolete refresh failures cannot replace a newer read or completed save", async () => {
+  for (const newer of ["refresh", "save"]) {
+    const h = await fixture();
+    try {
+      const entered = gate(), release = gate();
+      h.intercept(async (url, body) => {
+        if (url === "/api/manage/state" && !body) {
+          h.intercept(undefined); entered.resolve(); await release.promise;
+          throw Error("Obsolete network error");
+        }
+      });
+      const older = h.store.refresh(); await entered.promise;
+      if (newer === "save") await h.store.write({settings: {testValue: 90}});
+      else await h.store.refresh();
+      release.resolve(); await older;
+      assert.equal(h.store.state.error, "");
+      assert.equal(h.store.state.applicationsLoading, false);
+    } finally { h.close(); }
+  }
+});
+
+test("incremental polling requests only active Profile documents and merges unchanged revisions", async () => {
+  const h = await fixture();
+  try {
+    const otherKey = "jobsResponses:" + intern;
+    h.docs[otherKey] = { revision: 8, value: [answer("other", "Other profile")] };
+    await h.store.refresh();
+    assert.equal(h.store.state.docs[key].value[0].response, "Before");
+    assert.equal(h.store.state.docs[otherKey], undefined);
+    const params = new URL(h.requests.at(-1).rawURL, h.w.location.href).searchParams;
+    assert(params.get("keys").includes(key));assert(!params.get("keys").includes(otherKey));
+    assert.equal(JSON.parse(params.get("since")).settings, 1);
+    await h.store.selectProfile(intern);
+    assert.equal(h.store.state.docs[key], undefined);
+    assert.equal(h.store.state.docs[otherKey].value[0].response, "Other profile");
+  } finally { h.close(); }
+});
+
+test("incremental document merging never retains a resolved review or old application list", async () => {
+  const h = await fixture();
+  try {
+    h.docs.applicationProgressReview = { revision: 0, value: [{job_id: "email:synthetic"}] };
+    h.docs.appliedList = { revision: 0, value: [{id: "synthetic"}] };
+    await h.store.refresh();
+    assert.equal(h.store.state.docs.applicationProgressReview.value.length, 1);
+    delete h.docs.applicationProgressReview;
+    h.docs.appliedList = { revision: 0, value: [] };
+    await h.store.refresh();
+    assert.equal(h.store.state.docs.applicationProgressReview, undefined);
+    assert.equal(h.store.state.docs.appliedList.value.length, 0);
+    assert.equal(h.store.state.docs.settings.value.testValue, 10);
   } finally { h.close(); }
 });

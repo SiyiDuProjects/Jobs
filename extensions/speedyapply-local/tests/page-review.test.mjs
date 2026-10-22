@@ -68,6 +68,7 @@ test("page and panel share one editor; reads never claim control and writes cann
     await host.shadowRoot.querySelector("button").onclick({ isTrusted: true });
     assert.equal(operator.read().mode, "page-tool");
     assert.equal(operator.canLearn(), false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const review = host.shadowRoot.querySelector("#jobs-ai-review").shadowRoot;
     assert.equal(
       review.querySelector(".evidence").textContent,

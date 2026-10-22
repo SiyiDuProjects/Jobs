@@ -8,7 +8,7 @@ import html
 import json
 import secrets
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from mcp.server.auth.provider import (AccessToken, AuthorizationCode, AuthorizationParams,
@@ -16,6 +16,8 @@ from mcp.server.auth.provider import (AccessToken, AuthorizationCode, Authorizat
     construct_redirect_uri)
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from starlette.responses import HTMLResponse, RedirectResponse
+
+from .async_work import worker, run_sync
 
 SCOPES = ["jobs:read", "applications:write"]
 OWNER = "siyidu-owner"
@@ -40,12 +42,14 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
             CREATE TABLE IF NOT EXISTS oauth_spent_refresh(hash TEXT PRIMARY KEY,client_id TEXT,family TEXT,expires REAL);
             """)
 
-    async def get_client(self, client_id):
-        with self.store.connect() as c:
+    @worker
+    def get_client(self, client_id):
+        with self.store.connect(read_only=True) as c:
             row = c.execute("SELECT payload FROM oauth_clients WHERE id=?", (client_id,)).fetchone()
             return OAuthClientInformationFull.model_validate_json(row[0]) if row else None
 
-    async def register_client(self, client_info):
+    @worker
+    def register_client(self, client_info):
         for uri in client_info.redirect_uris or []:
             p = urlsplit(str(uri))
             if p.username or p.password or p.fragment or not (p.scheme == "https" or p.scheme == "http" and p.hostname in {"127.0.0.1", "localhost", "::1"}):
@@ -55,7 +59,8 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
                 raise RegistrationError("invalid_client_metadata", "Registration rate limit")
             c.execute("INSERT INTO oauth_clients VALUES(?,?,?)", (client_info.client_id, client_info.model_dump_json(), time.time()))
 
-    async def authorize(self, client, params):
+    @worker
+    def authorize(self, client, params):
         if params.resource not in {None, self.resource}:
             raise AuthorizeError("invalid_request", "Unknown resource")
         if not set(params.scopes or SCOPES) <= set(SCOPES):
@@ -86,6 +91,27 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
             return {"approved": True, "request_id": request_id}
 
     async def consent(self, request):
+        form = None
+        if request.method == 'POST':
+            if request.headers.get('origin') != self.origin:
+                return HTMLResponse('Invalid consent request.',status_code=403)
+            if request.headers.get('content-type','').split(';')[0].strip() != 'application/x-www-form-urlencoded':
+                return HTMLResponse('Consent form required.',status_code=415)
+            body = bytearray()
+            async for chunk in request.stream():
+                if len(body)+len(chunk)>4096:
+                    return HTMLResponse('Consent request too large.',status_code=413)
+                body.extend(chunk)
+            try:
+                values = parse_qs(body.decode('utf-8'),max_num_fields=4,strict_parsing=True)
+                if set(values) != {'csrf'} or len(values['csrf']) != 1:
+                    raise ValueError()
+                form = {'csrf':values['csrf'][0]}
+            except (ValueError,UnicodeDecodeError):
+                return HTMLResponse('Invalid consent request.',status_code=400)
+        return await run_sync(self._consent, request, form)
+
+    def _consent(self, request, form):
         rid = request.query_params.get("request", "")
         cookie_name = "jobs_approval_" + rid.replace("-", "")
         with self.store.connect(True) as c:
@@ -100,7 +126,6 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
                 return HTMLResponse("Open this request in its original browser.", status_code=403)
             params = AuthorizationParams.model_validate_json(row["params"])
             if request.method == "POST":
-                form = await request.form()
                 if request.headers.get("origin") != self.origin or not row["csrf_hash"] or not secrets.compare_digest(row["csrf_hash"], digest(str(form.get("csrf", "")))):
                     return HTMLResponse("Invalid consent request.", status_code=403)
                 if row["approved"]:
@@ -139,8 +164,9 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
                                  "Content-Security-Policy": f"default-src 'none'; form-action 'self' {redirect_origin}; frame-ancestors 'none'; base-uri 'none'"})
         return response
 
-    async def load_authorization_code(self, client, authorization_code):
-        with self.store.connect() as c:
+    @worker
+    def load_authorization_code(self, client, authorization_code):
+        with self.store.connect(read_only=True) as c:
             row = c.execute("SELECT * FROM oauth_codes WHERE hash=? AND expires>?", (digest(authorization_code), time.time())).fetchone()
             if not row:
                 return None
@@ -158,7 +184,8 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
             c.execute("INSERT INTO oauth_tokens VALUES(?,?,?,?,?)", (digest(token), kind, json.dumps(data), expires, family))
         return OAuthToken(access_token=access, refresh_token=refresh, token_type="Bearer", expires_in=3600, scope=" ".join(scopes))
 
-    async def exchange_authorization_code(self, client, authorization_code):
+    @worker
+    def exchange_authorization_code(self, client, authorization_code):
         with self.store.connect(True) as c:
             row = c.execute("SELECT * FROM oauth_codes WHERE hash=? AND expires>?", (digest(authorization_code.code), time.time())).fetchone()
             if not row or json.loads(row["payload"])["client_id"] != client.client_id:
@@ -166,10 +193,12 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
             c.execute("DELETE FROM oauth_codes WHERE hash=?", (digest(authorization_code.code),))
             return self._issue(c, client.client_id, authorization_code.scopes)
 
-    async def load_access_token(self, token):
+    @worker
+    def load_access_token(self, token):
         return self._load_token(token, "access", AccessToken)
 
-    async def load_refresh_token(self, client, refresh_token):
+    @worker
+    def load_refresh_token(self, client, refresh_token):
         model = self._load_token(refresh_token, "refresh", RefreshToken)
         if model is None:
             with self.store.connect(True) as c:
@@ -184,7 +213,7 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
             c.execute('DELETE FROM oauth_tokens WHERE family=?', (row['family'],))
 
     def _load_token(self, token, kind, model_class):
-        with self.store.connect() as c:
+        with self.store.connect(read_only=True) as c:
             row = c.execute("SELECT * FROM oauth_tokens WHERE hash=? AND kind=? AND expires>?", (digest(token), kind, time.time())).fetchone()
             if not row:
                 return None
@@ -196,7 +225,8 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
             model.token = token
             return model
 
-    async def exchange_refresh_token(self, client, refresh_token, scopes):
+    @worker
+    def exchange_refresh_token(self, client, refresh_token, scopes):
         with self.store.connect(True) as c:
             row = c.execute("SELECT * FROM oauth_tokens WHERE hash=? AND kind='refresh' AND expires>?", (digest(refresh_token.token), time.time())).fetchone()
             if not row:
@@ -210,6 +240,7 @@ class OwnerOAuth(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToke
                 return self._issue(c, client.client_id, scopes, row["family"])
         raise TokenError("invalid_grant", "Invalid, expired or consumed refresh token")
 
-    async def revoke_token(self, token):
+    @worker
+    def revoke_token(self, token):
         with self.store.connect(True) as c:
             c.execute("DELETE FROM oauth_tokens WHERE family IN (SELECT family FROM oauth_tokens WHERE hash=?)", (digest(token.token),))

@@ -1,3 +1,4 @@
+import { withFixtureClock } from "./helpers/fixture-clock.mjs";
 import { chooseAnswer } from "./helpers/choose-answer.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -75,7 +76,9 @@ test("an uncommitted click is not a committed answer", async () => {
     const h = await fixture(kind, { uncommitted: true });
     try {
       assert.equal(
-        await chooseAnswer(h.control, "Daytime", { timeout: 25 }),
+        await withFixtureClock(h.w, () =>
+          chooseAnswer(h.control, "Daytime", { timeout: 25 }),
+        ),
         null,
       );
       assert.equal(h.api.value(h.control), "");

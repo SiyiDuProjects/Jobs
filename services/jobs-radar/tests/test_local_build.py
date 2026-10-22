@@ -13,6 +13,11 @@ import pytest
 from deploy_module import module
 
 
+def passing_tests(commit='b' * 40, source_hash='c' * 64):
+    return dict(format=1, commit=commit, sourceSha256=source_hash, testInputsSha256='d' * 64,
+                checks={name: 'passed' for name in module('release_checks').CHECKS})
+
+
 def test_actual_git_archive_is_identical_across_wall_clock_seconds(tmp_path):
     local = module('local_build')
     root = tmp_path / 'synthetic-repository'; root.mkdir()
@@ -44,6 +49,7 @@ def test_first_build_creates_its_private_artifact_directory(tmp_path, monkeypatc
     monkeypatch.setattr(local, 'committed_source', lambda: (tmp_path, 'b' * 40, 'b' * 12))
     monkeypatch.setattr(local, 'archive_source', lambda root, commit, dest: dest.write_bytes(tar_bytes()))
     monkeypatch.setattr(local, 'stage_locked_vendor', lambda *_: {})
+    monkeypatch.setattr(local, 'run_checks', lambda root, commit, source_hash, *_: passing_tests(commit, source_hash))
     class Build:
         def __init__(self, folder): self.folder = folder
         def build(self, *_):
@@ -155,7 +161,7 @@ def builder(tmp_path, monkeypatch, fault=None):
 def test_private_context_bounded_builder_pins_code_and_exports_only_immutable_image(tmp_path, monkeypatch):
     monkeypatch.setenv('SSH_AUTH_SOCK', 'must-not-forward')
     local, engine, build = builder(tmp_path, monkeypatch)
-    result = build.build(tmp_path, 'b' * 40, 'b' * 12, 'c' * 64)
+    result = build.build(tmp_path, 'b' * 40, 'b' * 12, 'c' * 64, passing_tests())
     assert result == engine.image_id and engine.container is None
     receipt = json.loads((tmp_path / 'builder.json').read_text())
     assert receipt['removed'] and receipt['id'] == 'a' * 64
@@ -170,7 +176,7 @@ def test_private_context_bounded_builder_pins_code_and_exports_only_immutable_im
 def test_unapplied_resource_budget_stops_before_build_and_still_removes_owned_container(tmp_path, monkeypatch):
     local, engine, build = builder(tmp_path, monkeypatch, 'budget')
     with pytest.raises(ValueError, match='resource limits'):
-        build.build(tmp_path, 'b' * 40, 'b' * 12, 'c' * 64)
+        build.build(tmp_path, 'b' * 40, 'b' * 12, 'c' * 64, passing_tests())
     assert engine.container is None
     assert not any(args[args.index('buildx') + 1] == 'build' for args, _ in engine.calls if 'buildx' in args)
 
@@ -184,7 +190,7 @@ def test_second_build_refuses_a_first_create_that_only_appears_after_timeout(tmp
     engine = Desktop('late')
     first = local.DesktopBuild(folder, invoke=engine)
     with pytest.raises(RuntimeError, match='creation remains pending'):
-        first.build(folder, 'b' * 40, 'b' * 12, 'c' * 64)
+        first.build(folder, 'b' * 40, 'b' * 12, 'c' * 64, passing_tests())
     assert json.loads(first.receipt.read_text())['creation'] == 'pending'
     engine.container = engine.pending
     before = len(engine.calls)
@@ -240,7 +246,7 @@ def test_mac_private_config_finds_buildx_and_all_commands_use_discovered_cli(mon
             return json.dumps(endpoint)
         return engine(args, **options)
     build = local.DesktopBuild(tmp_path, invoke=invoke)
-    build.build(tmp_path, 'b' * 40, 'b' * 12, 'c' * 64)
+    build.build(tmp_path, 'b' * 40, 'b' * 12, 'c' * 64, passing_tests())
     assert all(args[0] == str(executable) for args, _ in engine.calls)
     assert json.loads((tmp_path / 'docker-config/config.json').read_text()) == {'cliPluginsExtraDirs': [str(plugins)]}
 
@@ -419,9 +425,12 @@ def artifact(tmp_path, local):
     (tmp_path / 'jobs-radar').mkdir()
     (folder / 'source.tar').write_bytes(tar_bytes())
     labels = {'release': 'b' * 12, 'org.opencontainers.image.revision': 'b' * 40, 'jobs.source.sha256': local.digest(folder / 'source.tar')}
+    tests = passing_tests(source_hash=labels['jobs.source.sha256'])
+    tests['testInputsSha256'] = hashlib.sha256(tar_bytes(data=b'cross-repo test inputs')).hexdigest()
+    labels['jobs.tests.sha256'] = module('release_checks').receipt_hash(tests)
     image_id, image = image_bytes(labels)
     (folder / 'image.tar').write_bytes(image)
-    manifest = dict(version=1, commit='b' * 40, release='b' * 12, imageId=image_id,
+    manifest = dict(version=1, tests=tests, commit='b' * 40, release='b' * 12, imageId=image_id,
         sourceSha256=local.digest(folder / 'source.tar'), imageSha256=local.digest(folder / 'image.tar'))
     (folder / 'manifest.json').write_text(json.dumps(manifest))
     return folder, manifest
@@ -435,6 +444,7 @@ def test_artifact_verification_compares_bytes_with_the_exact_committed_archive(t
         assert root == tmp_path and commit == manifest['commit']
         destination.write_bytes(tar_bytes(data=b'different Git source') if failure == 'git' else tar_bytes())
     monkeypatch.setattr(local, 'archive_source', archive)
+    monkeypatch.setattr(local, 'archive_test_inputs', lambda root, commit, destination, _: destination.write_bytes(tar_bytes(data=b'cross-repo test inputs')))
     if failure in {'source', 'image'}:
         (folder / (failure + '.tar')).write_bytes(b'changed transfer')
     if failure:
@@ -456,7 +466,8 @@ def test_import_never_builds_or_starts_and_verifies_both_locks_and_image_identit
         if args[1:3] == ['image', 'inspect']:
             current = args[-1] == 'jobs-radar:0.1.0'
             labels = {'release': 'a' * 12} if current else {'release': manifest['release'],
-                'org.opencontainers.image.revision': manifest['commit'], 'jobs.source.sha256': manifest['sourceSha256']}
+                'org.opencontainers.image.revision': manifest['commit'], 'jobs.source.sha256': manifest['sourceSha256'],
+                'jobs.tests.sha256': module('release_checks').receipt_hash(manifest['tests'])}
             if not current and failure == 'identity':
                 labels['org.opencontainers.image.revision'] = 'e' * 40
             return json.dumps([dict(Id='sha256:' + 'a' * 64 if current else manifest['imageId'], Config={'Labels': labels})])
@@ -484,7 +495,8 @@ def test_import_never_builds_or_starts_and_verifies_both_locks_and_image_identit
 def test_unsafe_or_retagging_archive_is_rejected_before_docker_load(tmp_path, bad):
     imported, local = module('import_image'), module('local_build')
     folder, manifest = artifact(tmp_path, local)
-    labels = {'release': manifest['release'], 'org.opencontainers.image.revision': manifest['commit'], 'jobs.source.sha256': manifest['sourceSha256']}
+    labels = {'release': manifest['release'], 'org.opencontainers.image.revision': manifest['commit'], 'jobs.source.sha256': manifest['sourceSha256'],
+                'jobs.tests.sha256': module('release_checks').receipt_hash(manifest['tests'])}
     if bad == 'labels':
         labels['jobs.source.sha256'] = 'e' * 64
     image_id, image = image_bytes(labels, ['jobs-radar:0.1.0'] if bad == 'tag' else None, bad == 'multiple', bad == 'path')

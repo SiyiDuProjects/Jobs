@@ -1,6 +1,6 @@
 import { createPageReview } from "./page-review.js";
 import { JobsOperator, claimAgentOperator } from "./operator-state.js";
-import { JobsControlFields } from "./control-fields.js";
+import { continuation } from "./continuation.js";
 export var JobsReviewPresenter;
 let initialized = false;
 export function initializeReviewPresenter() {
@@ -87,10 +87,7 @@ export function initializeReviewPresenter() {
     reply({ ok: true });
   });
   const block = (event) => {
-    if (
-      !last ||
-      (event.type === "click" && !JobsControlFields?.continuation(event.target))
-    )
+    if (!last || (event.type === "click" && !continuation(event.target)))
       return;
     event.preventDefault();
     event.stopImmediatePropagation();

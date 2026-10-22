@@ -99,7 +99,29 @@ export function initializeManagementSync() {
       let local = await JobsDocumentStore.read();
       const rawLocal = local;
       local = usable(local);
-      const rawRemote = await JobsSync.managementRequest("GET");
+      const activeProfiles = await JobsDocumentStore.activeProfileIds();
+      const keys = [
+        ...new Set([
+          "settings",
+          "jobsKindProfiles",
+          ...Object.keys(rawLocal).filter(model.allowed),
+          ...[...activeProfiles].map((id) => "jobsResponses:" + id),
+        ]),
+      ];
+      const previous = Object.fromEntries(
+        Object.entries(rawLocal[BASE] || {}).filter(([key]) =>
+          keys.includes(key),
+        ),
+      );
+      const changed = await JobsSync.managementRequest("GET", undefined, {
+        keys,
+        since: Object.fromEntries(
+          Object.entries(previous).map(([key, doc]) => [key, doc.revision]),
+        ),
+      });
+      // Omitted revisions are unchanged, not empty remote documents. Keep the
+      // raw acknowledged values, including damaged rows retained for recovery.
+      const rawRemote = { ...previous, ...changed };
       JobsPrivateSession.assertCurrent(epoch);
       const remote = usableDocuments(rawRemote);
       const base = usableDocuments(local[BASE] || {}),

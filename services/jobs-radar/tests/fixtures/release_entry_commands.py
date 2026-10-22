@@ -31,7 +31,11 @@ elif command == 'docker':
     assert args[:2] == ['image', 'inspect'], 'Entry must never build or run a container'
     if config.get('missing_image'):
         sys.exit(1)
-    if 'Labels' in args[-1]:
+    if 'org.opencontainers.image.revision' in args[-1]:
+        print(config.get('image_full_commit', config['full_commit']))
+    elif 'jobs.tests.sha256' in args[-1]:
+        print(config.get('tests_hash', 'f' * 64))
+    elif 'Labels' in args[-1]:
         print(config.get('image_commit', config['commit']))
     else:
         print(config.get('tag_id', config['image_id']) if args[2].startswith('jobs-radar:') else config['image_id'])

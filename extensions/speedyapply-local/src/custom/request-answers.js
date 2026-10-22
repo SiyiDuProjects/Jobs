@@ -2,10 +2,12 @@ export async function requestAnswerBatch(
   message,
   recordUsage = (_usage) => {},
 ) {
-  let usage;
+  const started = performance.now();
+  let usage, timing;
   try {
     const reply = await chrome.runtime.sendMessage(message);
     usage = reply?.data?.answerUsage || reply?.answerUsage;
+    timing = reply?.data?.answerTimings || reply?.answerTimings;
     if (reply?.error) throw Error(reply.error);
     const answers = reply?.data?.answers,
       ids = new Set(message.fields.map((field) => field.fieldId));
@@ -32,7 +34,13 @@ export async function requestAnswerBatch(
     // Observability must never change an answer or hide the original error.
     // Missing counters (transport failure/older service) are unknown, not zero.
     try {
-      recordUsage(usage || { unavailable: true });
+      recordUsage({
+        ...(usage || { unavailable: true }),
+        timing: {
+          ...timing,
+          requestMs: Math.max(0, Math.round(performance.now() - started)),
+        },
+      });
     } catch {}
   }
 }

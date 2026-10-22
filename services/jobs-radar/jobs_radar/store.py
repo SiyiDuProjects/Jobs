@@ -21,6 +21,14 @@ class Store:
         self._board_ready = False
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize_schema()
+
+    def _initialize_schema(self):
+        """Core startup order; versioned domain migrations retain their validators.
+
+        Feature-specific tables stay with their modules. Populated legacy
+        application data still requires the explicit archived migration release.
+        """
         with self.connect() as c:
             new_database = not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone()
             c.executescript("""
@@ -57,13 +65,10 @@ class Store:
             CREATE TABLE IF NOT EXISTS job_company_screening(job_id TEXT,kind TEXT,keep INTEGER NOT NULL CHECK(keep IN (0,1)),
                 fingerprint TEXT NOT NULL,policy TEXT NOT NULL,reviewed_at REAL NOT NULL,PRIMARY KEY(job_id,kind));
             """)
-            c.execute("""INSERT OR IGNORE INTO search_index SELECT stream,source_id,job_id,
-                json_extract(payload,'$.source'),json_extract(payload,'$.kind'),json_extract(payload,'$.category'),
-                lower(json_extract(payload,'$.title') || ' ' || json_extract(payload,'$.company') || ' ' || coalesce(json_extract(payload,'$.description'),'')),
-                lower(json_extract(payload,'$.locations')),json_extract(payload,'$.h1b'),
-                coalesce(json_extract(payload,'$.active'),1),coalesce(json_extract(payload,'$.visible'),1),
-                json_extract(payload,'$.posted_at') FROM observations
-                WHERE present=1 OR stream NOT IN ('simplify:newgrad','simplify:internship')""")
+            c.execute('CREATE TABLE IF NOT EXISTS schema_migrations(name TEXT PRIMARY KEY,created REAL,report TEXT NOT NULL)')
+            if not c.execute('SELECT 1 FROM schema_migrations WHERE name=?', ('search-index-backfill-v1',)).fetchone():
+                self._fill_search_index(c)
+                c.execute('INSERT INTO schema_migrations VALUES(?,?,?)', ('search-index-backfill-v1',time.time(),'{"initialized":true}'))
         from .workday_identity import initialize as initialize_workday
         with self.connect() as c:
             initialize_workday(c)
@@ -83,21 +88,42 @@ class Store:
             initialize_board(c)
         self._board_ready = True
 
+    @staticmethod
+    def _fill_search_index(c):
+        c.execute("""INSERT OR IGNORE INTO search_index SELECT stream,source_id,job_id,
+                json_extract(payload,'$.source'),json_extract(payload,'$.kind'),json_extract(payload,'$.category'),
+                lower(json_extract(payload,'$.title') || ' ' || json_extract(payload,'$.company') || ' ' || coalesce(json_extract(payload,'$.description'),'')),
+                lower(json_extract(payload,'$.locations')),json_extract(payload,'$.h1b'),
+                coalesce(json_extract(payload,'$.active'),1),coalesce(json_extract(payload,'$.visible'),1),
+                json_extract(payload,'$.posted_at') FROM observations
+                WHERE present=1 OR stream NOT IN ('simplify:newgrad','simplify:internship')""")
+
+    def rebuild_search_index(self):
+        """Explicit repair; daily ingestion maintains the index incrementally."""
+        with self.connect(True) as c:
+            c.execute('DELETE FROM search_index')
+            self._fill_search_index(c)
+            return {'indexed':c.execute('SELECT count(*) FROM search_index').fetchone()[0]}
+
     @contextmanager
-    def connect(self, write=False):
+    def connect(self, write=False, *, read_only=False):
         from .request_budget import DEADLINE, BudgetExceeded, remaining
+        if write and read_only:
+            raise ValueError("A read-only connection cannot start a write")
         deadline = DEADLINE.get()
         timeout = remaining()
         c = sqlite3.connect(self.path, timeout=timeout)
         try:
             c.row_factory = sqlite3.Row
+            if read_only:
+                c.execute("PRAGMA query_only=ON")
             c.execute("PRAGMA foreign_keys=ON")
             c.execute('PRAGMA busy_timeout=' + str(max(1, int(remaining() * 1000))))
             if deadline is not None:
                 c.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
             if write:
                 c.execute("BEGIN IMMEDIATE")
-            if self._board_ready:
+            if self._board_ready and not read_only:
                 from .board_index import pending, refresh
                 if pending(c):
                     if not write:
@@ -106,7 +132,7 @@ class Store:
                     if not write:
                         c.commit()
             yield c
-            if self._board_ready and c.total_changes:
+            if self._board_ready and not read_only and c.total_changes:
                 refresh(c)
             if deadline is not None:
                 c.execute('PRAGMA busy_timeout=' + str(max(1, int(remaining() * 1000))))
@@ -198,15 +224,23 @@ class Store:
         with self.connect(True) as c:
             c.execute("INSERT INTO source_health VALUES(?,?,NULL,0,?,?) ON CONFLICT(stream) DO UPDATE SET last_attempt=excluded.last_attempt,error=excluded.error,run_id=excluded.run_id", (stream, time.time(), error[:500], run_id))
 
+    @staticmethod
+    def _source_health(c):
+        sources = [dict(r) for r in c.execute("SELECT * FROM source_health ORDER BY stream") if r["stream"] in STREAM_IDS]
+        from .sources import ACTIVE_STREAMS
+        known = {s["stream"] for s in sources}
+        sources.extend({"stream": s.id, "last_attempt": None, "last_success": None, "count": 0, "error": "not_collected", "run_id": None} for s in ACTIVE_STREAMS if s.id not in known)
+        for s in sources:
+            s["stale"] = not s["last_success"] or time.time() - s["last_success"] > 7200 or bool(s["error"])
+        return sources
+
+    def source_health(self):
+        with self.connect(read_only=True) as c:
+            return self._source_health(c)
+
     def health(self):
-        with self.connect() as c:
-            sources = [dict(r) for r in c.execute("SELECT * FROM source_health ORDER BY stream") if r["stream"] in STREAM_IDS]
-            from .sources import ACTIVE_STREAMS
-            known = {s["stream"] for s in sources}
-            sources.extend({"stream": s.id, "last_attempt": None, "last_success": None, "count": 0, "error": "not_collected", "run_id": None} for s in ACTIVE_STREAMS if s.id not in known)
-            for s in sources:
-                s["stale"] = not s["last_success"] or time.time() - s["last_success"] > 7200 or bool(s["error"])
-            return {"sources": sources, "jobs": c.execute("SELECT count(*) FROM jobs").fetchone()[0],
+        with self.connect(read_only=True) as c:
+            return {"sources": self._source_health(c), "jobs": c.execute("SELECT count(*) FROM jobs").fetchone()[0],
                     "observations": c.execute("SELECT count(*) FROM observations").fetchone()[0], "expected_streams": len(STREAM_IDS),
                     "storage": self.storage_health()}
 
@@ -226,22 +260,26 @@ class Store:
     def get_jobs(self, ids, include_raw=False):
         if len(ids) > 100:
             raise ValueError("At most 100 job IDs")
-        result = []
+        if not ids:
+            return []
         with self.connect() as c:
-            for jid in ids:
-                alias = c.execute('SELECT canonical_id FROM job_aliases WHERE alias_id=?', (jid,)).fetchone()
-                if alias: jid = alias[0]
-                row = c.execute("SELECT j.*,a.status,a.version,a.detail,a.evidence FROM jobs j JOIN applications a ON j.id=a.job_id WHERE j.id=?", (jid,)).fetchone()
-                if row:
-                    if any(job['id'] == jid for job in result): continue
-                    job = dict(row)
-                    job["evidence"] = json.loads(job["evidence"])
-                    job["all_sources"] = [{**json.loads(r["payload"]), "stream": r["stream"], "first_seen": r["first_seen"], "last_seen": r["last_seen"], "present": bool(r["present"])} for r in c.execute("SELECT * FROM observations WHERE job_id=? ORDER BY stream", (jid,))]
-                    if not include_raw:
-                        for source in job["all_sources"]:
-                            source.pop("raw", None)
-                    result.append(job)
-        return result
+            requested = json.dumps(ids)
+            aliases = {r['alias_id']: r['canonical_id'] for r in c.execute(
+                'SELECT alias_id,canonical_id FROM job_aliases WHERE alias_id IN (SELECT value FROM json_each(?))', (requested,))}
+            canonical = list(dict.fromkeys(aliases.get(jid, jid) for jid in ids))
+            selection = json.dumps(canonical)
+            jobs = {r['id']: dict(r) for r in c.execute("""SELECT j.*,a.status,a.version,a.detail,a.evidence
+                FROM jobs j JOIN applications a ON j.id=a.job_id WHERE j.id IN (SELECT value FROM json_each(?))""", (selection,))}
+            for job in jobs.values():
+                job['evidence'] = json.loads(job['evidence'])
+                job['all_sources'] = []
+            for source in c.execute('SELECT * FROM observations WHERE job_id IN (SELECT value FROM json_each(?)) ORDER BY stream', (selection,)):
+                job = jobs.get(source['job_id'])
+                if job is None: continue
+                value = {**json.loads(source['payload']), **{k:source[k] for k in ('stream','first_seen','last_seen')}, 'present':bool(source['present'])}
+                if not include_raw: value.pop('raw', None)
+                job['all_sources'].append(value)
+            return [jobs[jid] for jid in canonical if jid in jobs]
 
     def search(self, *, text="", location="CA", kind=None, sources=None, categories=None,
                posted_within_hours=None, active_only=True,
@@ -280,10 +318,10 @@ class Store:
             job.update({k: primary.get(k) for k in ["title", "company", "locations", "kind", "apply_url", "source_url", "posted_at", "time_precision"]})
             for source in job["all_sources"]:
                 source.pop("description", None)
-        health = self.health()
+        sources = self.source_health()
         return {"jobs": jobs, "next_cursor": ids[-1] if len(matched) > limit else None,
-                "data_as_of": min((s["last_success"] for s in health["sources"] if s["last_success"]), default=None),
-                "source_health": health["sources"], "location_semantics": "case-insensitive substring; not geographic verification"}
+                "data_as_of": min((s["last_success"] for s in sources if s["last_success"]), default=None),
+                "source_health": sources, "location_semantics": "case-insensitive substring; not geographic verification"}
 
     def filter_options(self):
         scope, values = discovery_scope()

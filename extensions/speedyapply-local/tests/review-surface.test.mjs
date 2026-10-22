@@ -94,6 +94,15 @@ for (const source of ["top", "frame", "nested"])
           () => source === "top" || w.JobsReviewPresenter?.pending(),
         );
         assert.equal(injections, missingTop ? 1 : 0);
+        const blocked = new w.MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        });
+        w.document.querySelector("button").dispatchEvent(blocked);
+        assert(
+          blocked.defaultPrevented,
+          "continuation stays blocked while the editor module is not loaded",
+        );
         for (const [name, win] of Object.entries(windows)) {
           assert.equal(
             win.document.querySelectorAll("[data-jobs-operator]").length,
@@ -108,6 +117,11 @@ for (const source of ["top", "frame", "nested"])
             "claiming AI ownership or expanding review cannot mount child surfaces",
           );
         }
+        await settle(() =>
+          w.document
+            .querySelector("[data-jobs-operator]")
+            ?.shadowRoot.querySelector("#jobs-ai-review"),
+        );
         assert(
           w.document
             .querySelector("[data-jobs-operator]")

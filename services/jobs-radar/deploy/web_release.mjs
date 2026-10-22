@@ -5,8 +5,21 @@ import os from 'node:os';
 import {createHash, randomUUID} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {stageLockedVendor} from './vendor_dependency.mjs';
 
 export const files = ['board.css', 'board.js', 'index.html', 'manage/index.html'];
+const maxFiles = 256;
+const assetName = name => files.includes(name) || /^chunks\/[A-Za-z0-9_-]+\.(?:js|css|woff2?|svg|png|webp)$/.test(name);
+export function websiteFiles(root) {
+  const names = [...files];
+  const chunks = path.join(root, 'chunks');
+  if (fs.existsSync(chunks)) {
+    if (fs.lstatSync(chunks).isSymbolicLink()) fail('Website chunks must not be links.');
+    names.push(...fs.readdirSync(chunks).map(name => 'chunks/' + name));
+  }
+  if (names.length > maxFiles || names.some(name => !assetName(name))) fail('Unsupported website artifact member.');
+  return names.sort();
+}
 const servicePath = 'services/jobs-radar';
 const live = '/home/ubuntu/siyi/jobs-radar';
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -26,6 +39,37 @@ function run(program, args, options = {}) {
 }
 
 function git(root, ...args) { return run('git', ['-C', root, ...args]); }
+
+function archiveSource(info, destination) {
+  const timestamp = git(info.root, 'show', '-s', '--format=%ct', info.commit);
+  if (!/^[0-9]+$/.test(timestamp)) fail('Invalid website source timestamp.');
+  git(info.root, 'archive', '--format=tar', '--mtime=@' + timestamp,
+    '--output=' + destination, info.commit + ':' + servicePath);
+}
+
+export function committedInputs(context, names) {
+  return Object.fromEntries(names.map(name => {
+    const file = path.resolve(context, name);
+    if (fs.realpathSync(file) !== file || !fs.lstatSync(file).isFile())
+      fail('Website test input changed or became a link.');
+    return [name, hash(read(file))];
+  }));
+}
+
+export function verifySourceArchive(folder, info, expected) {
+  const archive = path.resolve(folder, 'source.tar');
+  if (fs.realpathSync(archive) !== archive || !fs.lstatSync(archive).isFile()
+      || hash(read(archive)) !== expected) fail('Website test source archive changed.');
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'jobs-web-source-'));
+  try {
+    const reference = path.join(temporary, 'source.tar');
+    archiveSource(info, reference);
+    if (hash(read(reference)) !== expected)
+      fail('Website test receipt differs from the exact committed source.');
+  } finally {
+    fs.rmSync(temporary, {recursive: true});
+  }
+}
 
 export function backendInput(name) {
   return ['pyproject.toml', 'requirements-lock.txt'].includes(name)
@@ -67,20 +111,25 @@ function source() {
 
 export function packageWebsite(staticRoot, target, info) {
   fs.mkdirSync(target, {recursive: true});
-  const original = Object.fromEntries(files.map(name => [name, hash(read(path.join(staticRoot, name)))]));
-  const id = hash(JSON.stringify({commit: info.commit, backend: info.backendFingerprint, files: original})).slice(0, 32);
+  const tests = info.tests;
+  if (!tests || tests.commit !== info.commit || !/^[a-f0-9]{64}$/.test(tests.sourceSha256 || '')
+      || JSON.stringify(tests.checks) !== JSON.stringify(['website-tests', 'website-build', 'website-artifacts']))
+    fail('Website release requires passing tests for this committed source.');
+  const names = websiteFiles(staticRoot);
+  const original = Object.fromEntries(names.map(name => [name, hash(read(path.join(staticRoot, name)))]));
+  const id = hash(JSON.stringify({commit: info.commit, backend: info.backendFingerprint, tests, files: original})).slice(0, 32);
   const hashes = {};
-  for (const name of files) {
+  for (const name of names) {
     let data = read(path.join(staticRoot, name));
     if (name.endsWith('.html')) data = Buffer.from(data.toString('utf8').replace(
-      /(\/assets\/board\.(?:js|css))\?v=[a-f0-9]+/g, '$1?v=' + id));
+      /\/assets\/(?:[a-f0-9]+\/)?(board\.(?:js|css))(?:\?v=[a-f0-9]+)?/g, '/assets/' + id + '/$1'));
     const file = path.join(target, name);
     fs.mkdirSync(path.dirname(file), {recursive: true});
     fs.writeFileSync(file, data);
     hashes[name] = hash(data);
   }
-  const manifest = {format: 1, id, sourceCommit: info.commit,
-    backendFingerprint: info.backendFingerprint, files: hashes};
+  const manifest = {format: 2, id, sourceCommit: info.commit,
+    backendFingerprint: info.backendFingerprint, tests, files: hashes};
   fs.writeFileSync(path.join(target, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   verifyBundle(target, info);
   return manifest;
@@ -88,11 +137,18 @@ export function packageWebsite(staticRoot, target, info) {
 
 export function verifyBundle(folder, info) {
   const manifest = JSON.parse(read(path.join(folder, 'manifest.json')));
-  if (manifest.format !== 1 || !/^[a-f0-9]{32}$/.test(manifest.id)
+  const names = Object.keys(manifest.files || {}).sort();
+  if (manifest.format === 2 && (manifest.tests?.commit !== info.commit
+      || !/^[a-f0-9]{64}$/.test(manifest.tests?.sourceSha256 || '')
+      || JSON.stringify(manifest.tests?.checks) !== JSON.stringify(['website-tests', 'website-build', 'website-artifacts'])))
+    fail('Website has no matching passing-test receipt.');
+  if (![1, 2].includes(manifest.format) || !/^[a-f0-9]{32}$/.test(manifest.id)
       || manifest.sourceCommit !== info.commit || manifest.backendFingerprint !== info.backendFingerprint
-      || JSON.stringify(Object.keys(manifest.files).sort()) !== JSON.stringify([...files].sort()))
+      || names.length > maxFiles || files.some(name => !names.includes(name))
+      || names.some(name => !assetName(name))
+      || (manifest.format === 1 && names.length !== files.length))
     fail('Website artifact does not match this committed source.');
-  for (const name of [...files, 'manifest.json']) {
+  for (const name of [...names, 'manifest.json']) {
     const file = path.resolve(folder, name);
     if (fs.realpathSync(file) !== file || !fs.lstatSync(file).isFile()
       || fs.statSync(file).size > 16 * 1024 * 1024 || fs.statSync(file).size === 0)
@@ -102,8 +158,10 @@ export function verifyBundle(folder, info) {
   }
   const html = read(path.join(folder, 'index.html')).toString('utf8');
   if (html !== read(path.join(folder, 'manage/index.html')).toString('utf8')) fail('Website entries differ.');
-  const refs = [...html.matchAll(/\/assets\/(board\.(?:js|css))\?v=([a-f0-9]+)/g)];
-  if (refs.length !== 2 || new Set(refs.map(m => m[1])).size !== 2 || refs.some(m => m[2] !== manifest.id))
+  const refs = manifest.format === 1
+    ? [...html.matchAll(/\/assets\/(board\.(?:js|css))\?v=([a-f0-9]+)/g)].map(m => [m[1], m[2]])
+    : [...html.matchAll(/\/assets\/([a-f0-9]+)\/(board\.(?:js|css))/g)].map(m => [m[2], m[1]]);
+  if (refs.length !== 2 || new Set(refs.map(m => m[0])).size !== 2 || refs.some(m => m[1] !== manifest.id))
     fail('Website asset references are not immutable.');
   return manifest;
 }
@@ -124,16 +182,20 @@ export function build(info = source()) {
   try {
     fs.mkdirSync(context, {recursive: true});
     const archive = path.join(folder, 'source.tar');
-    const timestamp = git(info.root, 'show', '-s', '--format=%ct', info.commit);
-    git(info.root, 'archive', '--format=tar', '--mtime=@' + timestamp,
-      '--output=' + archive, info.commit + ':' + servicePath);
+    archiveSource(info, archive);
     run(nativeTool('tar'), ['-xf', archive, '-C', context]);
+    const inputs = committedInputs(context, info.names);
+    stageLockedVendor(info.root, context);
     const web = path.join(context, 'web');
     npm(web, 'ci', '--no-audit', '--no-fund');
     npm(web, 'test');
     npm(web, 'run', 'build');
     npm(web, 'run', 'test:build');
-    packageWebsite(path.join(context, 'jobs_radar', 'static'), path.join(folder, 'bundle'), info);
+    if (JSON.stringify(inputs) !== JSON.stringify(committedInputs(context, info.names)))
+      fail('Website committed source changed during validation.');
+    packageWebsite(path.join(context, 'jobs_radar', 'static'), path.join(folder, 'bundle'),
+      {...info, tests: {commit: info.commit, sourceSha256: hash(read(archive)),
+        checks: ['website-tests', 'website-build', 'website-artifacts']}});
     // Only this operation's generated checkout is removed; retain source and bundle evidence.
     if (fs.realpathSync(context) !== path.resolve(context) || !context.startsWith(base + path.sep))
       fail('Unexpected build cleanup path.');
@@ -146,8 +208,9 @@ export function build(info = source()) {
 }
 
 function remote(action, extra = [], input) {
-  const host = process.env.JOBS_RADAR_HOST || 'ubuntu@49.51.38.235';
+  const host = process.env.JOBS_RADAR_HOST || '';
   const key = process.env.JOBS_RADAR_KEY || path.join(os.homedir(), '.ssh', 'Siyi.pem');
+  if (!host) fail('Set JOBS_RADAR_HOST for the authorized deployment destination.');
   if (!/^[a-zA-Z0-9_.@:-]+$/.test(host)) fail('Invalid release host.');
   let output;
   try { output = run(nativeTool('ssh'), ['-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
@@ -164,7 +227,7 @@ function remote(action, extra = [], input) {
 
 export function archiveWebsite(bundle, archive) {
   // macOS tar otherwise adds AppleDouble files for filesystem metadata.
-  run(nativeTool('tar'), ['-cf', archive, '-C', bundle, 'manifest.json', ...files],
+  run(nativeTool('tar'), ['-cf', archive, '-C', bundle, 'manifest.json', ...Object.keys(JSON.parse(read(path.join(bundle, 'manifest.json'))).files).sort()],
     {env: {...process.env, COPYFILE_DISABLE: '1'}});
   return read(archive);
 }
@@ -190,6 +253,7 @@ export function main(args) {
   if (mode === '--build-web') { console.log(folder); return; }
   const bundle = path.join(folder, 'bundle');
   const manifest = verifyBundle(bundle, info);
+  if (manifest.format === 2) verifySourceArchive(folder, info, manifest.tests.sourceSha256);
   const archive = path.join(folder, 'website.tar');
   const data = archiveWebsite(bundle, archive);
   const result = remote('activate', ['--sha256', hash(data)], data);

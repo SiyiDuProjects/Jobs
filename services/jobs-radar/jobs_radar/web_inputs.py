@@ -16,6 +16,13 @@ class ProgressRequest(RequestModel):
     assessment_type: str | None = None
 
 
+class ProgressReviewRequest(RequestModel):
+    review_id: str
+    application_id: str
+    expected_version: int
+    idempotency_key: str
+
+
 class ApplicationChange(RequestModel):
     action: Literal['create', 'update', 'delete']
     application_id: str | None = None

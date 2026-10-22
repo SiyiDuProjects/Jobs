@@ -290,3 +290,22 @@ test('jobs always requests unsubmitted across kind changes while trash remains u
   assert.deepEqual(h.errors,[]);
  } finally {h.dom.window.close();}
 });
+
+test('each board kind and view retains its own search and page through navigation',async()=>{
+ const h=await page();
+ const button=label=>[...h.w.document.querySelectorAll('button,[role=tab]')].find(b=>b.textContent===label||b.getAttribute('aria-label')===label);
+ try{
+  const input=h.w.document.querySelector('input[aria-label="搜索公司或岗位"]');assert(input);
+  Object.getOwnPropertyDescriptor(h.w.HTMLInputElement.prototype,'value').set.call(input,'engineer');input.dispatchEvent(new h.w.Event('input',{bubbles:true}));
+  await until(()=>h.requests.some(url=>url.includes('text=engineer')));await tick();await until(()=>!button('下一页').disabled);
+  button('下一页').click();await until(()=>h.w.document.body.textContent.includes('Fixture Engineer Page 2'));
+  button('实习').click();await until(()=>h.w.document.body.textContent.includes('Fixture Engineer Page 1'));
+  assert.equal(h.w.document.querySelector('input[aria-label="搜索公司或岗位"]').value,'');
+  button('全职').click();await until(()=>h.w.document.body.textContent.includes('Fixture Engineer Page 2'));
+  assert.equal(h.w.document.querySelector('input[aria-label="搜索公司或岗位"]').value,'engineer');
+  button('已删除').click();await until(()=>h.w.document.body.textContent.includes('Fixture Engineer Page 1'));
+  button('岗位').click();await until(()=>h.w.document.body.textContent.includes('Fixture Engineer Page 2'));
+  assert.equal(JSON.parse(h.w.sessionStorage.getItem('jobs:view:jobs:newgrad')).page,2);
+  assert.deepEqual(h.errors,[]);
+ }finally{h.dom.window.close();}
+});

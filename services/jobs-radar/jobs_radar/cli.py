@@ -21,6 +21,10 @@ def main():
     companies.add_argument('--max-batches',type=int,default=20)
     companies.add_argument('--include-history',action='store_true',help='Include submitted and closed historical companies')
     commands.add_parser("status")
+    commands.add_parser('rebuild-search-index')
+    history = commands.add_parser('compact-management-history')
+    history.add_argument('--limit', type=int, default=100)
+    history.add_argument('--after', type=json.loads, help='next_cursor from the preceding batch')
     identities = commands.add_parser('refresh-workday-identities')
     identities.add_argument('--limit', type=int, default=200)
     commands.add_parser("serve")
@@ -33,7 +37,7 @@ def main():
     web.add_argument('request_id')
     args = parser.parse_args()
     from .maintenance import paused
-    if args.command in {'collect', 'screen', 'screen-companies', 'refresh-workday-identities'} and paused():
+    if args.command in {'collect', 'screen', 'screen-companies', 'refresh-workday-identities', 'rebuild-search-index', 'compact-management-history'} and paused():
         print(json.dumps({'status': 'release_maintenance'}))
         return
     store = Store(args.db)
@@ -73,6 +77,11 @@ def main():
         except Exception as exc:
             print(json.dumps(failure_summary(exc)),flush=True)
             raise SystemExit(1)
+    elif args.command == 'rebuild-search-index':
+        print(json.dumps(store.rebuild_search_index()))
+    elif args.command == 'compact-management-history':
+        from .management import Management
+        print(json.dumps(Management(store).compact_history(args.limit,args.after)))
     elif args.command == "status":
         print(json.dumps({**store.health(), **store.progress()}, ensure_ascii=False, indent=2))
     elif args.command == "backup":

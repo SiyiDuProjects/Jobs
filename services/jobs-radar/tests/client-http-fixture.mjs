@@ -65,7 +65,7 @@ const reply=await new Promise(resolve=>listeners.at(-1)(
 if(reply.error)throw Error(reply.error);
 
 const bundle=(await build({entryPoints:[fileURLToPath(new URL('../web/src/manage/store.ts',import.meta.url))],bundle:true,write:false,format:'iife',globalName:'WebsiteStore',platform:'browser',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
-const web=vm.createContext({fetch,AbortSignal,crypto:webcrypto,structuredClone,setTimeout,clearTimeout,setInterval,clearInterval,console});
+const web=vm.createContext({fetch,URLSearchParams,AbortSignal,crypto:webcrypto,structuredClone,setTimeout,clearTimeout,setInterval,clearInterval,console});
 vm.runInContext(bundle,web);
 const store=new web.WebsiteStore.ManagementStore();
 scenario='state-settings';

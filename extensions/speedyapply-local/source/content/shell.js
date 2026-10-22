@@ -457,19 +457,41 @@ export function watchPage() {
 function installLinkedInTracking(context) {
   if (!/(^|\.)linkedin\.com$/.test(location.hostname)) return;
   let recorded = false;
-  const observer = new MutationObserver(async () => {
-    const proof = [...document.querySelectorAll('[role="alert"],h2,h3')].find(
+  const selector = '[role="alert"],h2,h3';
+  const observer = new MutationObserver(async (records) => {
+    if (recorded) return;
+    // Inspect changed confirmation nodes only. LinkedIn changes unrelated feed
+    // content frequently; those changes must not rescan every heading/alert.
+    const candidates = new Set();
+    for (const record of records) {
+      const target =
+        record.target.nodeType === Node.ELEMENT_NODE
+          ? /** @type {Element} */ (record.target)
+          : record.target.parentElement;
+      const enclosing = target?.closest(selector);
+      if (enclosing) candidates.add(enclosing);
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        const element = /** @type {Element} */ (node);
+        if (element.matches(selector)) candidates.add(element);
+        for (const child of element.querySelectorAll(selector))
+          candidates.add(child);
+      }
+    }
+    const proof = [...candidates].find(
       (node) =>
+        node.isConnected &&
         /^(?:your application was sent|application submitted)$/i.test(
           node.textContent.trim(),
         ),
     );
-    if (!proof || recorded) return;
+    if (!proof) return;
     const id =
       location.pathname.match(/\/jobs\/view\/(\d+)/)?.[1] ||
       new URL(location.href).searchParams.get("currentJobId");
     if (!id) return;
     recorded = true;
+    observer.disconnect();
     await send({
       type: "saveApplication",
       jobTitle: extractJob().title,
@@ -479,6 +501,7 @@ function installLinkedInTracking(context) {
   });
   observer.observe(document.documentElement, {
     childList: true,
+    characterData: true,
     subtree: true,
   });
   context.onInvalidated(() => observer.disconnect());

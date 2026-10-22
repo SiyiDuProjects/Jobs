@@ -32,7 +32,7 @@ class Profiles:
     def authenticate(self, token):
         if not isinstance(token,str) or len(token)!=64:
             return None
-        with self.store.connect() as c:
+        with self.store.connect(read_only=True) as c:
             row=c.execute('''SELECT g.device_id FROM profile_grants g JOIN extension_devices d ON d.device_id=g.device_id
               WHERE g.token_hash=? AND g.expires>? AND d.expires>? AND d.revoked=0''',
               (hashlib.sha256(token.encode()).hexdigest(),time.time(),time.time())).fetchone()

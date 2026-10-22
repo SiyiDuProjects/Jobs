@@ -117,9 +117,13 @@ function harness(initial = {}, remote = {}, profileById = {}) {
               },
               last_sync: "2026-09-17T00:00:00Z",
             },
-      managementRequest: async (method, body) => {
+      managementRequest: async (method, body, selection) => {
         if (offline) throw Error("offline");
-        requests.push({ method, body: structuredClone(body) });
+        requests.push({
+          method,
+          body: structuredClone(body),
+          selection: structuredClone(selection),
+        });
         if (method === "POST") {
           for (const item of body.changes) {
             if ((server[item.key]?.revision || 0) !== item.revision)
@@ -135,7 +139,16 @@ function harness(initial = {}, remote = {}, profileById = {}) {
             await f(area);
           }
         }
-        return structuredClone(server);
+        const result = structuredClone(server);
+        return method === "GET" && selection
+          ? Object.fromEntries(
+              Object.entries(result).filter(
+                ([key, doc]) =>
+                  selection.keys.includes(key) &&
+                  selection.since[key] !== doc.revision,
+              ),
+            )
+          : result;
       },
     },
   });

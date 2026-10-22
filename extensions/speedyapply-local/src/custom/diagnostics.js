@@ -233,9 +233,12 @@ export function initializeDiagnostics() {
           ? {
               detail:
                 type === "auto_answer_batch"
-                  ? JSON.stringify(
-                      historyEventMetrics(type, detail).answerUsage,
-                    )
+                  ? JSON.stringify({
+                      ...historyEventMetrics(type, detail).answerUsage,
+                      ...(historyEventMetrics(type, detail).timing
+                        ? { timing: historyEventMetrics(type, detail).timing }
+                        : {}),
+                    })
                   : ["auto_run_timing", "auto_write_timing"].includes(type)
                     ? JSON.stringify(
                         historyEventMetrics(type, detail).timing || {},

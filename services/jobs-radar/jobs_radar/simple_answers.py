@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 import httpx
 from . import ai_answers
+from .answer_timing import database, request_state, add
 from .answer_cache import AnswerCache, digest
 from .answer_result import result
 from .answer_transport import record_failure
@@ -24,11 +25,12 @@ class SimpleAnswers:
             c.execute('CREATE TABLE IF NOT EXISTS answer_requests(id TEXT PRIMARY KEY,created REAL,state TEXT)')
 
     async def generate(self, payload, client=None):
+        started = time.monotonic()
         if not isinstance(payload,dict) or 'profile' in payload or 'responseContext' in payload: raise ValueError('Use a bound server Profile reference')
         validated = fields_input(payload)
         fields = validated['fields']
         pid = Profiles.identifier(payload.get('profileId')); version = payload.get('profileVersion')
-        profile = Profiles(self.store).at_version(pid,version)
+        profile = await database(lambda: Profiles(self.store).at_version(pid,version))
         context = request_context(payload)
         for key, limit in [('additionalContext',6000),('jobTitle',500),('jobDescription',18000)]:
             value = payload.get(key,'')
@@ -40,8 +42,8 @@ class SimpleAnswers:
             supplied = local.get('currentLocalDate')
             if _exact_date(supplied): today = supplied
         except (ValueError,TypeError,AttributeError): pass
-        memory = SavedAnswers(self.store,pid,version,context)
-        cache = AnswerCache(self.store,[pid,version,MODEL,ai_answers.PROMPT_VERSION,digest(ai_answers.INSTRUCTIONS),context['country']])
+        memory = await database(SavedAnswers,self.store,pid,version,context)
+        cache = await database(AnswerCache,self.store,[pid,version,MODEL,ai_answers.PROMPT_VERSION,digest(ai_answers.INSTRUCTIONS),context['country']])
         job = {k:context[k] for k in ('jobKey','companyKey','jobTitle','jobDescription')}
         # Context can include useful public scope, but ephemeral dates must not age every answer.
         try:
@@ -65,16 +67,16 @@ class SimpleAnswers:
                 if row['kind'] == 'answer':
                     answers[field['fieldId']] = {**row,'source':'saved'}
                     continue
-            cached = cache.get(field,job,memory.fingerprint(field))
+            cached = await database(cache.get,field,job,memory.fingerprint(field))
             if cached and not (cached.get('signingDate') and cached['value'] != today):
                 answers[field['fieldId']] = {**cached,'binding':{'profileId':pid,'profileVersion':version,'field':field}}
                 usage['cacheHits'] += 1
             else: pending.append(field)
+        add('preparationMs',time.monotonic()-started)
         rid = str(uuid.uuid4()); failures = []
         async def run(active):
             if pending:
-                with self.store.connect(True) as c:
-                    if active: c.execute('INSERT INTO answer_requests VALUES(?,?,?)',(rid,time.time(),'started'))
+                if active: await database(request_state,self.store,rid,'started',created=time.time())
                 failure = 'ai_unavailable'; generated = {}
                 if active:
                     usage.update(modelCalls=1,modelFields=len(pending))
@@ -99,14 +101,13 @@ class SimpleAnswers:
                             'ai_unavailable':'AI 服务暂时不可用，当前填写已保留',
                             'answer_missing':'AI 没有返回这道题的有效回答，请重试'}[failure])
                     answers[field['fieldId']] = row
-                    cache.put(field,job,row,memory.fingerprint(field))
+                    await database(cache.put,field,job,row,memory.fingerprint(field))
             for field in fields:
-                if not memory.current(field):
+                if not await database(memory.current,field):
                     answers[field['fieldId']] = result(field,pid,version,interruptionReason='saved_answer_changed',
                         questionZh=answers[field['fieldId']].get('questionZh',''),reasonZh='这道题参考的已存回答刚刚改变，请重试此题')
             rows = [answers[f['fieldId']] for f in fields]
-            with self.store.connect(True) as c:
-                c.execute('UPDATE answer_requests SET state=? WHERE id=?',('needs_input' if any(r['kind']=='unknown' for r in rows) else 'answer',rid))
+            await database(request_state,self.store,rid,'needs_input' if any(r['kind']=='unknown' for r in rows) else 'answer')
             return {'answers':rows,'responseId':rid,'model':MODEL,'answerUsage':usage,'flow':'simple', **({'answerDiagnostics':failures} if failures else {})}
         try:
             if client is not None or not pending: return await run(client)

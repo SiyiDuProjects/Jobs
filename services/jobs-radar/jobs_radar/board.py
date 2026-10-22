@@ -85,7 +85,7 @@ class Board:
             excluded_companies=excluded_companies,selected_roles=selected_roles,
             exclude_data_engineering=exclude_data_engineering,title_patterns=title_patterns,summary_only=summary_only)
         if not summary_only:
-            result.update(rules=RULES,source_health=self.store.health()['sources'])
+            result.update(rules=RULES,source_health=self.store.source_health())
         return result
 
     def filter_counts(self, **filters):
@@ -104,11 +104,10 @@ class Board:
             from .screening_progress import ScreeningProgress
             return ScreeningProgress(self.store).queue(run_id,kind,limit,cursor)
         if not 1<=limit<=100: raise ValueError('limit must be 1..100')
-        rows = sorted((r for r in self._rows(kind) if r['status']=='not_started' and r['application_version']==0
-                       and r['screening']=='pending'
-                       and not (r['review'] and r['review']['manual_keep']) and (not cursor or r['id']>cursor)), key=lambda r:r['id'])
-        selected = rows[:limit]
-        return {'jobs':selected,'next_cursor':selected[-1]['id'] if len(rows)>limit else None,'rules':RULES}
+        if kind not in KINDS: raise ValueError('Choose full-time or internship')
+        from .board_query import queue
+        selected = queue(self.store, kind, limit + 1, cursor)
+        return {'jobs':selected[:limit],'next_cursor':selected[limit-1]['id'] if len(selected)>limit else None,'rules':RULES}
 
     def review(self, job_id, kind, decision, reason, detail, evidence, expected_fingerprint, expected_version, key, actor='gpt-work', role_family=None, role_evidence=None, company_recommended=None, expected_company_fingerprint=None):
         if kind not in KINDS or decision not in {'keep','review','trash','restore'}:

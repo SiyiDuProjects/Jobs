@@ -1,3 +1,4 @@
+import { withFixtureClock } from "./helpers/fixture-clock.mjs";
 import { readModule } from "./helpers/module-source.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -361,9 +362,11 @@ test("an optional Workday major whose search finds nothing stays blank and does 
       doc.querySelector("form"),
     );
     assert.equal(
-      await w.JobsControlFields.chooseSpec(
-        input,
-        w.JobsProfileAnswers.knownSpec("Field of study", "Physics"),
+      await withFixtureClock(w, () =>
+        w.JobsControlFields.chooseSpec(
+          input,
+          w.JobsProfileAnswers.knownSpec("Field of study", "Physics"),
+        ),
       ),
       null,
     );

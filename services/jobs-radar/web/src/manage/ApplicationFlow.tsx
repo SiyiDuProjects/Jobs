@@ -9,6 +9,7 @@ import {
   Tooltip,
   type SankeyNodeProps,
 } from "recharts";
+import { ApplicationInsights } from "./ApplicationInsights";
 import { applicationFlow } from "./application-flow";
 import { chineseProgress, type Application } from "./model";
 
@@ -50,7 +51,7 @@ export function ApplicationFlow({
           n.stage === "applications"
             ? "已投递"
             : n.stage === "no_answer"
-              ? "无回复"
+              ? "暂无有效推进"
               : chineseProgress(n.label)
                   .replace(/面试 (\d+)/, "面试 · 第 $1 轮")
                   .replace("Rejected", "已拒绝")
@@ -76,6 +77,7 @@ export function ApplicationFlow({
         </Card.Description>
       </Card.Header>
       <Card.Content>
+        <ApplicationInsights rows={rows} />
         <div className="overflow-x-auto">
           <div className="min-w-3xl">
             <ResponsiveContainer

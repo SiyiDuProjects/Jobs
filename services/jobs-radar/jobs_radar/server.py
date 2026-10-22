@@ -10,6 +10,7 @@ from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
+from .async_work import worker
 from .auth import OWNER, SCOPES, OwnerOAuth
 from .operation_policy import REFERENCE as OPERATION_POLICY, instructions as operation_instructions
 
@@ -52,13 +53,13 @@ def create_server(store, origin=None):
 
     from .board import Board
     from .web import attach_web
-    board = Board(store)
-    attach_web(server, store, origin)
-
     from .recruiting import Recruiting
-    recruiting = Recruiting(store)
     from .application_progress import ApplicationProgress
+    board = Board(store)
+    recruiting = Recruiting(store)
     application_progress = ApplicationProgress(store)
+    attach_web(server, store, origin, board=board, recruiting=recruiting,
+               application_progress=application_progress)
 
     @server.tool(annotations=read)
     def list_application_states(query: str = '', stage: str | None = None, limit: int = 50,
@@ -326,9 +327,10 @@ def create_server(store, origin=None):
         return await provider.consent(request)
 
     @server.custom_route("/healthz", methods=["GET"])
-    async def health(request):
+    @worker
+    def health(request):
         # Public liveness deliberately excludes private counts and application records.
-        with store.connect() as c:
+        with store.connect(read_only=True) as c:
             c.execute("SELECT 1")
         return JSONResponse({"ok": True, "service": "jobs-radar", "version": "0.1.0"})
 

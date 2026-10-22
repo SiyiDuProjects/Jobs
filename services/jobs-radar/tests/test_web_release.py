@@ -40,7 +40,7 @@ def bundle(folder, version='a' * 32, fingerprint='f' * 64, script='first version
 def archive(folder, extra=None):
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode='w') as tar:
-        for name in ['manifest.json', *driver.FILES]:
+        for name in ['manifest.json', *json.loads((folder / 'manifest.json').read_text())['files']]:
             tar.add(folder / name, arcname=name)
         if extra:
             member = tarfile.TarInfo(extra)
@@ -192,7 +192,8 @@ def test_node_packages_and_rejects_changed_bundle(tmp_path):
 import fs from 'node:fs';
 import {packageWebsite, verifyBundle} from './deploy/web_release.mjs';
 const [source,target]=process.argv.slice(1);
-const info={commit:'c'.repeat(40),backendFingerprint:'f'.repeat(64)};
+const info={commit:'c'.repeat(40),backendFingerprint:'f'.repeat(64),
+ tests:{commit:'c'.repeat(40),sourceSha256:'d'.repeat(64),checks:['website-tests','website-build','website-artifacts']}};
 const manifest=packageWebsite(source,target,info);
 verifyBundle(target,info);
 fs.appendFileSync(target+'/board.js','tampered');
@@ -204,6 +205,44 @@ console.log(manifest.id);
     result = subprocess.run(['node', '--input-type=module', '-e', script, str(source), str(tmp_path / 'bundle')],
                             cwd=SERVICE, capture_output=True, text=True, timeout=30, check=True)
     assert len(result.stdout.strip()) == 32
+
+
+def test_website_receipt_requires_the_exact_committed_archive(tmp_path):
+    root, artifact = tmp_path / 'repository', tmp_path / 'artifact'
+    source = root / 'services/jobs-radar'
+    source.mkdir(parents=True)
+    artifact.mkdir()
+    (source / 'input.js').write_text('export const value = 1;')
+    def git(*args):
+        return subprocess.run(['git', '-C', str(root), *args], capture_output=True,
+                              text=True, check=True).stdout.strip()
+    git('init', '-q')
+    git('add', '.')
+    git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'fixture')
+    commit = git('rev-parse', 'HEAD')
+    git('archive', '--format=tar', '--mtime=@' + git('show', '-s', '--format=%ct', commit),
+        '--output=' + str(artifact / 'source.tar'), commit + ':services/jobs-radar')
+    script = """
+import fs from 'node:fs';
+import {createHash} from 'node:crypto';
+import {verifySourceArchive, committedInputs} from './deploy/web_release.mjs';
+const [root,folder,commit]=process.argv.slice(1);
+const file=folder+'/source.tar';
+const hash=()=>createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const expected=hash();
+verifySourceArchive(folder,{root,commit},expected);
+const source=root+'/services/jobs-radar';
+const before=committedInputs(source,['input.js']);
+fs.appendFileSync(source+'/input.js',' changed');
+if (JSON.stringify(before)===JSON.stringify(committedInputs(source,['input.js']))) process.exit(2);
+fs.appendFileSync(file,'tampered');
+for (const claimed of [expected,hash()]) {
+  try {verifySourceArchive(folder,{root,commit},claimed);process.exit(3);}
+  catch(error) {if (!/archive changed|exact committed source/.test(error.message)) throw error;}
+}
+"""
+    subprocess.run(['node', '--input-type=module', '-e', script, str(root), str(artifact), commit],
+                   cwd=SERVICE, capture_output=True, text=True, timeout=30, check=True)
 
 
 def test_native_website_archive_excludes_filesystem_metadata(tmp_path):
@@ -224,3 +263,89 @@ archiveWebsite(...process.argv.slice(1));
     received = tmp_path / 'received'
     assert driver.unpack(target.read_bytes(), received) == manifest
     assert (received / 'board.js').read_bytes() == (source / 'board.js').read_bytes()
+
+
+def chunk_bundle(folder, version='a' * 32, fingerprint='f' * 64, script='first chunk'):
+    manifest = bundle(folder, version, fingerprint)
+    manifest['format'] = 2
+    manifest['tests'] = {'commit': manifest['sourceCommit'], 'sourceSha256': 'd' * 64,
+                         'checks': ['website-tests', 'website-build', 'website-artifacts']}
+    html = (folder / 'index.html').read_text().replace('/assets/board.js?v=' + version, '/assets/' + version + '/board.js').replace('/assets/board.css?v=' + version, '/assets/' + version + '/board.css')
+    (folder / 'chunks').mkdir()
+    content = {'board.js': 'import("./chunks/chart-stable.js")', 'chunks/chart-stable.js': script,
+               'index.html': html, 'manage/index.html': html}
+    for name, value in content.items():
+        (folder / name).write_text(value)
+        manifest['files'][name] = hashlib.sha256(value.encode()).hexdigest()
+    (folder / 'manifest.json').write_text(json.dumps(manifest))
+    return manifest
+
+
+def test_lazy_chunks_remain_pinned_after_new_release_and_rollback(tmp_path, monkeypatch):
+    import jobs_radar.web as web
+    root, static = tmp_path / '.web', tmp_path / 'static'
+    bundle(static, '0' * 32)
+    monkeypatch.setattr(web, 'STATIC', static)
+    monkeypatch.setenv('JOBS_WEB_ROOT', str(root))
+    server = create_server(Store(tmp_path / 'test.sqlite'), 'http://localhost')
+    with TestClient(server.streamable_http_app(), base_url='http://localhost') as client:
+        fingerprint = client.get('/.well-known/jobs-web-release').json()['backendFingerprint']
+        first, second = tmp_path / 'first', tmp_path / 'second'
+        chunk_bundle(first, fingerprint=fingerprint)
+        chunk_bundle(second, 'b' * 32, fingerprint, script='second chunk')
+        publish(root, first, fingerprint)
+        publish(root, second, fingerprint)
+        for version, content in [('a' * 32, 'first chunk'), ('b' * 32, 'second chunk')]:
+            response = client.get('/assets/' + version + '/chunks/chart-stable.js')
+            assert response.text == content
+            assert 'immutable' in response.headers['cache-control']
+            assert 'javascript' in response.headers['content-type']
+        assert client.get('/assets/' + 'a' * 32 + '/chunks/not-in-manifest.js').status_code == 404
+        driver.switch(root, 'a' * 32, fingerprint, lambda *_: None)
+        assert client.get('/assets/' + 'b' * 32 + '/chunks/chart-stable.js').text == 'second chunk'
+
+
+def test_chunk_tampering_and_unlisted_archive_members_never_activate(tmp_path):
+    candidate, root = tmp_path / 'candidate', tmp_path / '.web'
+    chunk_bundle(candidate)
+    with pytest.raises(ValueError, match='archive members'):
+        driver.activate(root, *archive(candidate, 'chunks/unlisted.js'), 'f' * 64, lambda *_: None)
+    (candidate / 'chunks/chart-stable.js').write_text('changed chunk')
+    with pytest.raises(ValueError, match='hash differs'):
+        publish(root, candidate)
+    assert not (root / 'state.json').exists()
+
+
+def test_baseline_chunk_paths_keep_working_during_independent_release(tmp_path):
+    static = tmp_path / 'static'
+    (static / 'chunks').mkdir(parents=True)
+    (static / 'index.html').write_text('<script src="/assets/1234567890abcdef/board.js"></script>')
+    (static / 'chunks/chart.js').write_text('baseline chunk')
+    runtime = WebBundles(static, tmp_path / '.web', 'f' * 64)
+    candidate = tmp_path / 'candidate'
+    chunk_bundle(candidate)
+    publish(tmp_path / '.web', candidate)
+    target, immutable = runtime.asset('1234567890abcdef/chunks/chart.js')
+    assert immutable and target.read_text() == 'baseline chunk'
+    with pytest.raises(ValueError):
+        runtime.asset('bad-version/chunks/chart.js')
+
+
+def test_node_archives_new_chunk_manifest_and_python_verifies_it(tmp_path):
+    source, target = tmp_path / 'source', tmp_path / 'bundle'
+    chunk_bundle(source)
+    script = """
+import {packageWebsite,archiveWebsite} from './deploy/web_release.mjs';
+const [source,target]=process.argv.slice(1);
+const info={commit:'c'.repeat(40),backendFingerprint:'f'.repeat(64),
+ tests:{commit:'c'.repeat(40),sourceSha256:'d'.repeat(64),checks:['website-tests','website-build','website-artifacts']}};
+const manifest=packageWebsite(source,target,info);
+archiveWebsite(target,target+'.tar');
+console.log(manifest.id);
+"""
+    result = subprocess.run(['node', '--input-type=module', '-e', script, str(source), str(target)],
+                            cwd=SERVICE, capture_output=True, text=True, timeout=30, check=True)
+    manifest = driver.unpack(target.with_suffix('.tar').read_bytes(), tmp_path / 'received')
+    assert manifest['id'] == result.stdout.strip()
+    assert 'chunks/chart-stable.js' in manifest['files']
+    assert f'/assets/{manifest["id"]}/board.js' in (target / 'index.html').read_text()

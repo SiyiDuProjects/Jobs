@@ -2,7 +2,7 @@
 # Release committed source using an explicitly identified prebuilt image.
 # Builds use only the fixed local Docker Desktop engine; production never builds.
 set -euo pipefail
-HOST=${JOBS_RADAR_HOST:-ubuntu@49.51.38.235}
+HOST=${JOBS_RADAR_HOST:-}
 KEY=${JOBS_RADAR_KEY:-$HOME/.ssh/Siyi.pem}
 LIVE=/home/ubuntu/siyi/jobs-radar
 STAGE_ROOT=/home/ubuntu/siyi/jobs-radar-stage
@@ -10,7 +10,7 @@ ARCHIVE=/home/ubuntu/siyi/jobs-radar-archive
 MODE=${1:-release}
 if [ "$#" -gt 0 ]; then shift; fi
 ENTRY_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-remote() { python3 "$ENTRY_DIR/host_command.py" --timeout 3600 -- ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -i "$KEY" "$HOST" "$@"; }
+remote() { [ -n "$HOST" ] || { echo 'Set JOBS_RADAR_HOST for the authorized deployment destination.' >&2; return 2; }; python3 "$ENTRY_DIR/host_command.py" --timeout 3600 -- ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -i "$KEY" "$HOST" "$@"; }
 case "$MODE" in --build-web|--release-web|--rollback-web|--web-status)
   exec node "$ENTRY_DIR/web_release.mjs" "$MODE" "$@";;
 esac
@@ -85,13 +85,15 @@ SOURCE
 fi
 # After any verified artifact import, check activation identity before copying
 # release source again, pausing the service or creating a candidate container.
-remote bash -s -- "$SHA" "$IMAGE_ID" <<'VERIFY'
+remote bash -s -- "$SHA" "$IMAGE_ID" "$FULL_SHA" <<'VERIFY'
 set -euo pipefail
 expected_commit=$1
 expected_image=$2
 docker() { timeout --signal=TERM --kill-after=5s 30s docker "$@"; }
 [ "$(docker image inspect "$expected_image" --format '{{.Id}}')" = "$expected_image" ] || { echo 'Image ID mismatch' >&2; exit 1; }
 [ "$(docker image inspect "$expected_image" --format '{{index .Config.Labels "release"}}')" = "$expected_commit" ] || { echo 'Image commit does not match the committed source' >&2; exit 1; }
+[ "$(docker image inspect "$expected_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$3" ] || { echo 'Full image commit differs' >&2; exit 1; }
+[[ "$(docker image inspect "$expected_image" --format '{{index .Config.Labels "jobs.tests.sha256"}}')" =~ ^[a-f0-9]{64}$ ]] || { echo 'Image has no committed passing-test receipt; rebuild through release.sh --build' >&2; exit 1; }
 [ "$(docker image inspect "jobs-radar:$expected_commit" --format '{{.Id}}')" = "$expected_image" ] || { echo 'Commit image tag differs from the requested immutable ID' >&2; exit 1; }
 VERIFY
 echo "Staging $SHA"

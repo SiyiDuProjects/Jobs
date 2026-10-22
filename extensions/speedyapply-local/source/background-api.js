@@ -1,3 +1,4 @@
+import { effectiveAutofillSettings } from "../src/custom/autofill-settings.js";
 import { ANSWER_PROTOCOL } from "../src/custom/answer-proof.js";
 import { saveResponses } from "./saved-responses.js";
 // Packaged worker protocol. Content senders may only act on their own tab.
@@ -17,12 +18,6 @@ import {
   RECEIPT_WINDOW_MS,
 } from "../src/custom/tab-submissions.js";
 import { canReadAccount } from "./account-access.js";
-const defaults = {
-  saveApplications: true,
-  saveResponses: true,
-  autoClickNextPage: false,
-  autoSubmit: false,
-};
 export async function handle(message, sender) {
   if (
     sender.id !== chrome.runtime.id ||
@@ -45,7 +40,7 @@ export async function handle(message, sender) {
       "autofillEnabled",
     ]);
     const data =
-      /** @type {{settings?:{autofillSettings?:Partial<typeof defaults>},autofillAccount?:{accountEmail?:string,accountPassword?:string,useProfileEmail?:boolean},autofillEnabled?:boolean}} */ (
+      /** @type {{settings?:{autofillSettings?:{autoClickNextPage?:boolean,autoSubmit?:boolean}},autofillAccount?:{accountEmail?:string,accountPassword?:string,useProfileEmail?:boolean},autofillEnabled?:boolean}} */ (
         stored
       );
     const account = {
@@ -62,14 +57,8 @@ export async function handle(message, sender) {
     if (account.useProfileEmail && bound?.profile)
       account.accountEmail = bound.profile.contactData.email;
     return {
-      enabled: data.autofillEnabled !== false,
+      ...effectiveAutofillSettings(data),
       hasProfile: !!bound,
-      autofillSettings: {
-        ...defaults,
-        ...data.settings?.autofillSettings,
-        saveApplications: true,
-        saveResponses: true,
-      },
       accountSettings: account,
     };
   }

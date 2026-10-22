@@ -59,6 +59,7 @@ export class ManagementStore {
   >();
   private generation = 0;
   private profileRequest = 0;
+  private refreshRequest = 0;
   private lifecycle = 0;
   private applicationsVisible = true;
   private viewGeneration = 0;
@@ -85,13 +86,38 @@ export class ManagementStore {
       ? "/api/manage/state"
       : "/api/manage/state?applications=0";
   }
-  private async readDocuments(): Promise<Documents> {
+  private async readDocuments(extraKeys: string[] = []): Promise<Documents> {
     const lifecycle = this.lifecycle;
     for (;;) {
       const view = this.viewGeneration;
-      const docs = await api(this.statePath());
+      const keys = [
+        ...new Set([
+          "settings",
+          "jobsKindProfiles",
+          ...(this.state.current
+            ? ["jobsResponses:" + this.state.current.id]
+            : []),
+          ...extraKeys,
+        ]),
+      ];
+      const base = Object.fromEntries(
+        Object.entries(this.state.docs).filter(([key]) => keys.includes(key)),
+      );
+      const params = new URLSearchParams({
+        keys: keys.join(","),
+        since: JSON.stringify(
+          Object.fromEntries(
+            Object.entries(base).map(([key, doc]) => [key, doc.revision]),
+          ),
+        ),
+      });
+      const docs = await api(
+        this.statePath() + (this.applicationsVisible ? "?" : "&") + params,
+      );
       if (view === this.viewGeneration || lifecycle !== this.lifecycle)
-        return docs;
+        // Application lists and pending reviews are complete projections. Never
+        // retain an omitted review after resolution; only versioned docs merge.
+        return { ...base, ...docs };
     }
   }
   setApplicationsVisible(visible: boolean) {
@@ -164,6 +190,7 @@ export class ManagementStore {
     this.queue = Promise.resolve();
     this.set({
       current: undefined,
+      draftDirty: false,
       profiles: [],
       docs: {},
       applicationsLoading: false,
@@ -177,20 +204,27 @@ export class ManagementStore {
   async refresh() {
     if (this.state.pending) return;
     const version = this.generation;
+    const request = ++this.refreshRequest;
     const lifecycle = this.lifecycle;
     try {
       const docs = await this.readDocuments();
       if (
         !this.state.pending &&
         lifecycle === this.lifecycle &&
-        version === this.generation
+        version === this.generation &&
+        request === this.refreshRequest
       )
         this.set({
           ...(!same(this.state.docs, docs) ? { docs } : {}),
           applicationsLoading: false,
         });
     } catch (error) {
-      if (lifecycle === this.lifecycle) {
+      if (
+        lifecycle === this.lifecycle &&
+        version === this.generation &&
+        request === this.refreshRequest &&
+        !this.state.pending
+      ) {
         this.set({ applicationsLoading: false });
         this.report(error);
       }
@@ -218,14 +252,24 @@ export class ManagementStore {
     if (this.state.draftDirty) throw Error("请先保存或撤销资料更改");
     const request = ++this.profileRequest;
     if (!id) {
-      this.set({ current: undefined });
+      this.viewGeneration++;
+      this.generation++;
+      const docs = Object.fromEntries(
+        Object.entries(this.state.docs).filter(
+          ([key]) => !key.startsWith("jobsResponses:"),
+        ),
+      );
+      this.set({ current: undefined, docs });
       return;
     }
     const current = await this.profileAPI("/" + encodeURIComponent(id));
     if (request !== this.profileRequest) return;
     assertProfile(current.profile);
+    this.viewGeneration++;
+    this.generation++;
     this.set({ current });
     sessionStorage.setItem("jobs:manage-profile", current.id);
+    await this.refresh();
   }
   private failedError() {
     return this.failed.values().next().value?.error || "";
@@ -299,7 +343,9 @@ export class ManagementStore {
     return this.task(
       "documents:" + Object.keys(desired).sort().join(","),
       async (check) => {
-        const remote: Documents = await this.readDocuments();
+        const remote: Documents = await this.readDocuments(
+          Object.keys(desired),
+        );
         check();
         const changes = Object.entries(desired)
           .map(([key, value]) => {
@@ -338,6 +384,27 @@ export class ManagementStore {
       this.set({ docs });
       if (typeof window !== "undefined")
         window.dispatchEvent(new Event("jobs:applications-changed"));
+      return result;
+    });
+  }
+  resolveProgressReview(
+    reviewId: string,
+    row: Application,
+    key = crypto.randomUUID(),
+  ) {
+    return this.task("progress-review:" + reviewId, async (check) => {
+      if (!row.id || !row.progress) throw Error("请刷新后再确认申请进展");
+      const result = await api("/api/manage/progress-review", {
+        review_id: reviewId,
+        application_id: row.id,
+        expected_version: row.progress.version,
+        idempotency_key: key,
+      });
+      check();
+      const docs = await this.readDocuments();
+      check();
+      this.set({ docs });
+      window.dispatchEvent(new Event("jobs:applications-changed"));
       return result;
     });
   }

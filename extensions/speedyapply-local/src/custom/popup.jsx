@@ -201,6 +201,26 @@ export function Popup() {
           >
             {profile.message}
           </p>
+          {profile.bound && (
+            <p className="popup-hint">
+              简历：{profile.resume?.fileName || "未绑定文件"}
+              {profile.profileUpdatedAt &&
+              Number.isFinite(Date.parse(profile.profileUpdatedAt))
+                ? ` · 资料更新 ${new Date(profile.profileUpdatedAt).toLocaleString()}`
+                : ""}
+            </p>
+          )}
+          {profile.settings && (
+            <p className="popup-hint">
+              {profile.settings.enabled ? "自动填写已开" : "自动填写已关"}
+              {" · 自动继续"}
+              {profile.settings.autofillSettings.autoClickNextPage
+                ? "开"
+                : "关"}
+              {" · 自动提交"}
+              {profile.settings.autofillSettings.autoSubmit ? "开" : "关"}
+            </p>
+          )}
         </Card.Content>
       </Card>
       <Modal.Backdrop

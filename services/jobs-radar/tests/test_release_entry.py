@@ -85,7 +85,7 @@ def test_prebuilt_exact_commit_and_digest_are_verified_before_upload_and_switch(
     assert result.returncode == 0, result.stdout + result.stderr
     remote_calls = [call for call in calls if call[0] == 'ssh']
     docker_calls = [call for call in calls if call[0] == 'docker']
-    assert len(docker_calls) == 3 and all(call[1:3] == ['image', 'inspect'] for call in docker_calls)
+    assert len(docker_calls) == 5 and all(call[1:3] == ['image', 'inspect'] for call in docker_calls)
     assert 'sudo' in remote_calls[0] and remote_calls[0][-1] == '0'
     assert 'bash' in remote_calls[1] and '-s' in remote_calls[1]
     assert remote_calls[-1][-1] == 'sha256:' + '1' * 64
@@ -93,7 +93,7 @@ def test_prebuilt_exact_commit_and_digest_are_verified_before_upload_and_switch(
     assert not any('build' in call or 'run' in call for call in docker_calls)
 
 
-@pytest.mark.parametrize('changes', [dict(dirty=True), dict(missing_image=True), dict(image_commit='a' * 12), dict(tag_id='sha256:' + '2' * 64), dict(resolved='0' * 40)])
+@pytest.mark.parametrize('changes', [dict(dirty=True), dict(missing_image=True), dict(image_commit='a' * 12), dict(tag_id='sha256:' + '2' * 64), dict(resolved='0' * 40), dict(tests_hash=''), dict(image_full_commit='a' * 40)])
 def test_uncommitted_missing_or_mismatched_artifact_never_uploads_or_switches(tmp_path, changes):
     result, calls = run(tmp_path, ('release', '--image-id', 'sha256:' + '1' * 64), **changes)
     assert result.returncode != 0

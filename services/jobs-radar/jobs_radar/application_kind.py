@@ -5,10 +5,10 @@ import re
 KINDS = {'newgrad', 'internship', 'unknown'}
 
 
-def resolve(c, job_id, value, *, legacy=False):
+def resolve(c, job_id, value, *, legacy=False, observed_kinds=None):
     if value.get('kind') in {'newgrad', 'internship'}:
         return value['kind']
-    kinds = {r[0] for r in c.execute("SELECT DISTINCT json_extract(payload,'$.kind') FROM observations WHERE job_id=?", (job_id,))}
+    kinds = observed_kinds if observed_kinds is not None else {r[0] for r in c.execute("SELECT DISTINCT json_extract(payload,'$.kind') FROM observations WHERE job_id=?", (job_id,))}
     kinds = {'internship' if k == 'intern' else k for k in kinds} & {'newgrad', 'internship'}
     if len(kinds) == 1:
         return next(iter(kinds))

@@ -63,7 +63,7 @@ export async function readModule(file, encoding) {
   for (const node of ast.program.body)
     if (
       node.type === "ImportDeclaration" &&
-      /\/(stable-value|answer-vocabulary|answer-proof|run-state|run-stop|automatic-flow|field-description|form-context|profile-extra|profile-question-types|profile-contract|signature-answer|migration-maintenance|migration-context-fields|storage-migration-policy|diagnostic-evidence|corpus-observations|corpus-case|corpus-content|field-outcome|field-outcome-vocabulary|tab-submissions)\.js$/.test(
+      /\/(continuation|autofill-settings|stable-value|answer-vocabulary|answer-proof|run-state|run-stop|automatic-flow|field-description|form-context|profile-extra|profile-question-types|profile-contract|signature-answer|migration-maintenance|migration-context-fields|storage-migration-policy|diagnostic-evidence|corpus-observations|corpus-case|corpus-content|field-outcome|field-outcome-vocabulary|tab-submissions)\.js$/.test(
         node.source.value,
       )
     )

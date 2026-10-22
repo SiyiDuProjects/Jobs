@@ -3,7 +3,8 @@ APPLICATIONS = 'applications-v2'
 PROFILE = 1
 DIAGNOSTICS = 'diagnostics-v2-2026-09-26'
 SUBMISSIONS = 'native-extension-submission-reporting-v1'
+MANAGEMENT_HISTORY = 'zlib-sha256-v1'
 
 
 def data_contract():
-    return {'applications': APPLICATIONS, 'profile': PROFILE, 'diagnostics': DIAGNOSTICS}
+    return {'applications': APPLICATIONS, 'profile': PROFILE, 'diagnostics': DIAGNOSTICS, 'management_history': MANAGEMENT_HISTORY}

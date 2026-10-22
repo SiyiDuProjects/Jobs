@@ -80,7 +80,10 @@ export function createPopupProfiles(api, changed) {
       ((area === "session" &&
         (changes.jobsProfilesList || changes["profile_" + tabId])) ||
         (area === "local" &&
-          (changes.jobsManualProfileDefault || changes.jobsKindProfiles)))
+          (changes.jobsManualProfileDefault ||
+            changes.jobsKindProfiles ||
+            changes.settings ||
+            changes.autofillEnabled)))
     )
       void refresh();
   }

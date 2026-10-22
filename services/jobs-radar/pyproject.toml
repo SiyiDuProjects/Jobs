@@ -19,4 +19,4 @@ testpaths = ["tests"]
 packages = ["jobs_radar"]
 
 [tool.setuptools.package-data]
-jobs_radar = ["*.json", "static/*.html", "static/*.css", "static/*.js", "static/manage/*"]
+jobs_radar = ["*.json", "static/*.html", "static/*.css", "static/*.js", "static/manage/*", "static/chunks/*"]
